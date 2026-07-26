@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -89,6 +90,49 @@ func (e *Engine) SetProxy(mode, proxyUrl string) error {
 		e.proxyFunc = http.ProxyFromEnvironment
 	}
 	// 代理变更后关闭旧连接，避免复用到旧代理的连接
+	e.transport.CloseIdleConnections()
+	return nil
+}
+
+// TLSSettings 自定义 TLS 配置（docs/ops.md：允许自定义 CA 与客户端证书）
+type TLSSettings struct {
+	CaCertPath     string `json:"caCertPath,omitempty"`     // 追加信任的 CA PEM 文件
+	ClientCertPath string `json:"clientCertPath,omitempty"` // mTLS 客户端证书 PEM
+	ClientKeyPath  string `json:"clientKeyPath,omitempty"`  // mTLS 私钥 PEM
+}
+
+// SetTLS 应用 TLS 设置到共享 Transport（对全部请求生效）
+func (e *Engine) SetTLS(s TLSSettings) error {
+	cfg := &tls.Config{}
+	if s.CaCertPath != "" {
+		pem, err := os.ReadFile(s.CaCertPath)
+		if err != nil {
+			return model.NewError(model.KindTls, "read CA cert: "+err.Error())
+		}
+		// 在系统根证书基础上追加，而非替换
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return model.NewError(model.KindTls, "no valid certificates in "+s.CaCertPath)
+		}
+		cfg.RootCAs = pool
+	}
+	if s.ClientCertPath != "" || s.ClientKeyPath != "" {
+		if s.ClientCertPath == "" || s.ClientKeyPath == "" {
+			return model.NewError(model.KindTls, "client cert and key must both be set")
+		}
+		cert, err := tls.LoadX509KeyPair(s.ClientCertPath, s.ClientKeyPath)
+		if err != nil {
+			return model.NewError(model.KindTls, "load client cert: "+err.Error())
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	if s.CaCertPath == "" && s.ClientCertPath == "" {
+		cfg = nil // 清除自定义配置，回到默认
+	}
+	e.transport.TLSClientConfig = cfg
 	e.transport.CloseIdleConnections()
 	return nil
 }
@@ -254,9 +298,12 @@ func formatBytes(n int64) string {
 func (e *Engine) buildClient(s model.RequestSettings) *http.Client {
 	transport := e.transport
 	if !s.VerifyTLS {
-		// 关闭校验时克隆 transport，避免污染共享连接池
+		// 关闭校验时克隆 transport，避免污染共享连接池；保留自定义 CA/客户端证书
 		t := e.transport.Clone()
-		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		if t.TLSClientConfig == nil {
+			t.TLSClientConfig = &tls.Config{}
+		}
+		t.TLSClientConfig.InsecureSkipVerify = true
 		transport = t
 	}
 	timeout := time.Duration(s.TimeoutMs) * time.Millisecond

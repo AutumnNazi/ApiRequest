@@ -6,6 +6,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import KVTable from './KVTable';
 import AuthEditor from './AuthEditor';
 import CodegenDialog from './CodegenDialog';
+import VarPreview, { useActiveVariables } from './VarPreview';
 import type { Tab } from '../stores/tabs';
 import { useTabs } from '../stores/tabs';
 import type { Body, KV } from '../ipc';
@@ -22,16 +23,18 @@ const methodColor: Record<string, string> = {
 
 interface Props {
   tab: Tab;
+  workspaceId: string;
   onSend(): void;
   onSave(): void;
 }
 
-export default function RequestEditor({ tab, onSend, onSave }: Props) {
+export default function RequestEditor({ tab, workspaceId, onSend, onSave }: Props) {
   const patchDraft = useTabs((s) => s.patchDraft);
   const [pane, setPane] = useState<'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings'>('params');
   const [scriptPhase, setScriptPhase] = useState<'pre' | 'test'>('pre');
   const [showCodegen, setShowCodegen] = useState(false);
   const d = tab.draft;
+  const activeVars = useActiveVariables(workspaceId);
 
   const patchBody = (patch: Partial<Body>) =>
     patchDraft(tab.id, { body: { ...d.body, ...patch } as Body });
@@ -83,6 +86,9 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
         </button>
       </div>
       {showCodegen && <CodegenDialog request={d} onClose={() => setShowCodegen(false)} />}
+
+      {/* URL 中变量引用的解析预览 */}
+      <VarPreview text={d.url ?? ''} vars={activeVars} />
 
       {/* 页签 */}
       <div className="flex gap-4 px-3 pt-2 border-b text-sm">

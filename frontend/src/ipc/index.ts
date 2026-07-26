@@ -12,7 +12,7 @@ import * as ProtocolApi from '../../wailsjs/go/binding/ProtocolApi';
 import * as OAuth2Api from '../../wailsjs/go/binding/OAuth2Api';
 import * as SettingsApi from '../../wailsjs/go/binding/SettingsApi';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { model, convert, codegen, runner, mock, protocol, binding } from '../../wailsjs/go/models';
+import { model, convert, codegen, runner, mock, protocol, binding, httpengine } from '../../wailsjs/go/models';
 import { call } from './error';
 
 export type HttpRequest = model.HttpRequest;
@@ -160,6 +160,17 @@ export const getProxySettings = () =>
   call(() => SettingsApi.GetProxySettings()) as Promise<ProxySettings>;
 export const setProxySettings = (p: ProxySettings) =>
   call(() => SettingsApi.SetProxySettings(binding.ProxySettings.createFrom(p)));
+
+export interface TLSSettings {
+  caCertPath?: string;
+  clientCertPath?: string;
+  clientKeyPath?: string;
+}
+
+export const getTLSSettings = () =>
+  call(() => SettingsApi.GetTLSSettings()) as Promise<TLSSettings>;
+export const setTLSSettings = (s: TLSSettings) =>
+  call(() => SettingsApi.SetTLSSettings(httpengine.TLSSettings.createFrom(s)));
 
 // ── 事件 ──
 

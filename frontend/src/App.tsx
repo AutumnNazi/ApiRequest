@@ -206,7 +206,12 @@ export default function App() {
           {active ? (
             <div className="flex-1 flex flex-col min-h-0">
               <div className="h-1/2 min-h-0 border-b">
-                <RequestEditor tab={active} onSend={handleSend} onSave={handleSave} />
+                <RequestEditor
+                  tab={active}
+                  workspaceId={workspace.id}
+                  onSend={handleSend}
+                  onSave={handleSave}
+                />
               </div>
               <div className="h-1/2 min-h-0">
                 <ResponseViewer

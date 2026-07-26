@@ -72,7 +72,79 @@ func (s *Sandbox) injectPM(vm *goja.Runtime) error {
 		return err
 	}
 
+	// pm.sendRequest(req, cb)：受控通道回调 Go 的 http 引擎（docs/request-lifecycle.md §3.2）。
+	// goja 单线程执行，同步调用后立即回调 cb(err, response)。
+	if s.SendFunc != nil {
+		pm.Set("sendRequest", func(reqVal goja.Value, cb goja.Callable) {
+			req, perr := parseScriptRequest(reqVal)
+			if perr != nil {
+				cb(goja.Undefined(), vm.ToValue(perr.Error()), goja.Undefined())
+				return
+			}
+			res, serr := s.SendFunc(req)
+			if serr != nil {
+				cb(goja.Undefined(), vm.ToValue(serr.Error()), goja.Undefined())
+				return
+			}
+			respObj := vm.NewObject()
+			respObj.Set("code", res.Status)
+			respObj.Set("status", res.StatusText)
+			respObj.Set("text", func() string { return res.Body.Text })
+			respObj.Set("json", func() (goja.Value, error) {
+				var out interface{}
+				if err := json.Unmarshal([]byte(res.Body.Text), &out); err != nil {
+					return nil, fmt.Errorf("response is not valid JSON: %w", err)
+				}
+				return vm.ToValue(out), nil
+			})
+			cb(goja.Undefined(), goja.Null(), respObj)
+		})
+	}
+
 	return vm.Set("pm", pm)
+}
+
+// parseScriptRequest 解析 pm.sendRequest 的入参：字符串 URL 或 {url,method,header,body} 对象
+func parseScriptRequest(v goja.Value) (model.HttpRequest, error) {
+	req := model.HttpRequest{
+		Method:   "GET",
+		Params:   []model.KV{},
+		Headers:  []model.KV{},
+		Body:     model.Body{Kind: "none"},
+		Auth:     model.Auth{Type: "none"},
+		Settings: model.DefaultSettings(),
+	}
+	exported := v.Export()
+	switch t := exported.(type) {
+	case string:
+		req.Url = t
+	case map[string]interface{}:
+		if u, ok := t["url"].(string); ok {
+			req.Url = u
+		}
+		if m, ok := t["method"].(string); ok && m != "" {
+			req.Method = strings.ToUpper(m)
+		}
+		if h, ok := t["header"].(map[string]interface{}); ok {
+			for k, val := range h {
+				req.Headers = append(req.Headers, model.KV{
+					Key: k, Value: fmt.Sprintf("%v", val), Enabled: true,
+				})
+			}
+		}
+		if b, ok := t["body"].(map[string]interface{}); ok {
+			if mode, _ := b["mode"].(string); mode == "raw" {
+				raw, _ := b["raw"].(string)
+				req.Body = model.Body{Kind: "raw", Language: "json", Text: raw}
+			}
+		}
+	default:
+		return req, fmt.Errorf("pm.sendRequest: unsupported request argument")
+	}
+	if req.Url == "" {
+		return req, fmt.Errorf("pm.sendRequest: url is required")
+	}
+	return req, nil
 }
 
 // varScope 构造一个作用域对象：get 读本作用域当前值，set/unset 记入变更缓冲

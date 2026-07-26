@@ -19,14 +19,14 @@
 - [x] 全局 / 集合 / 环境 / 本地多级变量
 - [x] 环境切换与快速编辑
 - [x] 动态变量（`{{$guid}}`、`{{$timestamp}}`、`{{$randomInt}}` 等）
-- [ ] 变量引用高亮与未定义提示
+- [x] 变量引用解析预览与未定义提示
 
 ### 脚本
 - [x] 前置脚本（Pre-request）
 - [x] 测试脚本（Tests）与断言
 - [x] 集合/文件夹级脚本继承
 - [x] `pm.*` API 兼容子集
-- [ ] 脚本内 `sendRequest`
+- [x] 脚本内 `sendRequest`
 
 ### 响应
 - [ ] Body 视图：Pretty(JSON/XML 折叠) / Raw / Preview(HTML/图片)
@@ -49,7 +49,7 @@
 - [ ] gRPC（后期）
 
 ### 互操作
-- [x] 导入：Postman v2.1 / OpenAPI 3.x / Swagger 2 / cURL / HAR（Insomnia 待做）
+- [x] 导入：Postman v2.1 / OpenAPI 3.x / Swagger 2 / cURL / HAR / Insomnia
 - [x] 导出：Postman v2.1（OpenAPI / cURL 待做）
 - [x] 代码生成：cURL / JS fetch / Python requests / Go（更多语言待扩展）
 - [ ] 集合的 Git 友好文件镜像
@@ -58,7 +58,7 @@
 - [x] Mock Server
 - [x] Collection Runner（数据文件驱动、运行报告）
 - [x] 代理设置（系统/手动/直连）
-- [ ] 自定义 TLS / 客户端证书
+- [x] 自定义 TLS / 客户端证书（自定义 CA 追加信任 + mTLS）
 - [ ] 团队协作同步（可选）
 
 ---

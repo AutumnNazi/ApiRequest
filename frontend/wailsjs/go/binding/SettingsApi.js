@@ -6,6 +6,14 @@ export function GetProxySettings() {
   return window['go']['binding']['SettingsApi']['GetProxySettings']();
 }
 
+export function GetTLSSettings() {
+  return window['go']['binding']['SettingsApi']['GetTLSSettings']();
+}
+
 export function SetProxySettings(arg1) {
   return window['go']['binding']['SettingsApi']['SetProxySettings'](arg1);
+}
+
+export function SetTLSSettings(arg1) {
+  return window['go']['binding']['SettingsApi']['SetTLSSettings'](arg1);
 }

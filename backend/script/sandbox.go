@@ -51,6 +51,9 @@ type Sandbox struct {
 	request  *model.HttpRequest
 	response *model.ResponseResult
 
+	// SendFunc pm.sendRequest 的受控通道（binding 层注入 httpengine；nil = 不可用）
+	SendFunc func(req model.HttpRequest) (model.ResponseResult, error)
+
 	testResults []model.TestResult
 	logs        []string
 	// 脚本执行结束后的回写钩子（pm.request 的 method/url 同步等）

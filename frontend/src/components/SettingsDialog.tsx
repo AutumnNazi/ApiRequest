@@ -1,6 +1,14 @@
-// 应用设置弹窗：代理配置
+// 应用设置弹窗：代理 + TLS 配置
 import { useEffect, useState } from 'react';
-import { getProxySettings, setProxySettings, toAppError, type ProxySettings } from '../ipc';
+import {
+  getProxySettings,
+  setProxySettings,
+  getTLSSettings,
+  setTLSSettings,
+  toAppError,
+  type ProxySettings,
+  type TLSSettings,
+} from '../ipc';
 
 interface Props {
   onClose(): void;
@@ -8,11 +16,13 @@ interface Props {
 
 export default function SettingsDialog({ onClose }: Props) {
   const [proxy, setProxy] = useState<ProxySettings>({ mode: 'system' });
+  const [tls, setTls] = useState<TLSSettings>({});
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
     getProxySettings().then(setProxy).catch(() => {});
+    getTLSSettings().then(setTls).catch(() => {});
   }, []);
 
   const save = async () => {
@@ -20,6 +30,7 @@ export default function SettingsDialog({ onClose }: Props) {
     setMsg('');
     try {
       await setProxySettings(proxy);
+      await setTLSSettings(tls);
       setMsg('已保存并生效');
       setTimeout(() => setMsg(''), 1500);
     } catch (e) {
@@ -67,6 +78,28 @@ export default function SettingsDialog({ onClose }: Props) {
                   onChange={(e) => setProxy({ ...proxy, url: e.target.value })}
                 />
               )}
+            </div>
+          </div>
+          <div>
+            <div className="text-gray-600 mb-2">TLS 证书</div>
+            <div className="space-y-2 pl-1">
+              {(
+                [
+                  ['caCertPath', '自定义 CA 证书（PEM，追加信任）'],
+                  ['clientCertPath', '客户端证书（mTLS，PEM）'],
+                  ['clientKeyPath', '客户端私钥（PEM）'],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key}>
+                  <label className="text-xs text-gray-500">{label}</label>
+                  <input
+                    className="w-full border rounded px-2 py-1 font-mono text-xs"
+                    placeholder="留空 = 不使用"
+                    value={tls[key] ?? ''}
+                    onChange={(e) => setTls({ ...tls, [key]: e.target.value })}
+                  />
+                </div>
+              ))}
             </div>
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}

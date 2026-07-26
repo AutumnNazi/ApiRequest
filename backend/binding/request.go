@@ -88,6 +88,13 @@ func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx m
 		return zero, err
 	}
 	sandbox := script.NewSandbox(scriptTimeout, ec.scope.Snapshot(), ec.envVars, ec.colVars, ec.globalVars)
+	// pm.sendRequest 受控通道：直接走引擎（不递归整个生命周期，避免脚本套脚本）
+	sandbox.SendFunc = func(sreq model.HttpRequest) (model.ResponseResult, error) {
+		resolved := template.ResolveRequest(sreq, ec.scope)
+		sctx, scancel := context.WithTimeout(ctx, 30*time.Second)
+		defer scancel()
+		return a.engine.Send(sctx, resolved)
+	}
 
 	// 2. 前置脚本（根→叶→请求级；可改请求与变量）
 	sandbox.SetRequest(&req)

@@ -116,6 +116,27 @@ export namespace convert {
 
 }
 
+export namespace httpengine {
+	
+	export class TLSSettings {
+	    caCertPath?: string;
+	    clientCertPath?: string;
+	    clientKeyPath?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TLSSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.caCertPath = source["caCertPath"];
+	        this.clientCertPath = source["clientCertPath"];
+	        this.clientKeyPath = source["clientKeyPath"];
+	    }
+	}
+
+}
+
 export namespace mock {
 	
 	export class Options {

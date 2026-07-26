@@ -165,3 +165,72 @@ func TestNoHostAccess(t *testing.T) {
 		t.Fatalf("sandbox leaked: %v", err)
 	}
 }
+
+func TestPmSendRequest(t *testing.T) {
+	s := newTestSandbox()
+	var gotReq model.HttpRequest
+	s.SendFunc = func(req model.HttpRequest) (model.ResponseResult, error) {
+		gotReq = req
+		return model.ResponseResult{
+			Status: 200, StatusText: "OK",
+			Body: model.ResponseBody{Inline: true, Text: `{"token":"T1"}`},
+		}, nil
+	}
+	err := s.Run(`
+		// 字符串入参
+		pm.sendRequest('https://auth.io/token', function (err, res) {
+			if (err) throw new Error('unexpected err: ' + err);
+			pm.environment.set('tok', res.json().token);
+		});
+		if (pm.environment.get('tok') !== 'T1') throw new Error('callback did not run');
+	`, "pre")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if gotReq.Url != "https://auth.io/token" || gotReq.Method != "GET" {
+		t.Errorf("req = %+v", gotReq)
+	}
+
+	// 对象入参
+	err = s.Run(`
+		pm.sendRequest({
+			url: 'https://api.io/x',
+			method: 'post',
+			header: {'X-K': 'v'},
+			body: {mode: 'raw', raw: '{"a":1}'}
+		}, function (err, res) {});
+	`, "pre")
+	if err != nil {
+		t.Fatalf("object form: %v", err)
+	}
+	if gotReq.Method != "POST" || len(gotReq.Headers) != 1 || gotReq.Body.Text != `{"a":1}` {
+		t.Errorf("req = %+v", gotReq)
+	}
+}
+
+func TestPmSendRequestError(t *testing.T) {
+	s := newTestSandbox()
+	s.SendFunc = func(req model.HttpRequest) (model.ResponseResult, error) {
+		return model.ResponseResult{}, model.NewError(model.KindNetwork, "dial refused")
+	}
+	err := s.Run(`
+		var captured = null;
+		pm.sendRequest('https://down.io', function (err, res) { captured = err; });
+		if (!captured || captured.indexOf('dial refused') === -1) {
+			throw new Error('error not delivered: ' + captured);
+		}
+	`, "pre")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestPmSendRequestUnavailable(t *testing.T) {
+	s := newTestSandbox() // 未注入 SendFunc
+	err := s.Run(`
+		if (typeof pm.sendRequest !== 'undefined') throw new Error('should be undefined');
+	`, "pre")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
