@@ -72,3 +72,16 @@ type HistoryItem struct {
 	TestResults []TestResult `json:"testResults,omitempty"`
 	CreatedAt   int64       `json:"createdAt"`
 }
+
+// Example 请求的示例响应（"保存为示例"落点，Mock Server 数据源）
+type Example struct {
+	Id          string       `json:"id"`
+	NodeId      string       `json:"nodeId"` // 所属请求节点
+	Name        string       `json:"name"`
+	RequestSnap *HttpRequest `json:"requestSnap,omitempty"` // 触发该示例的请求快照
+	Status      int          `json:"status"`
+	Headers     []KV         `json:"headers"`
+	Body        string       `json:"body,omitempty"`
+	CreatedAt   int64        `json:"createdAt"`
+	UpdatedAt   int64        `json:"updatedAt"`
+}

@@ -1,0 +1,226 @@
+// Collection Runner 弹窗：配置 → 运行进度 → 报告
+import { useEffect, useRef, useState } from 'react';
+import {
+  runCollection,
+  cancelRun,
+  onRunnerProgress,
+  toAppError,
+  type RunnerReport,
+  type RunnerProgress,
+} from '../ipc';
+
+interface Props {
+  workspaceId: string;
+  collectionId: string;
+  collectionName: string;
+  onClose(): void;
+}
+
+export default function RunnerDialog({ workspaceId, collectionId, collectionName, onClose }: Props) {
+  const [iterations, setIterations] = useState(1);
+  const [dataFile, setDataFile] = useState('');
+  const [dataFormat, setDataFormat] = useState<'csv' | 'json'>('csv');
+  const [stopOnError, setStopOnError] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<RunnerProgress | null>(null);
+  const [report, setReport] = useState<RunnerReport | null>(null);
+  const [error, setError] = useState('');
+  const runIdRef = useRef('');
+
+  useEffect(() => onRunnerProgress((p) => {
+    if (p.runId === runIdRef.current) setProgress(p);
+  }), []);
+
+  const start = async () => {
+    setError('');
+    setReport(null);
+    setProgress(null);
+    setRunning(true);
+    runIdRef.current = `run-${Date.now()}`;
+    try {
+      const r = await runCollection(runIdRef.current, workspaceId, collectionId, {
+        iterations,
+        dataFile: dataFile || undefined,
+        dataFormat: dataFile ? dataFormat : undefined,
+        stopOnError,
+      });
+      setReport(r);
+    } catch (e) {
+      setError(toAppError(e).detail);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const pickFile = async (file: File) => {
+    setDataFile(await file.text());
+    setDataFormat(file.name.endsWith('.json') ? 'json' : 'csv');
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+      <div
+        className="bg-white rounded-lg shadow-xl w-[720px] max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center px-4 py-3 border-b">
+          <h2 className="font-semibold text-sm">Runner · {collectionName}</h2>
+          <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-4 space-y-4">
+          {/* 配置区 */}
+          {!running && !report && (
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center gap-3">
+                <label className="text-gray-600 w-24">迭代次数</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  className="border rounded px-2 py-1 w-24"
+                  value={iterations}
+                  onChange={(e) => setIterations(Number(e.target.value) || 1)}
+                  disabled={!!dataFile}
+                />
+                {dataFile && <span className="text-xs text-gray-400">由数据文件行数决定</span>}
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-gray-600 w-24">数据文件</label>
+                <input
+                  type="file"
+                  accept=".csv,.json"
+                  className="text-xs"
+                  onChange={(e) => e.target.files?.[0] && pickFile(e.target.files[0])}
+                />
+                {dataFile && (
+                  <button className="text-xs text-red-500" onClick={() => setDataFile('')}>
+                    清除
+                  </button>
+                )}
+              </div>
+              <label className="flex items-center gap-2 text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={stopOnError}
+                  onChange={(e) => setStopOnError(e.target.checked)}
+                />
+                失败时停止
+              </label>
+            </div>
+          )}
+
+          {/* 进度区 */}
+          {running && (
+            <div className="space-y-2">
+              <div className="h-2 bg-gray-100 rounded overflow-hidden">
+                <div
+                  className="h-2 bg-blue-500 transition-all"
+                  style={{ width: `${progress ? (progress.done / progress.total) * 100 : 0}%` }}
+                />
+              </div>
+              <div className="text-sm text-gray-600">
+                {progress
+                  ? `${progress.done}/${progress.total} · 第 ${progress.iteration} 轮 · ${progress.requestName}`
+                  : '启动中…'}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="border border-red-200 bg-red-50 rounded p-2 text-xs text-red-600">
+              {error}
+            </div>
+          )}
+
+          {/* 报告区 */}
+          {report && (
+            <div className="space-y-3">
+              <div className="flex gap-4 text-sm">
+                <span className="text-green-600 font-medium">✓ {report.passed} 通过</span>
+                <span className={report.failed > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}>
+                  ✗ {report.failed} 失败
+                </span>
+                {report.skipped > 0 && <span className="text-gray-400">− {report.skipped} 跳过</span>}
+                <span className="text-gray-400 ml-auto">
+                  {(report.durationMs / 1000).toFixed(1)}s{report.canceled ? '（已取消）' : ''}
+                </span>
+              </div>
+              <table className="w-full text-xs border rounded">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr className="text-left">
+                    <th className="p-2 font-normal w-10">轮</th>
+                    <th className="p-2 font-normal">请求</th>
+                    <th className="p-2 font-normal w-14">状态码</th>
+                    <th className="p-2 font-normal w-16">耗时</th>
+                    <th className="p-2 font-normal">测试</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.results.map((r, i) => (
+                    <tr key={i} className={`border-t ${r.failed ? 'bg-red-50' : ''}`}>
+                      <td className="p-2 text-gray-400">{r.iteration}</td>
+                      <td className="p-2">{r.requestName}</td>
+                      <td className="p-2">{r.status || '—'}</td>
+                      <td className="p-2 text-gray-500">{r.durationMs}ms</td>
+                      <td className="p-2">
+                        {r.error ? (
+                          <span className="text-red-600">{r.error}</span>
+                        ) : (
+                          (r.testResults ?? []).map((t, ti) => (
+                            <span
+                              key={ti}
+                              className={`mr-2 ${t.pass ? 'text-green-600' : 'text-red-600'}`}
+                              title={t.error}
+                            >
+                              {t.pass ? '✓' : '✗'} {t.name}
+                            </span>
+                          ))
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 px-4 py-3 border-t">
+          {running ? (
+            <button
+              className="border border-red-200 text-red-500 rounded px-4 py-1.5 text-sm hover:bg-red-50"
+              onClick={() => cancelRun(runIdRef.current)}
+            >
+              取消
+            </button>
+          ) : (
+            <>
+              {report && (
+                <button
+                  className="border rounded px-4 py-1.5 text-sm hover:bg-gray-50"
+                  onClick={async () => {
+                    const { exportReport } = await import('../ipc');
+                    const json = await exportReport(report.runId);
+                    await navigator.clipboard.writeText(json);
+                    alert('报告 JSON 已复制到剪贴板');
+                  }}
+                >
+                  导出报告
+                </button>
+              )}
+              <button
+                className="bg-blue-600 text-white rounded px-4 py-1.5 text-sm hover:bg-blue-700"
+                onClick={start}
+              >
+                {report ? '重新运行' : '开始运行'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

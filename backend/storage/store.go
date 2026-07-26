@@ -90,6 +90,22 @@ var migrations = []string{
 	  UNIQUE(domain, path, name)
 	);
 	`,
+	// 0004: Phase 4 示例（"保存为示例"落点，Mock Server 数据源）
+	`
+	CREATE TABLE example (
+	  id            TEXT PRIMARY KEY,
+	  node_id       TEXT NOT NULL REFERENCES node(id),
+	  name          TEXT NOT NULL,
+	  request_snap  TEXT,
+	  status        INTEGER NOT NULL,
+	  headers       TEXT NOT NULL DEFAULT '[]',
+	  body          TEXT,
+	  created_at    INTEGER NOT NULL,
+	  updated_at    INTEGER NOT NULL,
+	  deleted_at    INTEGER
+	);
+	CREATE INDEX idx_example_node ON example(node_id);
+	`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录

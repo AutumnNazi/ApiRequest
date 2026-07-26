@@ -33,7 +33,7 @@
 - [ ] Header / Cookie / 测试结果 标签页
 - [ ] 状态码、耗时、大小、分阶段计时
 - [ ] 大响应流式加载 + 搜索
-- [ ] 保存为示例（Example）
+- [x] 保存为示例（Example）
 
 ### 组织与管理
 - [ ] 工作区（Workspace）
@@ -43,9 +43,9 @@
 - [x] Cookie 管理器（Cookie Jar 查看编辑）
 
 ### 协议扩展
-- [ ] WebSocket
-- [ ] Server-Sent Events (SSE)
-- [ ] GraphQL（schema 内省 + 补全）
+- [x] WebSocket
+- [x] Server-Sent Events (SSE)
+- [ ] GraphQL（schema 内省 + 补全；body 已支持 graphql 类型）
 - [ ] gRPC（后期）
 
 ### 互操作
@@ -55,8 +55,8 @@
 - [ ] 集合的 Git 友好文件镜像
 
 ### 高级
-- [ ] Mock Server
-- [ ] Collection Runner（数据文件驱动、运行报告）
+- [x] Mock Server
+- [x] Collection Runner（数据文件驱动、运行报告）
 - [ ] 代理设置（系统/自定义/绕过列表）
 - [ ] 自定义 TLS / 客户端证书
 - [ ] 团队协作同步（可选）

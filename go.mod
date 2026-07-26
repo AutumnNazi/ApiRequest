@@ -3,6 +3,7 @@ module apirequest
 go 1.25.0
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347
 	github.com/google/uuid v1.6.0
 	github.com/wailsapp/wails/v2 v2.12.0

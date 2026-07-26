@@ -1,11 +1,12 @@
 // 响应查看器：状态行 + Body(Pretty/Raw)/Headers 页签 + 分阶段计时
 import { useMemo, useState } from 'react';
-import type { ResponseResult, AppError } from '../ipc';
+import { upsertExample, type ResponseResult, type AppError, type Example } from '../ipc';
 
 interface Props {
   response?: ResponseResult;
   error?: AppError;
   sending: boolean;
+  nodeId?: string; // 已保存请求的节点 id（"保存为示例"需要）
 }
 
 const errorKindLabel: Record<string, string> = {
@@ -18,9 +19,23 @@ const errorKindLabel: Record<string, string> = {
   unknown: '错误',
 };
 
-export default function ResponseViewer({ response, error, sending }: Props) {
+export default function ResponseViewer({ response, error, sending, nodeId }: Props) {
   const [pane, setPane] = useState<'body' | 'headers' | 'tests' | 'timing'>('body');
   const [raw, setRaw] = useState(false);
+  const [exampleSaved, setExampleSaved] = useState(false);
+
+  const saveAsExample = async () => {
+    if (!response || !nodeId) return;
+    await upsertExample({
+      nodeId,
+      name: `${response.status} 示例`,
+      status: response.status,
+      headers: response.headers,
+      body: response.body?.text ?? '',
+    } as unknown as Example);
+    setExampleSaved(true);
+    setTimeout(() => setExampleSaved(false), 1500);
+  };
 
   const pretty = useMemo(() => {
     if (!response?.body?.text) return '';
@@ -76,6 +91,15 @@ export default function ResponseViewer({ response, error, sending }: Props) {
           <span className={passCount === tests.length ? 'text-green-600' : 'text-red-600'}>
             {passCount === tests.length ? '✓' : '✗'} {passCount}/{tests.length}
           </span>
+        )}
+        {nodeId && (
+          <button
+            className="ml-auto text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-0.5"
+            onClick={saveAsExample}
+            title="保存为示例（供 Mock Server 使用）"
+          >
+            {exampleSaved ? '已保存 ✓' : '保存为示例'}
+          </button>
         )}
       </div>
 

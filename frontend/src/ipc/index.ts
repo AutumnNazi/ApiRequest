@@ -5,8 +5,12 @@ import * as HistoryApi from '../../wailsjs/go/binding/HistoryApi';
 import * as EnvApi from '../../wailsjs/go/binding/EnvApi';
 import * as CookieApi from '../../wailsjs/go/binding/CookieApi';
 import * as ConvertApi from '../../wailsjs/go/binding/ConvertApi';
+import * as RunnerApi from '../../wailsjs/go/binding/RunnerApi';
+import * as ExampleApi from '../../wailsjs/go/binding/ExampleApi';
+import * as MockApi from '../../wailsjs/go/binding/MockApi';
+import * as ProtocolApi from '../../wailsjs/go/binding/ProtocolApi';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { model, convert, codegen } from '../../wailsjs/go/models';
+import { model, convert, codegen, runner, mock, protocol, binding } from '../../wailsjs/go/models';
 import { call } from './error';
 
 export type HttpRequest = model.HttpRequest;
@@ -26,6 +30,23 @@ export type Cookie = model.Cookie;
 export type Auth = model.Auth;
 export type ImportResult = convert.ImportResult;
 export type CodegenTarget = codegen.Target;
+export type RunnerOptions = runner.Options;
+export type RunnerReport = runner.Report;
+export type Example = model.Example;
+export type MockOptions = mock.Options;
+export type MockStatus = binding.MockStatus;
+export type SessionConfig = protocol.SessionConfig;
+
+// InboundMsg 仅经事件推送，Wails 不生成其类型——与 backend/protocol.InboundMsg 保持一致
+export interface InboundMsg {
+  sessionId: string;
+  protocol: string;
+  direction: 'in' | 'out' | 'system';
+  kind: 'text' | 'binary' | 'open' | 'close' | 'error' | 'event';
+  data: string;
+  event?: string;
+  ts: number;
+}
 
 export { toAppError } from './error';
 export type { AppError, ErrorKind } from './error';
@@ -85,6 +106,36 @@ export const codegenTargets = () => call(() => ConvertApi.CodegenTargets());
 export const generateCode = (target: string, req: HttpRequest) =>
   call(() => ConvertApi.GenerateCode(target, req));
 
+// ── Runner ──
+
+export const runCollection = (
+  runId: string,
+  workspaceId: string,
+  collectionId: string,
+  opts: Partial<RunnerOptions>,
+) => call(() => RunnerApi.RunCollection(runId, workspaceId, collectionId, runner.Options.createFrom(opts)));
+export const cancelRun = (runId: string) => call(() => RunnerApi.CancelRun(runId));
+export const exportReport = (runId: string) => call(() => RunnerApi.ExportReport(runId));
+
+// ── Example / Mock ──
+
+export const listExamples = (nodeId: string) => call(() => ExampleApi.ListExamples(nodeId));
+export const upsertExample = (e: Example) => call(() => ExampleApi.UpsertExample(e));
+export const deleteExample = (exampleId: string) => call(() => ExampleApi.DeleteExample(exampleId));
+export const startMockServer = (collectionId: string, opts: Partial<MockOptions> = {}) =>
+  call(() => MockApi.StartMockServer(collectionId, mock.Options.createFrom(opts)));
+export const stopMockServer = (collectionId: string) =>
+  call(() => MockApi.StopMockServer(collectionId));
+export const runningMocks = () => call(() => MockApi.RunningMocks());
+
+// ── 协议会话（WS/SSE）──
+
+export const openSession = (sessionId: string, cfg: Partial<SessionConfig>) =>
+  call(() => ProtocolApi.OpenSession(sessionId, protocol.SessionConfig.createFrom(cfg)));
+export const sendSessionMessage = (sessionId: string, data: string) =>
+  call(() => ProtocolApi.SendMessage(sessionId, data));
+export const closeSession = (sessionId: string) => call(() => ProtocolApi.CloseSession(sessionId));
+
 // ── 事件 ──
 
 export interface RequestProgress {
@@ -95,6 +146,36 @@ export interface RequestProgress {
 /** 订阅请求进度事件；返回取消订阅函数 */
 export function onRequestProgress(handler: (p: RequestProgress) => void): () => void {
   return EventsOn('request:progress', handler);
+}
+
+export interface RunnerProgress {
+  runId: string;
+  iteration: number;
+  requestName: string;
+  status: 'pass' | 'fail' | 'skip';
+  done: number;
+  total: number;
+}
+
+export function onRunnerProgress(handler: (p: RunnerProgress) => void): () => void {
+  return EventsOn('runner:progress', handler);
+}
+
+export interface MockLogEntry {
+  collectionId: string;
+  method: string;
+  path: string;
+  matched?: string;
+  status: number;
+  ts: number;
+}
+
+export function onMockLog(handler: (p: MockLogEntry) => void): () => void {
+  return EventsOn('mock:log', handler);
+}
+
+export function onProtoMessage(handler: (m: InboundMsg) => void): () => void {
+  return EventsOn('proto:message', handler);
 }
 
 // ── 工厂 ──

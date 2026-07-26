@@ -11,6 +11,8 @@ import {
   type HistoryItem,
 } from '../ipc';
 import ImportDialog from './ImportDialog';
+import RunnerDialog from './RunnerDialog';
+import MockPanel from './MockPanel';
 import { useTabs } from '../stores/tabs';
 import { newDefaultRequest } from '../ipc';
 
@@ -57,6 +59,8 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
   const openNode = useTabs((s) => s.openNode);
   const [importing, setImporting] = useState(false);
+  const [runnerTarget, setRunnerTarget] = useState<Node | null>(null);
+  const [mockTarget, setMockTarget] = useState<Node | null>(null);
   const { data: nodes = [] } = useQuery({
     queryKey: ['nodes', workspaceId],
     queryFn: () => listNodes(workspaceId),
@@ -113,6 +117,21 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         </button>
       </div>
       {importing && <ImportDialog workspaceId={workspaceId} onClose={() => setImporting(false)} />}
+      {runnerTarget && (
+        <RunnerDialog
+          workspaceId={workspaceId}
+          collectionId={runnerTarget.id}
+          collectionName={runnerTarget.name}
+          onClose={() => setRunnerTarget(null)}
+        />
+      )}
+      {mockTarget && (
+        <MockPanel
+          collectionId={mockTarget.id}
+          collectionName={mockTarget.name}
+          onClose={() => setMockTarget(null)}
+        />
+      )}
       {roots.length === 0 && (
         <p className="text-gray-400 text-center py-6 text-xs">还没有集合，点击上方创建</p>
       )}
@@ -126,6 +145,20 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
               onClick={() => addRequest.mutate(col.id)}
             >
               +
+            </button>
+            <button
+              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+              title="Runner 批量运行"
+              onClick={() => setRunnerTarget(col)}
+            >
+              ▶
+            </button>
+            <button
+              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+              title="Mock Server"
+              onClick={() => setMockTarget(col)}
+            >
+              M
             </button>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"

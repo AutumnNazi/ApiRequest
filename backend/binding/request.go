@@ -5,6 +5,7 @@ package binding
 import (
 	"context"
 	"sync"
+	"time"
 
 	wailsrt "github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -33,11 +34,23 @@ func NewRequestApi(engine *httpengine.Engine, store *storage.Store) *RequestApi 
 // Startup 由 Wails OnStartup 注入运行时 context（事件推送用）。
 // 用包级函数而非导出方法：绑定 struct 的导出方法会被 Wails 生成为前端绑定，
 // context.Context 参数会产出非法 TS import。
-func Startup(ctx context.Context, apis ...*RequestApi) {
-	for _, a := range apis {
-		a.ctx = ctx
+func Startup(ctx context.Context, apis ...any) {
+	for _, api := range apis {
+		switch a := api.(type) {
+		case *RequestApi:
+			a.ctx = ctx
+		case *RunnerApi:
+			a.startup(ctx)
+		case *MockApi:
+			a.startup(ctx)
+		case *ProtocolApi:
+			a.startup(ctx)
+		}
 	}
 }
+
+// nowUnixMs 事件时间戳
+func nowUnixMs() int64 { return time.Now().UnixMilli() }
 
 // progressPayload request:progress 事件负载
 type progressPayload struct {

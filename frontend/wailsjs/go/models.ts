@@ -1,3 +1,24 @@
+export namespace binding {
+	
+	export class MockStatus {
+	    collectionId: string;
+	    addr: string;
+	    routes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MockStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.addr = source["addr"];
+	        this.routes = source["routes"];
+	    }
+	}
+
+}
+
 export namespace codegen {
 	
 	export class Target {
@@ -52,6 +73,25 @@ export namespace convert {
 		    }
 		    return a;
 		}
+	}
+
+}
+
+export namespace mock {
+	
+	export class Options {
+	    port?: number;
+	    delayMs?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Options(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.port = source["port"];
+	        this.delayMs = source["delayMs"];
+	    }
 	}
 
 }
@@ -218,45 +258,6 @@ export namespace model {
 		    return a;
 		}
 	}
-	
-	export class TestResult {
-	    name: string;
-	    pass: boolean;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new TestResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.pass = source["pass"];
-	        this.error = source["error"];
-	    }
-	}
-	export class Timing {
-	    dnsMs: number;
-	    connectMs: number;
-	    tlsMs: number;
-	    ttfbMs: number;
-	    downloadMs: number;
-	    totalMs: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new Timing(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.dnsMs = source["dnsMs"];
-	        this.connectMs = source["connectMs"];
-	        this.tlsMs = source["tlsMs"];
-	        this.ttfbMs = source["ttfbMs"];
-	        this.downloadMs = source["downloadMs"];
-	        this.totalMs = source["totalMs"];
-	    }
-	}
 	export class RequestSettings {
 	    timeoutMs?: number;
 	    followRedirects: boolean;
@@ -338,6 +339,91 @@ export namespace model {
 		    }
 		    return a;
 		}
+	}
+	export class Example {
+	    id: string;
+	    nodeId: string;
+	    name: string;
+	    requestSnap?: HttpRequest;
+	    status: number;
+	    headers: KV[];
+	    body?: string;
+	    createdAt: number;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Example(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.nodeId = source["nodeId"];
+	        this.name = source["name"];
+	        this.requestSnap = this.convertValues(source["requestSnap"], HttpRequest);
+	        this.status = source["status"];
+	        this.headers = this.convertValues(source["headers"], KV);
+	        this.body = source["body"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class TestResult {
+	    name: string;
+	    pass: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.pass = source["pass"];
+	        this.error = source["error"];
+	    }
+	}
+	export class Timing {
+	    dnsMs: number;
+	    connectMs: number;
+	    tlsMs: number;
+	    ttfbMs: number;
+	    downloadMs: number;
+	    totalMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Timing(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dnsMs = source["dnsMs"];
+	        this.connectMs = source["connectMs"];
+	        this.tlsMs = source["tlsMs"];
+	        this.ttfbMs = source["ttfbMs"];
+	        this.downloadMs = source["downloadMs"];
+	        this.totalMs = source["totalMs"];
+	    }
 	}
 	export class HistoryItem {
 	    id: string;
@@ -568,6 +654,156 @@ export namespace model {
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }
+	}
+
+}
+
+export namespace protocol {
+	
+	export class SessionConfig {
+	    protocol: string;
+	    url: string;
+	    headers?: model.KV[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.protocol = source["protocol"];
+	        this.url = source["url"];
+	        this.headers = this.convertValues(source["headers"], model.KV);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace runner {
+	
+	export class Options {
+	    dataFile?: string;
+	    dataFormat?: string;
+	    stopOnError: boolean;
+	    iterations?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Options(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dataFile = source["dataFile"];
+	        this.dataFormat = source["dataFormat"];
+	        this.stopOnError = source["stopOnError"];
+	        this.iterations = source["iterations"];
+	    }
+	}
+	export class RequestResult {
+	    iteration: number;
+	    requestName: string;
+	    nodeId: string;
+	    status: number;
+	    durationMs: number;
+	    failed: boolean;
+	    error?: string;
+	    testResults: model.TestResult[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.iteration = source["iteration"];
+	        this.requestName = source["requestName"];
+	        this.nodeId = source["nodeId"];
+	        this.status = source["status"];
+	        this.durationMs = source["durationMs"];
+	        this.failed = source["failed"];
+	        this.error = source["error"];
+	        this.testResults = this.convertValues(source["testResults"], model.TestResult);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Report {
+	    runId: string;
+	    total: number;
+	    passed: number;
+	    failed: number;
+	    skipped: number;
+	    durationMs: number;
+	    results: RequestResult[];
+	    canceled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Report(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.runId = source["runId"];
+	        this.total = source["total"];
+	        this.passed = source["passed"];
+	        this.failed = source["failed"];
+	        this.skipped = source["skipped"];
+	        this.durationMs = source["durationMs"];
+	        this.results = this.convertValues(source["results"], RequestResult);
+	        this.canceled = source["canceled"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

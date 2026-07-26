@@ -31,6 +31,10 @@ func main() {
 			app.Env,
 			app.Cookie,
 			app.Convert,
+			app.Runner,
+			app.Example,
+			app.Mock,
+			app.Protocol,
 		},
 	})
 
