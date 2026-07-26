@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply text-gray-900 antialiased;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* 桌面应用：禁用文本光标外的默认选区拖拽感 */
+  user-select: none;
+}
+
+input,
+textarea,
+pre,
+.cm-editor {
+  user-select: text;
+}
