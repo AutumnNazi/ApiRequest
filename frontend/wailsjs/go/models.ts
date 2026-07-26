@@ -41,6 +41,20 @@ export namespace binding {
 	        this.routes = source["routes"];
 	    }
 	}
+	export class ProxySettings {
+	    mode: string;
+	    url?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxySettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.url = source["url"];
+	    }
+	}
 
 }
 

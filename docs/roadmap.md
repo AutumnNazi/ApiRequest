@@ -11,7 +11,7 @@
 - [ ] HTTP 方法全集（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS + 自定义）
 - [ ] URL 与 Query 参数编辑（双向同步）
 - [ ] Header 编辑（含自动填充、批量编辑、禁用项）
-- [x] Body：form-data / x-www-form-urlencoded / raw(JSON/XML/HTML/Text) / binary / GraphQL（binary/GraphQL 后端支持，UI 待补）
+- [x] Body：form-data / x-www-form-urlencoded / raw(JSON/XML/HTML/Text) / binary / GraphQL
 - [x] 认证：No Auth / Basic / Bearer / API Key / Digest / OAuth 1.0 / OAuth 2.0 / AWS Signature
 - [x] 请求级设置覆盖：超时、重定向、SSL 校验
 
@@ -32,7 +32,7 @@
 - [ ] Body 视图：Pretty(JSON/XML 折叠) / Raw / Preview(HTML/图片)
 - [ ] Header / Cookie / 测试结果 标签页
 - [ ] 状态码、耗时、大小、分阶段计时
-- [ ] 大响应流式加载 + 搜索
+- [x] 大响应流式加载（blob 落盘 + 预览片段 + 按需加载全文）
 - [x] 保存为示例（Example）
 
 ### 组织与管理
@@ -57,7 +57,7 @@
 ### 高级
 - [x] Mock Server
 - [x] Collection Runner（数据文件驱动、运行报告）
-- [ ] 代理设置（系统/自定义/绕过列表）
+- [x] 代理设置（系统/手动/直连）
 - [ ] 自定义 TLS / 客户端证书
 - [ ] 团队协作同步（可选）
 

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -155,6 +157,7 @@ func TestTruncateLargeBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	// 无 blobsDir：截断
 	res, err := New().Send(context.Background(), testReq(srv.URL))
 	if err != nil {
 		t.Fatalf("send: %v", err)
@@ -164,6 +167,85 @@ func TestTruncateLargeBody(t *testing.T) {
 	}
 	if !strings.Contains(res.Body.Text, "truncated") {
 		t.Error("want truncation marker in body text")
+	}
+}
+
+func TestLargeBodyToBlob(t *testing.T) {
+	big := strings.Repeat("y", inlineBodyLimit+5000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(big))
+	}))
+	defer srv.Close()
+
+	e := New()
+	dir := t.TempDir()
+	e.SetBlobsDir(dir)
+	res, err := e.Send(context.Background(), testReq(srv.URL))
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if res.Body.Inline || res.Body.BlobRef == "" {
+		t.Fatalf("body = %+v, want blob ref", res.Body)
+	}
+	if res.SizeBytes != int64(len(big)) {
+		t.Errorf("size = %d, want %d", res.SizeBytes, len(big))
+	}
+	// blob 文件应为完整内容
+	data, err := os.ReadFile(filepath.Join(dir, res.Body.BlobRef))
+	if err != nil {
+		t.Fatalf("read blob: %v", err)
+	}
+	if len(data) != len(big) || string(data[:10]) != "yyyyyyyyyy" {
+		t.Errorf("blob len = %d, want %d", len(data), len(big))
+	}
+	// 内联部分应为预览片段
+	if !strings.Contains(res.Body.Text, "预览片段") {
+		t.Errorf("preview marker missing: %q", res.Body.Text[len(res.Body.Text)-60:])
+	}
+}
+
+func TestSmallBodyStaysInline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("small"))
+	}))
+	defer srv.Close()
+	e := New()
+	e.SetBlobsDir(t.TempDir())
+	res, err := e.Send(context.Background(), testReq(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Body.Inline || res.Body.BlobRef != "" || res.Body.Text != "small" {
+		t.Errorf("body = %+v", res.Body)
+	}
+}
+
+func TestManualProxy(t *testing.T) {
+	// 代理服务器：记录收到的请求并返回标记
+	proxied := false
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied = true
+		w.Write([]byte("via-proxy"))
+	}))
+	defer proxy.Close()
+
+	e := New()
+	if err := e.SetProxy("manual", proxy.URL); err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.Send(context.Background(), testReq("http://example.invalid/x"))
+	if err != nil {
+		t.Fatalf("send via proxy: %v", err)
+	}
+	if !proxied || res.Body.Text != "via-proxy" {
+		t.Errorf("proxied=%v body=%q", proxied, res.Body.Text)
+	}
+
+	if err := e.SetProxy("manual", "::bad::"); err == nil {
+		t.Error("invalid proxy url should error")
+	}
+	if err := e.SetProxy("none", ""); err != nil {
+		t.Errorf("none: %v", err)
 	}
 }
 

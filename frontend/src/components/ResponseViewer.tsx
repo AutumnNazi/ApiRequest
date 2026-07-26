@@ -1,6 +1,6 @@
 // 响应查看器：状态行 + Body(Pretty/Raw)/Headers 页签 + 分阶段计时
-import { useMemo, useState } from 'react';
-import { upsertExample, type ResponseResult, type AppError, type Example } from '../ipc';
+import { useEffect, useMemo, useState } from 'react';
+import { upsertExample, getResponseBlob, toAppError, type ResponseResult, type AppError, type Example } from '../ipc';
 
 interface Props {
   response?: ResponseResult;
@@ -23,6 +23,25 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
   const [pane, setPane] = useState<'body' | 'headers' | 'tests' | 'timing'>('body');
   const [raw, setRaw] = useState(false);
   const [exampleSaved, setExampleSaved] = useState(false);
+  const [fullBody, setFullBody] = useState<string | null>(null);
+  const [loadingFull, setLoadingFull] = useState(false);
+
+  // 新响应到来时丢弃已加载的全文
+  useEffect(() => {
+    setFullBody(null);
+  }, [response]);
+
+  const loadFullBody = async () => {
+    if (!response?.body?.blobRef) return;
+    setLoadingFull(true);
+    try {
+      setFullBody(await getResponseBlob(response.body.blobRef));
+    } catch (e) {
+      setFullBody(`// 加载失败: ${toAppError(e).detail}`);
+    } finally {
+      setLoadingFull(false);
+    }
+  };
 
   const saveAsExample = async () => {
     if (!response || !nodeId) return;
@@ -38,14 +57,15 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
   };
 
   const pretty = useMemo(() => {
-    if (!response?.body?.text) return '';
-    if (raw) return response.body.text;
+    const source = fullBody ?? response?.body?.text;
+    if (!source) return '';
+    if (raw) return source;
     try {
-      return JSON.stringify(JSON.parse(response.body.text), null, 2);
+      return JSON.stringify(JSON.parse(source), null, 2);
     } catch {
-      return response.body.text;
+      return source;
     }
-  }, [response, raw]);
+  }, [response, raw, fullBody]);
 
   if (sending) {
     return <Center>发送中…</Center>;
@@ -137,7 +157,23 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
 
       <div className="flex-1 overflow-auto">
         {pane === 'body' && (
-          <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">{pretty}</pre>
+          <div>
+            {response.body?.blobRef && !fullBody && (
+              <div className="m-3 mb-0 border border-yellow-200 bg-yellow-50 rounded px-3 py-2 text-xs flex items-center gap-2">
+                <span className="text-yellow-800">
+                  大响应仅显示预览片段（完整 {formatSize(response.sizeBytes)}）
+                </span>
+                <button
+                  className="text-blue-600 hover:underline disabled:opacity-50"
+                  disabled={loadingFull}
+                  onClick={loadFullBody}
+                >
+                  {loadingFull ? '加载中…' : '加载完整响应'}
+                </button>
+              </div>
+            )}
+            <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">{pretty}</pre>
+          </div>
         )}
         {pane === 'headers' && (
           <table className="w-full text-sm m-3">

@@ -36,6 +36,7 @@ func main() {
 			app.Mock,
 			app.Protocol,
 			app.OAuth2,
+			app.Settings,
 		},
 	})
 

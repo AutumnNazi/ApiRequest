@@ -146,8 +146,8 @@ func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx m
 		res.ScriptLogs = append(res.ScriptLogs, "[error] persist variables: "+perr.Error())
 	}
 
-	// 8. 落历史（存已解析请求快照；失败不阻断响应返回）
-	histId, herr := a.store.InsertHistory(model.HistoryItem{
+	// 8. 落历史（存已解析请求快照；大 body 只存 blob 引用；失败不阻断响应返回）
+	histItem := model.HistoryItem{
 		WorkspaceId: sendCtx.WorkspaceId,
 		RequestSnap: resolved,
 		Status:      res.Status,
@@ -155,13 +155,28 @@ func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx m
 		SizeBytes:   res.SizeBytes,
 		Timing:      res.Timing,
 		RespHeaders: res.Headers,
-		BodyInline:  res.Body.Text,
 		TestResults: res.TestResults,
-	})
+	}
+	if res.Body.Inline {
+		histItem.BodyInline = res.Body.Text
+	} else {
+		histItem.BodyRef = res.Body.BlobRef
+	}
+	histId, herr := a.store.InsertHistory(histItem)
 	if herr == nil {
 		res.HistoryId = histId
 	}
 	return res, nil
+}
+
+// GetResponseBlob 按引用读取大响应体全文（docs/api-contract.md：大 payload 按需拉取）。
+// 超过 32MiB 的 blob 拒绝整体载入（应导出文件查看，后续提供另存为）。
+func (a *RequestApi) GetResponseBlob(blobRef string) (string, error) {
+	data, err := a.store.ReadBlob(blobRef)
+	if err != nil {
+		return "", model.WrapError(model.KindStorage, err)
+	}
+	return string(data), nil
 }
 
 // CancelRequest 取消进行中的请求；未知/已完成的 sendId 为 no-op

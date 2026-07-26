@@ -5,7 +5,9 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -160,6 +162,23 @@ func (s *Store) migrate() error {
 
 // BlobsDir 返回大响应体存放目录
 func (s *Store) BlobsDir() string { return s.blobsDir }
+
+// ReadBlob 按相对引用读 blob 文件；拒绝路径逃逸与超大文件
+func (s *Store) ReadBlob(ref string) ([]byte, error) {
+	if ref == "" || strings.ContainsAny(ref, `/\`) || strings.Contains(ref, "..") {
+		return nil, fmt.Errorf("invalid blob ref: %q", ref)
+	}
+	path := filepath.Join(s.blobsDir, ref)
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	const maxBlobLoad = 32 << 20 // 32 MiB
+	if info.Size() > maxBlobLoad {
+		return nil, fmt.Errorf("blob too large to load inline (%d bytes)", info.Size())
+	}
+	return os.ReadFile(path)
+}
 
 // Close 关闭底层连接
 func (s *Store) Close() error { return s.db.Close() }

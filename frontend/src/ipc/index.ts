@@ -10,6 +10,7 @@ import * as ExampleApi from '../../wailsjs/go/binding/ExampleApi';
 import * as MockApi from '../../wailsjs/go/binding/MockApi';
 import * as ProtocolApi from '../../wailsjs/go/binding/ProtocolApi';
 import * as OAuth2Api from '../../wailsjs/go/binding/OAuth2Api';
+import * as SettingsApi from '../../wailsjs/go/binding/SettingsApi';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { model, convert, codegen, runner, mock, protocol, binding } from '../../wailsjs/go/models';
 import { call } from './error';
@@ -58,6 +59,10 @@ export const sendRequest = (sendId: string, req: HttpRequest, ctx: SendContext) 
   call(() => RequestApi.SendRequest(sendId, req, ctx));
 
 export const cancelRequest = (sendId: string) => call(() => RequestApi.CancelRequest(sendId));
+
+/** 按引用拉取大响应体全文 */
+export const getResponseBlob = (blobRef: string) =>
+  call(() => RequestApi.GetResponseBlob(blobRef));
 
 // ── 集合树 ──
 
@@ -143,6 +148,18 @@ export const getOAuth2Token = (params: Record<string, string>) =>
   call(() => OAuth2Api.GetOAuth2Token(params));
 export const clearOAuth2Token = (params: Record<string, string>) =>
   call(() => OAuth2Api.ClearOAuth2Token(params));
+
+// ── 应用设置 ──
+
+export interface ProxySettings {
+  mode: 'system' | 'manual' | 'none';
+  url?: string;
+}
+
+export const getProxySettings = () =>
+  call(() => SettingsApi.GetProxySettings()) as Promise<ProxySettings>;
+export const setProxySettings = (p: ProxySettings) =>
+  call(() => SettingsApi.SetProxySettings(binding.ProxySettings.createFrom(p)));
 
 // ── 事件 ──
 

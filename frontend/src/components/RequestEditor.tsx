@@ -127,6 +127,8 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
                   ['raw', 'raw (JSON)'],
                   ['urlencoded', 'x-www-form-urlencoded'],
                   ['formdata', 'form-data'],
+                  ['graphql', 'GraphQL'],
+                  ['binary', 'binary'],
                 ] as const
               ).map(([k, label]) => (
                 <label key={k} className="flex items-center gap-1">
@@ -136,6 +138,8 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
                     onChange={() => {
                       if (k === 'raw') patchBody({ kind: 'raw', language: 'json' });
                       else if (k === 'none') patchBody({ kind: 'none' });
+                      else if (k === 'graphql') patchBody({ kind: 'graphql' });
+                      else if (k === 'binary') patchBody({ kind: 'binary' });
                       else patchBody({ kind: k, items: d.body?.items ?? [] });
                     }}
                   />
@@ -170,6 +174,50 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
                   })
                 }
               />
+            )}
+            {d.body?.kind === 'graphql' && (
+              <div className="flex-1 flex gap-2 min-h-0">
+                <div className="flex-[3] flex flex-col border rounded overflow-hidden">
+                  <div className="px-2 py-1 text-xs text-gray-500 bg-gray-50 border-b">Query</div>
+                  <CodeMirror
+                    height="100%"
+                    style={{ flex: 1, overflow: 'auto' }}
+                    value={d.body.query ?? ''}
+                    placeholder={'query {\n  viewer { name }\n}'}
+                    onChange={(query) => patchBody({ query })}
+                  />
+                </div>
+                <div className="flex-[2] flex flex-col border rounded overflow-hidden">
+                  <div className="px-2 py-1 text-xs text-gray-500 bg-gray-50 border-b">
+                    Variables (JSON)
+                  </div>
+                  <CodeMirror
+                    height="100%"
+                    style={{ flex: 1, overflow: 'auto' }}
+                    value={d.body.variables ?? ''}
+                    extensions={[json()]}
+                    placeholder={'{}'}
+                    onChange={(variables) => patchBody({ variables })}
+                  />
+                </div>
+              </div>
+            )}
+            {d.body?.kind === 'binary' && (
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <label className="text-gray-600">文件路径</label>
+                  <input
+                    className="flex-1 border rounded px-2 py-1 font-mono text-xs"
+                    placeholder="C:\path\to\file.bin"
+                    value={d.body.path ?? ''}
+                    onChange={(e) => patchBody({ path: e.target.value })}
+                  />
+                </div>
+                <p className="text-xs text-gray-400">
+                  文件以流式方式上传，不会整体读入内存；Content-Type 默认
+                  application/octet-stream，可在 Headers 覆盖。
+                </p>
+              </div>
             )}
           </div>
         )}

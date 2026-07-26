@@ -6,6 +6,10 @@ export function CancelRequest(arg1) {
   return window['go']['binding']['RequestApi']['CancelRequest'](arg1);
 }
 
+export function GetResponseBlob(arg1) {
+  return window['go']['binding']['RequestApi']['GetResponseBlob'](arg1);
+}
+
 export function SendRequest(arg1, arg2, arg3) {
   return window['go']['binding']['RequestApi']['SendRequest'](arg1, arg2, arg3);
 }

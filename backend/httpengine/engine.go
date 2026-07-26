@@ -14,8 +14,12 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"apirequest/backend/auth"
 	"apirequest/backend/model"
@@ -31,25 +35,62 @@ func authProviderTwoPhase(authType string) (auth.TwoPhaseProvider, bool) {
 	return tp, ok
 }
 
-// inlineBodyLimit 超过该字节数的响应体不内联返回，落 blobs/（Phase 1 先内联截断，
-// blob 写入在 binding 层接 storage 后启用）
+// inlineBodyLimit 超过该字节数的响应体不内联返回，落 blobs/ 并返回引用
 const inlineBodyLimit = 2 << 20 // 2 MiB
 
-// Engine 持有共享的 http.Transport（连接池）
+// Engine 持有共享的 http.Transport（连接池）与 blobs 目录
 type Engine struct {
 	transport *http.Transport
+	blobsDir  string // 空 = 不落盘（超限截断），非空 = 超限写 blob
+	// proxyOverride 应用级代理设置（nil = 系统代理）
+	proxyMu    sync.RWMutex
+	proxyFunc  func(*http.Request) (*url.URL, error)
 }
 
 // New 创建引擎
 func New() *Engine {
-	return &Engine{
+	e := &Engine{
 		transport: &http.Transport{
-			Proxy:               http.ProxyFromEnvironment,
 			MaxIdleConnsPerHost: 8,
 			IdleConnTimeout:     90 * time.Second,
 			ForceAttemptHTTP2:   true,
 		},
 	}
+	e.proxyFunc = http.ProxyFromEnvironment
+	e.transport.Proxy = func(r *http.Request) (*url.URL, error) {
+		e.proxyMu.RLock()
+		fn := e.proxyFunc
+		e.proxyMu.RUnlock()
+		if fn == nil {
+			return nil, nil
+		}
+		return fn(r)
+	}
+	return e
+}
+
+// SetBlobsDir 设置大响应落盘目录（binding 层初始化时注入）
+func (e *Engine) SetBlobsDir(dir string) { e.blobsDir = dir }
+
+// SetProxy 应用代理设置。mode: system | manual | none；manual 时用 proxyUrl。
+func (e *Engine) SetProxy(mode, proxyUrl string) error {
+	e.proxyMu.Lock()
+	defer e.proxyMu.Unlock()
+	switch mode {
+	case "none":
+		e.proxyFunc = nil
+	case "manual":
+		u, err := url.Parse(proxyUrl)
+		if err != nil || u.Host == "" {
+			return model.NewError(model.KindValidation, "invalid proxy url: "+proxyUrl)
+		}
+		e.proxyFunc = http.ProxyURL(u)
+	default: // system
+		e.proxyFunc = http.ProxyFromEnvironment
+	}
+	// 代理变更后关闭旧连接，避免复用到旧代理的连接
+	e.transport.CloseIdleConnections()
+	return nil
 }
 
 // Send 执行请求。ctx 取消即中止（对应 CancelRequest）。
@@ -118,8 +159,8 @@ func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.Respons
 	}
 	defer resp.Body.Close()
 
-	// 流式读 body，记录首字节后的下载耗时
-	body, size, truncated, err := readBody(resp.Body, inlineBodyLimit)
+	// 流式读 body：前 2MiB 进内存，超限部分边收边写 blob（有 blobsDir 时）
+	body, size, blobRef, err := e.readBodyWithBlob(resp.Body)
 	end := time.Now()
 	if err != nil && ctx.Err() == context.Canceled {
 		return res, model.NewError(model.KindNetwork, "canceled")
@@ -134,14 +175,80 @@ func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.Respons
 	res.Cookies = convertCookies(resp.Cookies())
 	res.SizeBytes = size
 	res.Timing = tr.timing(start, end)
-	text := string(body)
-	if truncated {
-		text += "\n… (truncated at 2 MiB)"
+	if blobRef != "" {
+		// 大响应：内联预览片段 + blob 引用（前端按需拉全量）
+		res.Body = model.ResponseBody{
+			Inline: false, BlobRef: blobRef,
+			Text: string(body[:min(len(body), 64<<10)]) + "\n… (预览片段，完整响应 " + formatBytes(size) + ")",
+		}
+	} else {
+		res.Body = model.ResponseBody{Inline: true, Text: string(body)}
 	}
-	res.Body = model.ResponseBody{Inline: true, Text: text}
 	res.TestResults = []model.TestResult{}
 	res.ScriptLogs = []string{}
 	return res, nil
+}
+
+// readBodyWithBlob 读响应体：≤限额全内联；超限时（有 blobsDir）全量写 blob 文件，
+// 内存只留前 2MiB 作预览；无 blobsDir 时退回丢弃式截断
+func (e *Engine) readBodyWithBlob(r io.Reader) (head []byte, total int64, blobRef string, err error) {
+	var buf bytes.Buffer
+	n, err := io.Copy(&buf, io.LimitReader(r, inlineBodyLimit))
+	total = n
+	if err != nil {
+		return buf.Bytes(), total, "", err
+	}
+	if n < inlineBodyLimit {
+		return buf.Bytes(), total, "", nil
+	}
+	// 到达限额：还有更多数据吗？
+	probe := make([]byte, 1)
+	pn, perr := r.Read(probe)
+	if pn == 0 && perr == io.EOF {
+		return buf.Bytes(), total, "", nil // 恰好等于限额
+	}
+	if perr != nil && perr != io.EOF {
+		return buf.Bytes(), total, "", perr
+	}
+
+	if e.blobsDir == "" {
+		// 无落盘目录：统计大小后丢弃
+		rest, derr := io.Copy(io.Discard, r)
+		total += int64(pn) + rest
+		b := buf.Bytes()
+		return append(b, []byte("\n… (truncated at 2 MiB)")...), total, "", derr
+	}
+
+	// 落盘：头部 + probe + 剩余 全量写文件
+	name := uuid.NewString() + ".bin"
+	f, ferr := os.Create(filepath.Join(e.blobsDir, name))
+	if ferr != nil {
+		rest, _ := io.Copy(io.Discard, r)
+		total += int64(pn) + rest
+		return buf.Bytes(), total, "", nil // 落盘失败降级为截断，不阻断响应
+	}
+	defer f.Close()
+	if _, werr := f.Write(buf.Bytes()); werr != nil {
+		return buf.Bytes(), total, "", nil
+	}
+	f.Write(probe[:pn])
+	rest, rerr := io.Copy(f, r)
+	total += int64(pn) + rest
+	if rerr != nil {
+		return buf.Bytes(), total, "", rerr
+	}
+	return buf.Bytes(), total, name, nil
+}
+
+func formatBytes(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1<<20:
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
+	default:
+		return fmt.Sprintf("%.2f MB", float64(n)/(1<<20))
+	}
 }
 
 func (e *Engine) buildClient(s model.RequestSettings) *http.Client {
@@ -276,25 +383,6 @@ func buildBody(b model.Body) (io.Reader, string, error) {
 	default:
 		return nil, "", fmt.Errorf("unsupported body kind: %s", b.Kind)
 	}
-}
-
-func readBody(r io.Reader, limit int64) (data []byte, total int64, truncated bool, err error) {
-	var buf bytes.Buffer
-	n, err := io.Copy(&buf, io.LimitReader(r, limit))
-	total = n
-	if err != nil {
-		return buf.Bytes(), total, false, err
-	}
-	if n == limit {
-		// 继续读完以统计真实大小（丢弃超出部分）
-		rest, err2 := io.Copy(io.Discard, r)
-		total += rest
-		truncated = rest > 0
-		if err2 != nil {
-			return buf.Bytes(), total, truncated, err2
-		}
-	}
-	return buf.Bytes(), total, truncated, nil
 }
 
 func flattenHeaders(h http.Header) []model.KV {

@@ -7,6 +7,7 @@ import ResponseViewer from './components/ResponseViewer';
 import EnvSwitcher from './components/EnvSwitcher';
 import CookieManager from './components/CookieManager';
 import WsPanel from './components/WsPanel';
+import SettingsDialog from './components/SettingsDialog';
 import { useTabs } from './stores/tabs';
 import {
   getDefaultWorkspace,
@@ -32,6 +33,7 @@ export default function App() {
   });
   const [showCookies, setShowCookies] = useState(false);
   const [showWs, setShowWs] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // 首次进入自动开一个空标签
   useEffect(() => {
@@ -143,10 +145,18 @@ export default function App() {
         >
           WS/SSE
         </button>
+        <button
+          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+          onClick={() => setShowSettings(true)}
+          title="应用设置"
+        >
+          ⚙
+        </button>
         <EnvSwitcher workspaceId={workspace.id} />
       </header>
       {showCookies && <CookieManager onClose={() => setShowCookies(false)} />}
       {showWs && <WsPanel onClose={() => setShowWs(false)} />}
+      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
 
       <div className="flex-1 flex min-h-0">
         {/* 侧栏 */}

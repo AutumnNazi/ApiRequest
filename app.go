@@ -29,6 +29,7 @@ type App struct {
 	Mock     *binding.MockApi
 	Protocol *binding.ProtocolApi
 	OAuth2   *binding.OAuth2Api
+	Settings *binding.SettingsApi
 }
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
@@ -42,6 +43,7 @@ func NewApp() *App {
 		log.Fatalf("open storage: %v", err)
 	}
 	engine := httpengine.New()
+	engine.SetBlobsDir(store.BlobsDir())
 	mocks := mock.NewManager()
 	protocols := protocol.NewManager()
 
@@ -61,6 +63,7 @@ func NewApp() *App {
 		Mock:      binding.NewMockApi(store, mocks),
 		Protocol:  binding.NewProtocolApi(protocols),
 		OAuth2:    binding.NewOAuth2Api(),
+		Settings:  binding.NewSettingsApi(store, engine),
 	}
 }
 

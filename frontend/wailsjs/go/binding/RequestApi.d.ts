@@ -4,4 +4,6 @@ import {model} from '../models';
 
 export function CancelRequest(arg1:string):Promise<void>;
 
+export function GetResponseBlob(arg1:string):Promise<string>;
+
 export function SendRequest(arg1:string,arg2:model.HttpRequest,arg3:model.SendContext):Promise<model.ResponseResult>;
