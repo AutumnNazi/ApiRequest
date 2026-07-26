@@ -8,6 +8,7 @@ import EnvSwitcher from './components/EnvSwitcher';
 import CookieManager from './components/CookieManager';
 import WsPanel from './components/WsPanel';
 import SettingsDialog from './components/SettingsDialog';
+import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import { useTabs } from './stores/tabs';
 import {
   getDefaultWorkspace,
@@ -27,10 +28,15 @@ export default function App() {
   const setError = useTabs((s) => s.setError);
   const markSaved = useTabs((s) => s.markSaved);
 
-  const { data: workspace } = useQuery({
+  const { data: defaultWorkspace } = useQuery({
     queryKey: ['workspace'],
     queryFn: getDefaultWorkspace,
   });
+  // 当前工作区：默认为 GetDefaultWorkspace，切换后覆盖
+  const [workspaceOverride, setWorkspaceOverride] = useState<{ id: string; name: string } | null>(
+    null,
+  );
+  const workspace = workspaceOverride ?? defaultWorkspace;
   const [showCookies, setShowCookies] = useState(false);
   const [showWs, setShowWs] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -131,7 +137,10 @@ export default function App() {
       {/* 顶栏 */}
       <header className="flex items-center px-4 py-2 border-b bg-white">
         <h1 className="font-semibold text-sm">ApiRequest</h1>
-        <span className="ml-3 text-xs text-gray-400">{workspace.name}</span>
+        <WorkspaceSwitcher
+          activeId={workspace.id}
+          onSwitch={(id) => setWorkspaceOverride({ id, name: '' })}
+        />
         <button
           className="ml-4 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
           onClick={() => setShowCookies(true)}

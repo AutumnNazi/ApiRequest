@@ -67,6 +67,11 @@ export const getResponseBlob = (blobRef: string) =>
 // ── 集合树 ──
 
 export const getDefaultWorkspace = () => call(() => NodeApi.GetDefaultWorkspace());
+export const listWorkspaces = () => call(() => NodeApi.ListWorkspaces());
+export const createWorkspace = (name: string) => call(() => NodeApi.CreateWorkspace(name));
+export const renameWorkspace = (id: string, name: string) =>
+  call(() => NodeApi.RenameWorkspace(id, name));
+export const deleteWorkspace = (id: string) => call(() => NodeApi.DeleteWorkspace(id));
 export const listNodes = (workspaceId: string) => call(() => NodeApi.ListNodes(workspaceId));
 export const upsertNode = (node: Node) => call(() => NodeApi.UpsertNode(node));
 export const deleteNode = (nodeId: string) => call(() => NodeApi.DeleteNode(nodeId));
