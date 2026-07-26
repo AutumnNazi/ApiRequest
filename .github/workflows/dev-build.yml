@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   backend:
@@ -105,9 +105,61 @@ jobs:
             wails build
           fi
 
+      - name: Package dev asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          mkdir -p dist
+          case "${{ matrix.label }}" in
+            windows)
+              cp build/bin/ApiRequest.exe "dist/ApiRequest-dev-${SHORT_SHA}-Windows-Amd64.exe"
+              ;;
+            macos)
+              cd build/bin && zip -qr "../../dist/ApiRequest-dev-${SHORT_SHA}-MacOS.zip" ApiRequest.app
+              ;;
+            linux)
+              cp build/bin/ApiRequest "dist/ApiRequest-dev-${SHORT_SHA}-Linux-Amd64"
+              chmod +x "dist/ApiRequest-dev-${SHORT_SHA}-Linux-Amd64"
+              ;;
+          esac
+
       - name: Upload dev artifact
         uses: actions/upload-artifact@v4
         with:
           name: ApiRequest-dev-${{ matrix.label }}
-          path: build/bin/
+          path: dist/
           retention-days: 7
+
+  publish-dev:
+    name: Update dev-latest release
+    # 仅 dev 分支推送时更新（PR 只跑构建验证，不发布）
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    needs: desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all dev artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: ApiRequest-dev-*
+          merge-multiple: true
+
+      - name: Recreate dev-latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          # 删除旧的 dev-latest release 与 tag（首次运行不存在，容错）
+          gh release delete dev-latest --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create dev-latest \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "🧪 Dev Build (dev-${SHORT_SHA})" \
+            --notes "Rolling development build from \`dev\` @ ${GITHUB_SHA}.
+
+Automatically updated on every push to \`dev\`. **Unstable — for testing only.** For stable versions use a \`vX.Y.Z\` release." \
+            --prerelease \
+            dist/*
