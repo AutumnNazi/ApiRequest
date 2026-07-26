@@ -1,13 +1,16 @@
-// 应用设置弹窗：代理 + TLS 配置
+// 应用设置弹窗：代理 + TLS + WebDAV 同步配置
 import { useEffect, useState } from 'react';
 import {
   getProxySettings,
   setProxySettings,
   getTLSSettings,
   setTLSSettings,
+  getSyncConfig,
+  setSyncConfig,
   toAppError,
   type ProxySettings,
   type TLSSettings,
+  type SyncDavConfig,
 } from '../ipc';
 
 interface Props {
@@ -17,12 +20,14 @@ interface Props {
 export default function SettingsDialog({ onClose }: Props) {
   const [proxy, setProxy] = useState<ProxySettings>({ mode: 'system' });
   const [tls, setTls] = useState<TLSSettings>({});
+  const [dav, setDav] = useState<Partial<SyncDavConfig>>({});
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
     getProxySettings().then(setProxy).catch(() => {});
     getTLSSettings().then(setTls).catch(() => {});
+    getSyncConfig().then(setDav).catch(() => {});
   }, []);
 
   const save = async () => {
@@ -31,6 +36,7 @@ export default function SettingsDialog({ onClose }: Props) {
     try {
       await setProxySettings(proxy);
       await setTLSSettings(tls);
+      await setSyncConfig(dav);
       setMsg('已保存并生效');
       setTimeout(() => setMsg(''), 1500);
     } catch (e) {
@@ -41,7 +47,7 @@ export default function SettingsDialog({ onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="bg-white rounded-lg shadow-xl w-[480px] flex flex-col"
+        className="bg-white rounded-lg shadow-xl w-[520px] max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b">
@@ -50,7 +56,7 @@ export default function SettingsDialog({ onClose }: Props) {
             ×
           </button>
         </div>
-        <div className="p-4 space-y-4 text-sm">
+        <div className="p-4 space-y-4 text-sm overflow-auto">
           <div>
             <div className="text-gray-600 mb-2">代理</div>
             <div className="space-y-2 pl-1">
@@ -100,6 +106,50 @@ export default function SettingsDialog({ onClose }: Props) {
                   />
                 </div>
               ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-gray-600 mb-2">WebDAV 同步（可选）</div>
+            <div className="space-y-2 pl-1">
+              <div>
+                <label className="text-xs text-gray-500">服务器地址</label>
+                <input
+                  className="w-full border rounded px-2 py-1 font-mono text-xs"
+                  placeholder="https://dav.jianguoyun.com/dav/  或  https://nextcloud.example.com/remote.php/dav/files/USER/"
+                  value={dav.url ?? ''}
+                  onChange={(e) => setDav({ ...dav, url: e.target.value })}
+                />
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500">用户名</label>
+                  <input
+                    className="w-full border rounded px-2 py-1 font-mono text-xs"
+                    value={dav.username ?? ''}
+                    onChange={(e) => setDav({ ...dav, username: e.target.value })}
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500">密码 / 应用授权码</label>
+                  <input
+                    type="password"
+                    className="w-full border rounded px-2 py-1 font-mono text-xs"
+                    value={dav.password ?? ''}
+                    onChange={(e) => setDav({ ...dav, password: e.target.value })}
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={dav.omitSecrets ?? false}
+                  onChange={(e) => setDav({ ...dav, omitSecrets: e.target.checked })}
+                />
+                不上传密钥变量的值（其他设备各自本地维护密钥）
+              </label>
+              <p className="text-xs text-gray-400">
+                快照存于远端 ApiRequest/ 目录，实体级"最后写入优先"合并；顶栏 ⇅ 手动触发。
+              </p>
             </div>
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}

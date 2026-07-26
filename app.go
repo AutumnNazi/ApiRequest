@@ -31,6 +31,7 @@ type App struct {
 	OAuth2   *binding.OAuth2Api
 	Settings *binding.SettingsApi
 	Grpc     *binding.GrpcApi
+	Sync     *binding.SyncApi
 }
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
@@ -66,6 +67,7 @@ func NewApp() *App {
 		OAuth2:    binding.NewOAuth2Api(),
 		Settings:  binding.NewSettingsApi(store, engine),
 		Grpc:      binding.NewGrpcApi(),
+		Sync:      binding.NewSyncApi(store, engine),
 	}
 }
 

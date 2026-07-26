@@ -931,3 +931,48 @@ export namespace runner {
 
 }
 
+export namespace sync {
+	
+	export class DavConfig {
+	    url: string;
+	    username: string;
+	    password: string;
+	    omitSecrets: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DavConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.omitSecrets = source["omitSecrets"];
+	    }
+	}
+	export class Report {
+	    pushed: number;
+	    pulled: number;
+	    deleted: number;
+	    remoteFresh: boolean;
+	    syncedAt: number;
+	    remote: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Report(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pushed = source["pushed"];
+	        this.pulled = source["pulled"];
+	        this.deleted = source["deleted"];
+	        this.remoteFresh = source["remoteFresh"];
+	        this.syncedAt = source["syncedAt"];
+	        this.remote = source["remote"];
+	    }
+	}
+
+}
+

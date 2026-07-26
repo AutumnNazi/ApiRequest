@@ -16,6 +16,7 @@ import {
   sendRequest,
   upsertNode,
   listNodes,
+  syncNow,
   toAppError,
   type Node,
   type SendContext,
@@ -42,6 +43,30 @@ export default function App() {
   const [showWs, setShowWs] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showGrpc, setShowGrpc] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+
+  const handleSync = async () => {
+    if (!workspace || syncing) return;
+    setSyncing(true);
+    setSyncMsg('');
+    try {
+      const r = await syncNow(workspace.id);
+      setSyncMsg(
+        r.remoteFresh
+          ? `已初始化远端（上传 ${r.pushed} 项）`
+          : `↑${r.pushed} ↓${r.pulled}${r.deleted ? ` 删${r.deleted}` : ''}`,
+      );
+      qc.invalidateQueries({ queryKey: ['nodes', workspace.id] });
+      qc.invalidateQueries({ queryKey: ['envs', workspace.id] });
+      qc.invalidateQueries({ queryKey: ['globals', workspace.id] });
+    } catch (e) {
+      setSyncMsg('同步失败：' + toAppError(e).detail);
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncMsg(''), 5000);
+    }
+  };
 
   // 首次进入自动开一个空标签
   useEffect(() => {
@@ -163,6 +188,21 @@ export default function App() {
         >
           gRPC
         </button>
+        <button
+          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 disabled:opacity-50"
+          onClick={handleSync}
+          disabled={syncing}
+          title="WebDAV 同步（先在 ⚙ 设置里配置）"
+        >
+          {syncing ? '⇅ 同步中…' : '⇅ 同步'}
+        </button>
+        {syncMsg && (
+          <span
+            className={`ml-2 text-xs ${syncMsg.startsWith('同步失败') ? 'text-red-500' : 'text-green-600'}`}
+          >
+            {syncMsg}
+          </span>
+        )}
         <button
           className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
           onClick={() => setShowSettings(true)}

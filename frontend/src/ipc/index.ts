@@ -12,8 +12,9 @@ import * as ProtocolApi from '../../wailsjs/go/binding/ProtocolApi';
 import * as OAuth2Api from '../../wailsjs/go/binding/OAuth2Api';
 import * as SettingsApi from '../../wailsjs/go/binding/SettingsApi';
 import * as GrpcApi from '../../wailsjs/go/binding/GrpcApi';
+import * as SyncApi from '../../wailsjs/go/binding/SyncApi';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient } from '../../wailsjs/go/models';
+import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient, sync } from '../../wailsjs/go/models';
 import { call } from './error';
 
 export type HttpRequest = model.HttpRequest;
@@ -196,6 +197,16 @@ export const grpcCall = (
   requestJSON: string,
   headers: Record<string, string> = {},
 ) => call(() => GrpcApi.GrpcCall(grpcclient.ConnectConfig.createFrom(cfg), fullMethod, requestJSON, headers));
+
+// ── WebDAV 同步 ──
+
+export type SyncDavConfig = sync.DavConfig;
+export type SyncReport = sync.Report;
+
+export const getSyncConfig = () => call(() => SyncApi.GetSyncConfig());
+export const setSyncConfig = (cfg: Partial<SyncDavConfig>) =>
+  call(() => SyncApi.SetSyncConfig(sync.DavConfig.createFrom(cfg)));
+export const syncNow = (workspaceId: string) => call(() => SyncApi.SyncNow(workspaceId));
 
 // ── 事件 ──
 
