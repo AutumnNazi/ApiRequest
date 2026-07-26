@@ -8,7 +8,7 @@ import AuthEditor from './AuthEditor';
 import CodegenDialog from './CodegenDialog';
 import type { Tab } from '../stores/tabs';
 import { useTabs } from '../stores/tabs';
-import type { Body } from '../ipc';
+import type { Body, KV } from '../ipc';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
@@ -28,7 +28,7 @@ interface Props {
 
 export default function RequestEditor({ tab, onSend, onSave }: Props) {
   const patchDraft = useTabs((s) => s.patchDraft);
-  const [pane, setPane] = useState<'params' | 'headers' | 'body' | 'auth' | 'scripts'>('params');
+  const [pane, setPane] = useState<'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings'>('params');
   const [scriptPhase, setScriptPhase] = useState<'pre' | 'test'>('pre');
   const [showCodegen, setShowCodegen] = useState(false);
   const d = tab.draft;
@@ -93,6 +93,7 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
             ['body', 'Body'],
             ['auth', `Auth${d.auth?.type && d.auth.type !== 'inherit' && d.auth.type !== 'none' ? ' •' : ''}`],
             ['scripts', `脚本${d.preScript || d.testScript ? ' •' : ''}`],
+            ['settings', '设置'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -120,16 +121,25 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
         {pane === 'body' && (
           <div className="flex flex-col gap-2 h-full">
             <div className="flex gap-3 text-sm">
-              {['none', 'raw'].map((k) => (
+              {(
+                [
+                  ['none', 'none'],
+                  ['raw', 'raw (JSON)'],
+                  ['urlencoded', 'x-www-form-urlencoded'],
+                  ['formdata', 'form-data'],
+                ] as const
+              ).map(([k, label]) => (
                 <label key={k} className="flex items-center gap-1">
                   <input
                     type="radio"
                     checked={(d.body?.kind ?? 'none') === k}
-                    onChange={() =>
-                      patchBody(k === 'raw' ? { kind: 'raw', language: 'json' } : { kind: 'none' })
-                    }
+                    onChange={() => {
+                      if (k === 'raw') patchBody({ kind: 'raw', language: 'json' });
+                      else if (k === 'none') patchBody({ kind: 'none' });
+                      else patchBody({ kind: k, items: d.body?.items ?? [] });
+                    }}
                   />
-                  {k === 'none' ? 'none' : 'raw (JSON)'}
+                  {label}
                 </label>
               ))}
             </div>
@@ -144,10 +154,91 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
                 />
               </div>
             )}
+            {(d.body?.kind === 'urlencoded' || d.body?.kind === 'formdata') && (
+              <KVTable
+                items={(d.body.items ?? []).map(
+                  (it) => ({ key: it.key, value: it.value ?? '', enabled: it.enabled }) as KV,
+                )}
+                onChange={(kvs) =>
+                  patchBody({
+                    items: kvs.map((kv) => ({
+                      key: kv.key,
+                      value: kv.value,
+                      type: 'text',
+                      enabled: kv.enabled,
+                    })),
+                  })
+                }
+              />
+            )}
           </div>
         )}
         {pane === 'auth' && (
           <AuthEditor auth={d.auth} onChange={(auth) => patchDraft(tab.id, { auth })} />
+        )}
+        {pane === 'settings' && (
+          <div className="space-y-3 max-w-md text-sm">
+            <div className="flex items-center gap-2">
+              <label className="text-gray-600 w-32">超时（毫秒）</label>
+              <input
+                type="number"
+                min={0}
+                className="border rounded px-2 py-1 w-32"
+                value={d.settings?.timeoutMs ?? 30000}
+                onChange={(e) =>
+                  patchDraft(tab.id, {
+                    settings: { ...d.settings, timeoutMs: Number(e.target.value) || 0 },
+                  })
+                }
+              />
+            </div>
+            <label className="flex items-center gap-2 text-gray-600">
+              <input
+                type="checkbox"
+                checked={d.settings?.followRedirects ?? true}
+                onChange={(e) =>
+                  patchDraft(tab.id, {
+                    settings: { ...d.settings, followRedirects: e.target.checked },
+                  })
+                }
+              />
+              跟随重定向
+            </label>
+            {d.settings?.followRedirects && (
+              <div className="flex items-center gap-2 pl-6">
+                <label className="text-gray-600 w-26">最大跳数</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  className="border rounded px-2 py-1 w-20"
+                  value={d.settings?.maxRedirects ?? 10}
+                  onChange={(e) =>
+                    patchDraft(tab.id, {
+                      settings: { ...d.settings, maxRedirects: Number(e.target.value) || 10 },
+                    })
+                  }
+                />
+              </div>
+            )}
+            <label className="flex items-center gap-2 text-gray-600">
+              <input
+                type="checkbox"
+                checked={d.settings?.verifyTls ?? true}
+                onChange={(e) =>
+                  patchDraft(tab.id, {
+                    settings: { ...d.settings, verifyTls: e.target.checked },
+                  })
+                }
+              />
+              校验 SSL 证书
+            </label>
+            {!(d.settings?.verifyTls ?? true) && (
+              <p className="text-xs text-red-500 pl-6">
+                ⚠ 关闭校验后连接可被中间人截获，仅限本地调试使用
+              </p>
+            )}
+          </div>
         )}
         {pane === 'scripts' && (
           <div className="flex flex-col gap-2 h-full">

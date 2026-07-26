@@ -1,3 +1,28 @@
+export namespace auth {
+	
+	export class Token {
+	    accessToken: string;
+	    refreshToken?: string;
+	    tokenType?: string;
+	    expiresAt?: number;
+	    scope?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Token(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.accessToken = source["accessToken"];
+	        this.refreshToken = source["refreshToken"];
+	        this.tokenType = source["tokenType"];
+	        this.expiresAt = source["expiresAt"];
+	        this.scope = source["scope"];
+	    }
+	}
+
+}
+
 export namespace binding {
 	
 	export class MockStatus {

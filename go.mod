@@ -7,6 +7,7 @@ require (
 	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347
 	github.com/google/uuid v1.6.0
 	github.com/wailsapp/wails/v2 v2.12.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.54.0
 )
 

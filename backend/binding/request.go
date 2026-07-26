@@ -45,6 +45,8 @@ func Startup(ctx context.Context, apis ...any) {
 			a.startup(ctx)
 		case *ProtocolApi:
 			a.startup(ctx)
+		case *OAuth2Api:
+			a.startup(ctx)
 		}
 	}
 }

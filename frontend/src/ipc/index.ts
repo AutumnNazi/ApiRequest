@@ -9,6 +9,7 @@ import * as RunnerApi from '../../wailsjs/go/binding/RunnerApi';
 import * as ExampleApi from '../../wailsjs/go/binding/ExampleApi';
 import * as MockApi from '../../wailsjs/go/binding/MockApi';
 import * as ProtocolApi from '../../wailsjs/go/binding/ProtocolApi';
+import * as OAuth2Api from '../../wailsjs/go/binding/OAuth2Api';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { model, convert, codegen, runner, mock, protocol, binding } from '../../wailsjs/go/models';
 import { call } from './error';
@@ -135,6 +136,13 @@ export const openSession = (sessionId: string, cfg: Partial<SessionConfig>) =>
 export const sendSessionMessage = (sessionId: string, data: string) =>
   call(() => ProtocolApi.SendMessage(sessionId, data));
 export const closeSession = (sessionId: string) => call(() => ProtocolApi.CloseSession(sessionId));
+
+// ── OAuth 2.0 ──
+
+export const getOAuth2Token = (params: Record<string, string>) =>
+  call(() => OAuth2Api.GetOAuth2Token(params));
+export const clearOAuth2Token = (params: Record<string, string>) =>
+  call(() => OAuth2Api.ClearOAuth2Token(params));
 
 // ── 事件 ──
 

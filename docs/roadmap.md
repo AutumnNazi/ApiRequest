@@ -11,9 +11,9 @@
 - [ ] HTTP 方法全集（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS + 自定义）
 - [ ] URL 与 Query 参数编辑（双向同步）
 - [ ] Header 编辑（含自动填充、批量编辑、禁用项）
-- [ ] Body：form-data / x-www-form-urlencoded / raw(JSON/XML/HTML/Text) / binary / GraphQL
-- [x] 认证：No Auth / Basic / Bearer / API Key / Digest / OAuth 1.0 / AWS Signature（OAuth 2.0 待做）
-- [ ] 请求级设置覆盖：超时、重定向、SSL 校验、编码
+- [x] Body：form-data / x-www-form-urlencoded / raw(JSON/XML/HTML/Text) / binary / GraphQL（binary/GraphQL 后端支持，UI 待补）
+- [x] 认证：No Auth / Basic / Bearer / API Key / Digest / OAuth 1.0 / OAuth 2.0 / AWS Signature
+- [x] 请求级设置覆盖：超时、重定向、SSL 校验
 
 ### 变量与环境
 - [x] 全局 / 集合 / 环境 / 本地多级变量
@@ -49,7 +49,7 @@
 - [ ] gRPC（后期）
 
 ### 互操作
-- [x] 导入：Postman v2.1 / cURL（OpenAPI / Swagger / HAR / Insomnia 待做）
+- [x] 导入：Postman v2.1 / OpenAPI 3.x / Swagger 2 / cURL / HAR（Insomnia 待做）
 - [x] 导出：Postman v2.1（OpenAPI / cURL 待做）
 - [x] 代码生成：cURL / JS fetch / Python requests / Go（更多语言待扩展）
 - [ ] 集合的 Git 友好文件镜像

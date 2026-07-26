@@ -28,6 +28,7 @@ type App struct {
 	Example  *binding.ExampleApi
 	Mock     *binding.MockApi
 	Protocol *binding.ProtocolApi
+	OAuth2   *binding.OAuth2Api
 }
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
@@ -59,11 +60,12 @@ func NewApp() *App {
 		Example:   binding.NewExampleApi(store),
 		Mock:      binding.NewMockApi(store, mocks),
 		Protocol:  binding.NewProtocolApi(protocols),
+		OAuth2:    binding.NewOAuth2Api(),
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
-	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol)
+	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2)
 }
 
 func (a *App) shutdown(ctx context.Context) {

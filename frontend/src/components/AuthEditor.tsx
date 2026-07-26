@@ -1,4 +1,6 @@
-// Auth 编辑：类型选择 + 按类型渲染参数表单
+// Auth 编辑：类型选择 + 按类型渲染参数表单；OAuth2 含"获取 Token"流程
+import { useState } from 'react';
+import { getOAuth2Token, clearOAuth2Token, toAppError } from '../ipc';
 import type { Auth } from '../ipc';
 
 const AUTH_TYPES: [string, string][] = [
@@ -9,6 +11,7 @@ const AUTH_TYPES: [string, string][] = [
   ['apikey', 'API Key'],
   ['digest', 'Digest'],
   ['oauth1', 'OAuth 1.0'],
+  ['oauth2', 'OAuth 2.0'],
   ['awsv4', 'AWS Signature V4'],
 ];
 
@@ -35,6 +38,16 @@ const FIELDS: Record<string, [string, string, boolean?][]> = {
     ['tokenSecret', 'Token Secret', true],
     ['signatureMethod', '签名方法（HMAC-SHA1/HMAC-SHA256）'],
   ],
+  oauth2: [
+    ['grantType', '授权模式（authorization_code/client_credentials/password）'],
+    ['authUrl', '授权端点（authorization_code 用）'],
+    ['tokenUrl', 'Token 端点'],
+    ['clientId', 'Client ID'],
+    ['clientSecret', 'Client Secret', true],
+    ['scope', 'Scope（可选）'],
+    ['username', '用户名（password 模式）'],
+    ['password', '密码（password 模式）', true],
+  ],
   awsv4: [
     ['accessKey', 'Access Key'],
     ['secretKey', 'Secret Key', true],
@@ -53,6 +66,31 @@ export default function AuthEditor({ auth, onChange }: Props) {
   const type = auth?.type ?? 'inherit';
   const params = auth?.params ?? {};
   const fields = FIELDS[type] ?? [];
+  const [tokenState, setTokenState] = useState<'idle' | 'fetching' | 'ok' | 'error'>('idle');
+  const [tokenMsg, setTokenMsg] = useState('');
+
+  const fetchToken = async () => {
+    setTokenState('fetching');
+    setTokenMsg(params.grantType === 'authorization_code' || !params.grantType
+      ? '已拉起浏览器，请完成授权…' : '');
+    try {
+      const tok = await getOAuth2Token(params);
+      onChange({ type, params: { ...params, accessToken: tok.accessToken } } as Auth);
+      setTokenState('ok');
+      setTokenMsg(`Token 已获取${tok.expiresAt ? '，' + new Date(tok.expiresAt).toLocaleTimeString() + ' 过期' : ''}`);
+    } catch (e) {
+      setTokenState('error');
+      setTokenMsg(toAppError(e).detail);
+    }
+  };
+
+  const clearToken = async () => {
+    await clearOAuth2Token(params);
+    const { accessToken: _drop, ...rest } = params;
+    onChange({ type, params: rest } as Auth);
+    setTokenState('idle');
+    setTokenMsg('');
+  };
 
   return (
     <div className="space-y-3 max-w-lg">
@@ -86,6 +124,34 @@ export default function AuthEditor({ auth, onChange }: Props) {
       ))}
       {type === 'inherit' && (
         <p className="text-xs text-gray-400">使用最近一级集合/文件夹上配置的认证。</p>
+      )}
+      {type === 'oauth2' && (
+        <div className="space-y-2 pt-1">
+          <div className="flex items-center gap-2">
+            <button
+              className="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700 disabled:opacity-50"
+              disabled={tokenState === 'fetching' || !params.tokenUrl}
+              onClick={fetchToken}
+            >
+              {tokenState === 'fetching' ? '获取中…' : '获取 Token'}
+            </button>
+            {params.accessToken && (
+              <>
+                <span className="text-xs text-green-600 font-mono">
+                  {params.accessToken.slice(0, 24)}…
+                </span>
+                <button className="text-xs text-red-500 hover:underline" onClick={clearToken}>
+                  清除
+                </button>
+              </>
+            )}
+          </div>
+          {tokenMsg && (
+            <p className={`text-xs ${tokenState === 'error' ? 'text-red-600' : 'text-gray-500'}`}>
+              {tokenMsg}
+            </p>
+          )}
+        </div>
       )}
       {fields.length > 0 && (
         <p className="text-xs text-gray-400">支持 {'{{变量}}'} 占位，发送时解析。</p>
