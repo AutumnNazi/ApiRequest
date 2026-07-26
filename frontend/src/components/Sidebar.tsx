@@ -64,10 +64,13 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   const [importing, setImporting] = useState(false);
   const [runnerTarget, setRunnerTarget] = useState<Node | null>(null);
   const [mockTarget, setMockTarget] = useState<Node | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const { data: nodes = [] } = useQuery({
     queryKey: ['nodes', workspaceId],
     queryFn: () => listNodes(workspaceId),
   });
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['nodes', workspaceId] });
 
   const createCollection = useMutation({
     mutationFn: () =>
@@ -76,31 +79,117 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         kind: 'collection',
         name: `新集合 ${nodes.filter((n) => n.kind === 'collection').length + 1}`,
       } as Node),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodes', workspaceId] }),
+    onSuccess: invalidate,
   });
 
   const del = useMutation({
     mutationFn: (nodeId: string) => deleteNode(nodeId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodes', workspaceId] }),
+    onSuccess: invalidate,
   });
 
-  const addRequest = useMutation({
-    mutationFn: (parentId: string) =>
+  const addChild = useMutation({
+    mutationFn: ({ parentId, kind }: { parentId: string; kind: 'request' | 'folder' }) =>
       upsertNode({
         workspaceId,
         parentId,
-        kind: 'request',
-        name: '新请求',
-        request: newDefaultRequest(),
+        kind,
+        name: kind === 'folder' ? '新文件夹' : '新请求',
+        ...(kind === 'request' ? { request: newDefaultRequest() } : {}),
       } as unknown as Node),
     onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ['nodes', workspaceId] });
-      if (created.request) openNode(created.id, created.name, created.request);
+      invalidate();
+      if (created.kind === 'request' && created.request) {
+        openNode(created.id, created.name, created.request);
+      }
     },
   });
 
-  const roots = nodes.filter((n) => !n.parentId);
-  const childrenOf = (id: string) => nodes.filter((n) => n.parentId === id);
+  const rename = useMutation({
+    mutationFn: (n: Node) => upsertNode(n),
+    onSuccess: invalidate,
+  });
+
+  const doRename = (n: Node) => {
+    const name = prompt('重命名：', n.name);
+    if (name && name !== n.name) rename.mutate({ ...n, name } as Node);
+  };
+
+  const toggle = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const childrenOf = (id: string) =>
+    nodes
+      .filter((n) => n.parentId === id)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+  const roots = nodes
+    .filter((n) => !n.parentId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+
+  // 递归渲染 folder/request
+  const renderChildren = (parentId: string, depth: number) =>
+    childrenOf(parentId).map((n) =>
+      n.kind === 'folder' ? (
+        <div key={n.id}>
+          <div
+            className="flex items-center group py-1 rounded hover:bg-gray-200 cursor-pointer"
+            style={{ paddingLeft: `${depth * 14 + 4}px` }}
+            onClick={() => toggle(n.id)}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              doRename(n);
+            }}
+          >
+            <span className="flex-1 truncate text-gray-700">
+              {collapsed.has(n.id) ? '📁' : '📂'} {n.name}
+            </span>
+            <button
+              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
+              title="添加请求"
+              onClick={(e) => {
+                e.stopPropagation();
+                addChild.mutate({ parentId: n.id, kind: 'request' });
+              }}
+            >
+              +
+            </button>
+            <button
+              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+              title="添加子文件夹"
+              onClick={(e) => {
+                e.stopPropagation();
+                addChild.mutate({ parentId: n.id, kind: 'folder' });
+              }}
+            >
+              📁+
+            </button>
+            <button
+              className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
+              title="删除"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm(`删除文件夹「${n.name}」及其内容？`)) del.mutate(n.id);
+              }}
+            >
+              ×
+            </button>
+          </div>
+          {!collapsed.has(n.id) && renderChildren(n.id, depth + 1)}
+        </div>
+      ) : (
+        <TreeLeaf
+          key={n.id}
+          node={n}
+          depth={depth}
+          onDelete={(id) => del.mutate(id)}
+          onRename={() => doRename(n)}
+        />
+      ),
+    );
 
   return (
     <div className="p-2 text-sm">
@@ -114,7 +203,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         <button
           className="border border-dashed rounded py-1.5 px-3 text-gray-500 hover:text-gray-800 hover:border-gray-400"
           onClick={() => setImporting(true)}
-          title="导入 Postman / cURL"
+          title="导入 Postman / OpenAPI / cURL / HAR / Insomnia"
         >
           导入
         </button>
@@ -140,33 +229,59 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       )}
       {roots.map((col) => (
         <div key={col.id} className="mb-1">
-          <div className="flex items-center group px-1 py-1 rounded hover:bg-gray-200">
-            <span className="font-medium flex-1 truncate">📁 {col.name}</span>
+          <div
+            className="flex items-center group px-1 py-1 rounded hover:bg-gray-200 cursor-pointer"
+            onClick={() => toggle(col.id)}
+            onDoubleClick={() => doRename(col)}
+          >
+            <span className="font-medium flex-1 truncate">
+              {collapsed.has(col.id) ? '📁' : '📂'} {col.name}
+            </span>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
               title="添加请求"
-              onClick={() => addRequest.mutate(col.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                addChild.mutate({ parentId: col.id, kind: 'request' });
+              }}
             >
               +
             </button>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+              title="添加文件夹"
+              onClick={(e) => {
+                e.stopPropagation();
+                addChild.mutate({ parentId: col.id, kind: 'folder' });
+              }}
+            >
+              📁+
+            </button>
+            <button
+              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
               title="Runner 批量运行"
-              onClick={() => setRunnerTarget(col)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setRunnerTarget(col);
+              }}
             >
               ▶
             </button>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
               title="Mock Server"
-              onClick={() => setMockTarget(col)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMockTarget(col);
+              }}
             >
               M
             </button>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
               title="导出为 Postman v2.1 JSON"
-              onClick={async () => {
+              onClick={async (e) => {
+                e.stopPropagation();
                 const out = await exportData(col.id, 'postman');
                 await navigator.clipboard.writeText(out);
                 alert('已复制 Postman v2.1 JSON 到剪贴板');
@@ -177,14 +292,15 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
               title="导出为 Git 友好目录镜像"
-              onClick={async () => {
+              onClick={async (e) => {
+                e.stopPropagation();
                 const dir = prompt('导出到目录（绝对路径）：', '');
                 if (!dir) return;
                 try {
                   await exportMirror(col.id, dir);
                   alert(`已导出镜像到 ${dir}`);
-                } catch (e) {
-                  alert('导出失败: ' + toAppError(e).detail);
+                } catch (err) {
+                  alert('导出失败: ' + toAppError(err).detail);
                 }
               }}
             >
@@ -193,31 +309,45 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             <button
               className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
               title="删除集合"
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 if (confirm(`删除集合「${col.name}」及其全部请求？`)) del.mutate(col.id);
               }}
             >
               ×
             </button>
           </div>
-          {childrenOf(col.id).map((child) => (
-            <TreeLeaf key={child.id} node={child} onDelete={(id) => del.mutate(id)} />
-          ))}
+          {!collapsed.has(col.id) && renderChildren(col.id, 1)}
         </div>
       ))}
     </div>
   );
 }
 
-function TreeLeaf({ node, onDelete }: { node: Node; onDelete(id: string): void }) {
+function TreeLeaf({
+  node,
+  depth,
+  onDelete,
+  onRename,
+}: {
+  node: Node;
+  depth: number;
+  onDelete(id: string): void;
+  onRename(): void;
+}) {
   const openNode = useTabs((s) => s.openNode);
-  if (node.kind !== 'request') return null; // Phase 1 不做嵌套 folder UI
+  if (node.kind !== 'request') return null;
   return (
     <div
-      className="flex items-center group pl-6 pr-1 py-1 rounded hover:bg-gray-200 cursor-pointer"
+      className="flex items-center group pr-1 py-1 rounded hover:bg-gray-200 cursor-pointer"
+      style={{ paddingLeft: `${depth * 14 + 4}px` }}
       onClick={() => node.request && openNode(node.id, node.name, node.request)}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onRename();
+      }}
     >
-      <span className={`text-xs font-semibold w-12 ${methodColor(node.request?.method)}`}>
+      <span className={`text-xs font-semibold w-12 shrink-0 ${methodColor(node.request?.method)}`}>
         {node.request?.method ?? 'GET'}
       </span>
       <span className="flex-1 truncate">{node.name}</span>

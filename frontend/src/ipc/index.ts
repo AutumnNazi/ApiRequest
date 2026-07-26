@@ -11,8 +11,9 @@ import * as MockApi from '../../wailsjs/go/binding/MockApi';
 import * as ProtocolApi from '../../wailsjs/go/binding/ProtocolApi';
 import * as OAuth2Api from '../../wailsjs/go/binding/OAuth2Api';
 import * as SettingsApi from '../../wailsjs/go/binding/SettingsApi';
+import * as GrpcApi from '../../wailsjs/go/binding/GrpcApi';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { model, convert, codegen, runner, mock, protocol, binding, httpengine } from '../../wailsjs/go/models';
+import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient } from '../../wailsjs/go/models';
 import { call } from './error';
 
 export type HttpRequest = model.HttpRequest;
@@ -180,6 +181,21 @@ export const getTLSSettings = () =>
   call(() => SettingsApi.GetTLSSettings()) as Promise<TLSSettings>;
 export const setTLSSettings = (s: TLSSettings) =>
   call(() => SettingsApi.SetTLSSettings(httpengine.TLSSettings.createFrom(s)));
+
+// ── gRPC ──
+
+export type GrpcConnectConfig = grpcclient.ConnectConfig;
+export type GrpcMethodInfo = grpcclient.MethodInfo;
+export type GrpcCallResult = grpcclient.CallResult;
+
+export const grpcDiscover = (cfg: Partial<GrpcConnectConfig>) =>
+  call(() => GrpcApi.GrpcDiscover(grpcclient.ConnectConfig.createFrom(cfg)));
+export const grpcCall = (
+  cfg: Partial<GrpcConnectConfig>,
+  fullMethod: string,
+  requestJSON: string,
+  headers: Record<string, string> = {},
+) => call(() => GrpcApi.GrpcCall(grpcclient.ConnectConfig.createFrom(cfg), fullMethod, requestJSON, headers));
 
 // ── 事件 ──
 

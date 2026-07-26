@@ -116,6 +116,69 @@ export namespace convert {
 
 }
 
+export namespace grpcclient {
+	
+	export class CallResult {
+	    response: string;
+	    durationMs: number;
+	    headers?: Record<string, string>;
+	    trailers?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new CallResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.response = source["response"];
+	        this.durationMs = source["durationMs"];
+	        this.headers = source["headers"];
+	        this.trailers = source["trailers"];
+	    }
+	}
+	export class ConnectConfig {
+	    target: string;
+	    useTls: boolean;
+	    insecureTls?: boolean;
+	    timeoutMs?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnectConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.target = source["target"];
+	        this.useTls = source["useTls"];
+	        this.insecureTls = source["insecureTls"];
+	        this.timeoutMs = source["timeoutMs"];
+	    }
+	}
+	export class MethodInfo {
+	    service: string;
+	    method: string;
+	    fullName: string;
+	    clientStream: boolean;
+	    serverStream: boolean;
+	    inputExample: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MethodInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.service = source["service"];
+	        this.method = source["method"];
+	        this.fullName = source["fullName"];
+	        this.clientStream = source["clientStream"];
+	        this.serverStream = source["serverStream"];
+	        this.inputExample = source["inputExample"];
+	    }
+	}
+
+}
+
 export namespace httpengine {
 	
 	export class TLSSettings {

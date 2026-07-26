@@ -37,6 +37,7 @@ func main() {
 			app.Protocol,
 			app.OAuth2,
 			app.Settings,
+			app.Grpc,
 		},
 	})
 

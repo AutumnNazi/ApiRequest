@@ -37,7 +37,7 @@
 
 ### 组织与管理
 - [x] 工作区（Workspace，多工作区切换/新建/改名/删除）
-- [ ] 集合 / 嵌套文件夹 / 请求树（嵌套 folder UI 待补，数据层已支持）
+- [x] 集合 / 嵌套文件夹 / 请求树（递归嵌套、展开折叠、双击重命名）
 - [x] 多标签页编辑
 - [x] 历史记录（可搜索、可重放、可清空）
 - [x] Cookie 管理器（Cookie Jar 查看编辑）
@@ -45,8 +45,8 @@
 ### 协议扩展
 - [x] WebSocket
 - [x] Server-Sent Events (SSE)
-- [ ] GraphQL（schema 内省 + 补全；body 已支持 graphql 类型）
-- [ ] gRPC（后期）
+- [ ] GraphQL schema 内省 + 补全（body 已支持 graphql 类型）
+- [x] gRPC（server reflection 发现 + dynamicpb 动态 unary 调用；流式待做）
 
 ### 互操作
 - [x] 导入：Postman v2.1 / OpenAPI 3.x / Swagger 2 / cURL / HAR / Insomnia
@@ -59,7 +59,7 @@
 - [x] Collection Runner（数据文件驱动、运行报告）
 - [x] 代理设置（系统/手动/直连）
 - [x] 自定义 TLS / 客户端证书（自定义 CA 追加信任 + mTLS）
-- [ ] 团队协作同步（可选）
+- [ ] 团队协作同步（可选；需自建远程服务端，见 sync.md 占位设计——单机功能全部完成后再评估）
 
 ---
 

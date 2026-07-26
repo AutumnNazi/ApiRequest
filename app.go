@@ -30,6 +30,7 @@ type App struct {
 	Protocol *binding.ProtocolApi
 	OAuth2   *binding.OAuth2Api
 	Settings *binding.SettingsApi
+	Grpc     *binding.GrpcApi
 }
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
@@ -64,6 +65,7 @@ func NewApp() *App {
 		Protocol:  binding.NewProtocolApi(protocols),
 		OAuth2:    binding.NewOAuth2Api(),
 		Settings:  binding.NewSettingsApi(store, engine),
+		Grpc:      binding.NewGrpcApi(),
 	}
 }
 
