@@ -29,7 +29,9 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Go vet
-        run: go vet ./backend/... .
+        # 仅 backend 包：根目录 main 包引入 Wails，在无 WebKitGTK 头文件的
+        # runner 上无法通过 CGO 编译；main 包由 desktop job 的 wails build 验证
+        run: go vet ./backend/...
 
       - name: Go tests
         run: go test ./backend/...
