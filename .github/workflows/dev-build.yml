@@ -34,7 +34,8 @@ jobs:
         run: go vet ./backend/...
 
       - name: Go tests
-        run: go test ./backend/...
+        # -v 输出便于从 UI 直接定位失败用例（API 日志需 admin 权限）
+        run: go test -v ./backend/...
 
   frontend:
     name: Frontend type-check & build

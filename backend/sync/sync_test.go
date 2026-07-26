@@ -159,10 +159,11 @@ func TestLWWConflictAndTombstone(t *testing.T) {
 	}
 
 	// 本地删除 victim（墓碑）后再同步：远端合并结果应保留墓碑
+	time.Sleep(20 * time.Millisecond) // 确保 deletedAt > 首次同步的 updatedAt（CI 低精度时钟容错）
 	if err := store.DeleteNode(n.Id); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(5 * time.Millisecond) // 保证时间戳前进
+	time.Sleep(20 * time.Millisecond)
 	if _, err := Sync(store, wsId, cfg); err != nil {
 		t.Fatal(err)
 	}
