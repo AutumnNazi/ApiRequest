@@ -19,7 +19,7 @@ const errorKindLabel: Record<string, string> = {
 };
 
 export default function ResponseViewer({ response, error, sending }: Props) {
-  const [pane, setPane] = useState<'body' | 'headers' | 'timing'>('body');
+  const [pane, setPane] = useState<'body' | 'headers' | 'tests' | 'timing'>('body');
   const [raw, setRaw] = useState(false);
 
   const pretty = useMemo(() => {
@@ -54,6 +54,15 @@ export default function ResponseViewer({ response, error, sending }: Props) {
   const statusColor =
     response.status < 300 ? 'text-green-600' : response.status < 400 ? 'text-yellow-600' : 'text-red-600';
 
+  const tests = response.testResults ?? [];
+  const passCount = tests.filter((t) => t.pass).length;
+  const testsLabel =
+    tests.length > 0
+      ? `测试 (${passCount}/${tests.length})`
+      : (response.scriptLogs ?? []).length > 0
+        ? '测试 (日志)'
+        : '测试';
+
   return (
     <div className="flex flex-col h-full">
       {/* 状态行 */}
@@ -63,6 +72,11 @@ export default function ResponseViewer({ response, error, sending }: Props) {
         </span>
         <span className="text-gray-500">{response.timing.totalMs.toFixed(0)} ms</span>
         <span className="text-gray-500">{formatSize(response.sizeBytes)}</span>
+        {tests.length > 0 && (
+          <span className={passCount === tests.length ? 'text-green-600' : 'text-red-600'}>
+            {passCount === tests.length ? '✓' : '✗'} {passCount}/{tests.length}
+          </span>
+        )}
       </div>
 
       {/* 页签 */}
@@ -71,6 +85,7 @@ export default function ResponseViewer({ response, error, sending }: Props) {
           [
             ['body', 'Body'],
             ['headers', `Headers (${response.headers.length})`],
+            ['tests', testsLabel],
             ['timing', '计时'],
           ] as const
         ).map(([key, label]) => (
@@ -114,8 +129,57 @@ export default function ResponseViewer({ response, error, sending }: Props) {
             </tbody>
           </table>
         )}
+        {pane === 'tests' && (
+          <TestsPane tests={tests} logs={response.scriptLogs ?? []} />
+        )}
         {pane === 'timing' && <TimingBars t={response.timing} />}
       </div>
+    </div>
+  );
+}
+
+function TestsPane({
+  tests,
+  logs,
+}: {
+  tests: NonNullable<ResponseResult['testResults']>;
+  logs: string[];
+}) {
+  if (tests.length === 0 && logs.length === 0) {
+    return <Center>此请求没有测试脚本；在编辑器"脚本"页签中添加</Center>;
+  }
+  return (
+    <div className="p-3 space-y-3 text-sm">
+      {tests.length > 0 && (
+        <div className="space-y-1">
+          {tests.map((t, i) => (
+            <div
+              key={i}
+              className={`flex items-start gap-2 px-2 py-1.5 rounded ${
+                t.pass ? 'bg-green-50' : 'bg-red-50'
+              }`}
+            >
+              <span className={t.pass ? 'text-green-600' : 'text-red-600'}>
+                {t.pass ? '✓' : '✗'}
+              </span>
+              <div className="min-w-0">
+                <div className={t.pass ? 'text-green-800' : 'text-red-800'}>{t.name}</div>
+                {t.error && (
+                  <div className="text-xs text-red-600 font-mono mt-0.5 break-all">{t.error}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {logs.length > 0 && (
+        <div>
+          <div className="text-xs text-gray-500 mb-1">控制台输出</div>
+          <pre className="bg-gray-50 border rounded p-2 text-xs font-mono whitespace-pre-wrap break-all">
+            {logs.join('\n')}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }

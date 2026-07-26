@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Sidebar from './components/Sidebar';
 import RequestEditor from './components/RequestEditor';
 import ResponseViewer from './components/ResponseViewer';
+import EnvSwitcher from './components/EnvSwitcher';
 import { useTabs } from './stores/tabs';
 import {
   getDefaultWorkspace,
@@ -125,6 +126,7 @@ export default function App() {
       <header className="flex items-center px-4 py-2 border-b bg-white">
         <h1 className="font-semibold text-sm">ApiRequest</h1>
         <span className="ml-3 text-xs text-gray-400">{workspace.name}</span>
+        <EnvSwitcher workspaceId={workspace.id} />
       </header>
 
       <div className="flex-1 flex min-h-0">

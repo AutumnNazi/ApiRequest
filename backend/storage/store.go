@@ -58,6 +58,23 @@ var migrations = []string{
 
 	CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 	`,
+	// 0002: Phase 2 环境与全局变量
+	`
+	CREATE TABLE environment (
+	  id            TEXT PRIMARY KEY,
+	  workspace_id  TEXT NOT NULL REFERENCES workspace(id),
+	  name          TEXT NOT NULL,
+	  variables     TEXT NOT NULL DEFAULT '[]',
+	  is_active     INTEGER NOT NULL DEFAULT 0,
+	  created_at    INTEGER NOT NULL,
+	  updated_at    INTEGER NOT NULL
+	);
+
+	CREATE TABLE global_var (
+	  workspace_id  TEXT PRIMARY KEY REFERENCES workspace(id),
+	  variables     TEXT NOT NULL DEFAULT '[]'
+	);
+	`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录

@@ -28,6 +28,7 @@ func main() {
 			app.Request,
 			app.Node,
 			app.History,
+			app.Env,
 		},
 	})
 

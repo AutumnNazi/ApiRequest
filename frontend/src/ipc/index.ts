@@ -2,6 +2,7 @@
 import * as RequestApi from '../../wailsjs/go/binding/RequestApi';
 import * as NodeApi from '../../wailsjs/go/binding/NodeApi';
 import * as HistoryApi from '../../wailsjs/go/binding/HistoryApi';
+import * as EnvApi from '../../wailsjs/go/binding/EnvApi';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { model } from '../../wailsjs/go/models';
 import { call } from './error';
@@ -16,6 +17,9 @@ export type HistoryQuery = model.HistoryQuery;
 export type KV = model.KV;
 export type Body = model.Body;
 export type Timing = model.Timing;
+export type Environment = model.Environment;
+export type Variable = model.Variable;
+export type TestResult = model.TestResult;
 
 export { toAppError } from './error';
 export type { AppError, ErrorKind } from './error';
@@ -41,6 +45,19 @@ export const moveNode = (nodeId: string, newParentId: string, sortOrder: number)
 export const listHistory = (workspaceId: string, q: Partial<HistoryQuery> = {}) =>
   call(() => HistoryApi.ListHistory(workspaceId, model.HistoryQuery.createFrom(q)));
 export const clearHistory = (workspaceId: string) => call(() => HistoryApi.ClearHistory(workspaceId));
+
+// ── 环境与全局变量 ──
+
+export const listEnvironments = (workspaceId: string) =>
+  call(() => EnvApi.ListEnvironments(workspaceId));
+export const upsertEnvironment = (env: Environment) => call(() => EnvApi.UpsertEnvironment(env));
+export const deleteEnvironment = (envId: string) => call(() => EnvApi.DeleteEnvironment(envId));
+export const setActiveEnvironment = (workspaceId: string, envId: string) =>
+  call(() => EnvApi.SetActiveEnvironment(workspaceId, envId));
+export const getGlobalVariables = (workspaceId: string) =>
+  call(() => EnvApi.GetGlobalVariables(workspaceId));
+export const setGlobalVariables = (workspaceId: string, vars: Variable[]) =>
+  call(() => EnvApi.SetGlobalVariables(workspaceId, vars));
 
 // ── 事件 ──
 

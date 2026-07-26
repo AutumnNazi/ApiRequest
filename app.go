@@ -17,6 +17,7 @@ type App struct {
 	Request *binding.RequestApi
 	Node    *binding.NodeApi
 	History *binding.HistoryApi
+	Env     *binding.EnvApi
 }
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
@@ -35,6 +36,7 @@ func NewApp() *App {
 		Request: binding.NewRequestApi(engine, store),
 		Node:    binding.NewNodeApi(store),
 		History: binding.NewHistoryApi(store),
+		Env:     binding.NewEnvApi(store),
 	}
 }
 

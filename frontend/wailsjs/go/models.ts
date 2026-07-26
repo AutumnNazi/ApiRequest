@@ -100,6 +100,66 @@ export namespace model {
 	        this.secure = source["secure"];
 	    }
 	}
+	export class Variable {
+	    key: string;
+	    value: string;
+	    type: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Variable(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.value = source["value"];
+	        this.type = source["type"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	export class Environment {
+	    id: string;
+	    workspaceId: string;
+	    name: string;
+	    variables: Variable[];
+	    isActive: boolean;
+	    createdAt: number;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Environment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.workspaceId = source["workspaceId"];
+	        this.name = source["name"];
+	        this.variables = this.convertValues(source["variables"], Variable);
+	        this.isActive = source["isActive"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class TestResult {
 	    name: string;
@@ -183,6 +243,8 @@ export namespace model {
 	    body: Body;
 	    auth: Auth;
 	    settings: RequestSettings;
+	    preScript?: string;
+	    testScript?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new HttpRequest(source);
@@ -197,6 +259,8 @@ export namespace model {
 	        this.body = this.convertValues(source["body"], Body);
 	        this.auth = this.convertValues(source["auth"], Auth);
 	        this.settings = this.convertValues(source["settings"], RequestSettings);
+	        this.preScript = source["preScript"];
+	        this.testScript = source["testScript"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -287,24 +351,6 @@ export namespace model {
 	}
 	
 	
-	export class Variable {
-	    key: string;
-	    value: string;
-	    type: string;
-	    enabled: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new Variable(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.key = source["key"];
-	        this.value = source["value"];
-	        this.type = source["type"];
-	        this.enabled = source["enabled"];
-	    }
-	}
 	export class Node {
 	    id: string;
 	    workspaceId: string;

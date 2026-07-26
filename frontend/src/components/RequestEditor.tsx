@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
+import { javascript } from '@codemirror/lang-javascript';
 import KVTable from './KVTable';
 import type { Tab } from '../stores/tabs';
 import { useTabs } from '../stores/tabs';
@@ -25,7 +26,8 @@ interface Props {
 
 export default function RequestEditor({ tab, onSend, onSave }: Props) {
   const patchDraft = useTabs((s) => s.patchDraft);
-  const [pane, setPane] = useState<'params' | 'headers' | 'body'>('params');
+  const [pane, setPane] = useState<'params' | 'headers' | 'body' | 'scripts'>('params');
+  const [scriptPhase, setScriptPhase] = useState<'pre' | 'test'>('pre');
   const d = tab.draft;
 
   const patchBody = (patch: Partial<Body>) =>
@@ -78,6 +80,7 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
             ['params', `Params${countEnabled(d.params)}`],
             ['headers', `Headers${countEnabled(d.headers)}`],
             ['body', 'Body'],
+            ['scripts', `脚本${d.preScript || d.testScript ? ' •' : ''}`],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -129,6 +132,46 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
                 />
               </div>
             )}
+          </div>
+        )}
+        {pane === 'scripts' && (
+          <div className="flex flex-col gap-2 h-full">
+            <div className="flex gap-3 text-sm">
+              {(
+                [
+                  ['pre', `前置脚本${d.preScript ? ' •' : ''}`],
+                  ['test', `测试脚本${d.testScript ? ' •' : ''}`],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    checked={scriptPhase === key}
+                    onChange={() => setScriptPhase(key)}
+                  />
+                  {label}
+                </label>
+              ))}
+              <span className="text-xs text-gray-400 ml-auto self-center">
+                可用 pm.environment / pm.test / pm.expect / console.log
+              </span>
+            </div>
+            <div className="flex-1 border rounded overflow-hidden">
+              <CodeMirror
+                height="100%"
+                style={{ height: '100%' }}
+                value={(scriptPhase === 'pre' ? d.preScript : d.testScript) ?? ''}
+                extensions={[javascript()]}
+                placeholder={
+                  scriptPhase === 'pre'
+                    ? `// 发送前执行，例如：\npm.environment.set('ts', Date.now());`
+                    : `// 响应后执行，例如：\npm.test('status is 200', function () {\n  pm.expect(pm.response.code).to.equal(200);\n});`
+                }
+                onChange={(text) =>
+                  patchDraft(tab.id, scriptPhase === 'pre' ? { preScript: text } : { testScript: text })
+                }
+              />
+            </div>
           </div>
         )}
       </div>

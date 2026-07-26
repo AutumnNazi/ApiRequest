@@ -10,7 +10,9 @@ import (
 
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
+	"apirequest/backend/script"
 	"apirequest/backend/storage"
+	"apirequest/backend/template"
 )
 
 // RequestApi 请求执行域
@@ -49,7 +51,9 @@ func (a *RequestApi) emitProgress(sendId, phase string) {
 	}
 }
 
-// SendRequest 执行请求并落历史。sendId 由前端生成，用于关联进度事件与取消。
+// SendRequest 执行完整请求生命周期（docs/request-lifecycle.md §1）：
+// 收集上下文 → 前置脚本 → 变量解析 → 发送 → 测试脚本 → 变量持久化 → 落历史。
+// sendId 由前端生成，用于关联进度事件与取消。
 func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx model.SendContext) (model.ResponseResult, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()
@@ -61,23 +65,76 @@ func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx m
 		a.mu.Unlock()
 	}()
 
+	var zero model.ResponseResult
+
+	// 1. 收集上下文（变量作用域 + 脚本继承链）
+	ec, err := collectContext(a.store, req, sendCtx)
+	if err != nil {
+		return zero, err
+	}
+	sandbox := script.NewSandbox(scriptTimeout, ec.scope.Snapshot(), ec.envVars, ec.colVars, ec.globalVars)
+
+	// 2. 前置脚本（根→叶→请求级；可改请求与变量）
+	sandbox.SetRequest(&req)
+	for _, code := range ec.preScripts {
+		if serr := sandbox.Run(code, "pre"); serr != nil {
+			return zero, serr
+		}
+	}
+	// 脚本 set 的变量并入作用域（最高优先级层之下已合并于 merged 视图）
+	preResult := sandbox.Result()
+	for _, c := range []*script.VarChanges{preResult.GlobalChanges, preResult.CollectionChanges, preResult.EnvChanges} {
+		ec.scope.PushMap(c.Set)
+		for k := range c.Unset {
+			ec.scope.Unset(k)
+		}
+	}
+
+	// 3. 变量解析
+	resolved := template.ResolveRequest(req, ec.scope)
+
+	// 4-5. 发送
 	a.emitProgress(sendId, "sending")
-	res, err := a.engine.Send(ctx, req)
+	res, err := a.engine.Send(ctx, resolved)
 	a.emitProgress(sendId, "done")
 	if err != nil {
 		return res, model.WrapError(model.KindNetwork, err)
 	}
 
-	// 落历史（失败不阻断响应返回，仅附带告知）
+	// 6. 测试脚本（继承链 + 请求级）
+	sandbox.SetResponse(&res)
+	var scriptErr error
+	for _, code := range ec.testScripts {
+		if serr := sandbox.Run(code, "test"); serr != nil {
+			scriptErr = serr
+			break // 脚本异常中止后续段；已收集的断言结果仍返回
+		}
+	}
+	r := sandbox.Result()
+	res.TestResults = r.TestResults
+	res.ScriptLogs = r.Logs
+	if scriptErr != nil {
+		if ae, ok := scriptErr.(*model.AppError); ok {
+			res.ScriptLogs = append(res.ScriptLogs, "[error] "+ae.Detail)
+		}
+	}
+
+	// 7. 变量变更持久化（Go 统一提交）
+	if perr := persistVariableChanges(a.store, ec, sendCtx.WorkspaceId, r); perr != nil {
+		res.ScriptLogs = append(res.ScriptLogs, "[error] persist variables: "+perr.Error())
+	}
+
+	// 8. 落历史（存已解析请求快照；失败不阻断响应返回）
 	histId, herr := a.store.InsertHistory(model.HistoryItem{
 		WorkspaceId: sendCtx.WorkspaceId,
-		RequestSnap: req,
+		RequestSnap: resolved,
 		Status:      res.Status,
 		DurationMs:  int64(res.Timing.TotalMs),
 		SizeBytes:   res.SizeBytes,
 		Timing:      res.Timing,
 		RespHeaders: res.Headers,
 		BodyInline:  res.Body.Text,
+		TestResults: res.TestResults,
 	})
 	if herr == nil {
 		res.HistoryId = histId

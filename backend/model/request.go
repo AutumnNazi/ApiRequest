@@ -67,6 +67,9 @@ type HttpRequest struct {
 	Body     Body            `json:"body"`
 	Auth     Auth            `json:"auth"`
 	Settings RequestSettings `json:"settings"`
+	// 请求级脚本（集合/文件夹级的在 Node 上，执行时继承合并）
+	PreScript  string `json:"preScript,omitempty"`
+	TestScript string `json:"testScript,omitempty"`
 }
 
 // SendContext 发送上下文（前端组装后传给 SendRequest）
