@@ -6,9 +6,11 @@ import {
   upsertNode,
   deleteNode,
   listHistory,
+  exportData,
   type Node,
   type HistoryItem,
 } from '../ipc';
+import ImportDialog from './ImportDialog';
 import { useTabs } from '../stores/tabs';
 import { newDefaultRequest } from '../ipc';
 
@@ -54,6 +56,7 @@ export default function Sidebar({ workspaceId }: Props) {
 function CollectionTree({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
   const openNode = useTabs((s) => s.openNode);
+  const [importing, setImporting] = useState(false);
   const { data: nodes = [] } = useQuery({
     queryKey: ['nodes', workspaceId],
     queryFn: () => listNodes(workspaceId),
@@ -94,12 +97,22 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="p-2 text-sm">
-      <button
-        className="w-full border border-dashed rounded py-1.5 text-gray-500 hover:text-gray-800 hover:border-gray-400 mb-2"
-        onClick={() => createCollection.mutate()}
-      >
-        + 新建集合
-      </button>
+      <div className="flex gap-1 mb-2">
+        <button
+          className="flex-1 border border-dashed rounded py-1.5 text-gray-500 hover:text-gray-800 hover:border-gray-400"
+          onClick={() => createCollection.mutate()}
+        >
+          + 新建集合
+        </button>
+        <button
+          className="border border-dashed rounded py-1.5 px-3 text-gray-500 hover:text-gray-800 hover:border-gray-400"
+          onClick={() => setImporting(true)}
+          title="导入 Postman / cURL"
+        >
+          导入
+        </button>
+      </div>
+      {importing && <ImportDialog workspaceId={workspaceId} onClose={() => setImporting(false)} />}
       {roots.length === 0 && (
         <p className="text-gray-400 text-center py-6 text-xs">还没有集合，点击上方创建</p>
       )}
@@ -113,6 +126,17 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
               onClick={() => addRequest.mutate(col.id)}
             >
               +
+            </button>
+            <button
+              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+              title="导出为 Postman v2.1 JSON"
+              onClick={async () => {
+                const out = await exportData(col.id, 'postman');
+                await navigator.clipboard.writeText(out);
+                alert('已复制 Postman v2.1 JSON 到剪贴板');
+              }}
+            >
+              ⇪
             </button>
             <button
               className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"

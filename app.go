@@ -18,6 +18,8 @@ type App struct {
 	Node    *binding.NodeApi
 	History *binding.HistoryApi
 	Env     *binding.EnvApi
+	Cookie  *binding.CookieApi
+	Convert *binding.ConvertApi
 }
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
@@ -37,6 +39,8 @@ func NewApp() *App {
 		Node:    binding.NewNodeApi(store),
 		History: binding.NewHistoryApi(store),
 		Env:     binding.NewEnvApi(store),
+		Cookie:  binding.NewCookieApi(store),
+		Convert: binding.NewConvertApi(store),
 	}
 }
 

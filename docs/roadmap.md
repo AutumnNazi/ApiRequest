@@ -12,7 +12,7 @@
 - [ ] URL 与 Query 参数编辑（双向同步）
 - [ ] Header 编辑（含自动填充、批量编辑、禁用项）
 - [ ] Body：form-data / x-www-form-urlencoded / raw(JSON/XML/HTML/Text) / binary / GraphQL
-- [ ] 认证：No Auth / Basic / Bearer / API Key / Digest / OAuth 1.0 / OAuth 2.0 / AWS Signature
+- [x] 认证：No Auth / Basic / Bearer / API Key / Digest / OAuth 1.0 / AWS Signature（OAuth 2.0 待做）
 - [ ] 请求级设置覆盖：超时、重定向、SSL 校验、编码
 
 ### 变量与环境
@@ -40,7 +40,7 @@
 - [ ] 集合 / 嵌套文件夹 / 请求树
 - [ ] 多标签页编辑
 - [ ] 历史记录（可搜索、可重放）
-- [ ] Cookie 管理器（Cookie Jar 查看编辑）
+- [x] Cookie 管理器（Cookie Jar 查看编辑）
 
 ### 协议扩展
 - [ ] WebSocket
@@ -49,9 +49,9 @@
 - [ ] gRPC（后期）
 
 ### 互操作
-- [ ] 导入：Postman v2.1 / OpenAPI / Swagger / cURL / HAR / Insomnia
-- [ ] 导出：Postman v2.1 / OpenAPI / cURL
-- [ ] 代码生成：多语言片段
+- [x] 导入：Postman v2.1 / cURL（OpenAPI / Swagger / HAR / Insomnia 待做）
+- [x] 导出：Postman v2.1（OpenAPI / cURL 待做）
+- [x] 代码生成：cURL / JS fetch / Python requests / Go（更多语言待扩展）
 - [ ] 集合的 Git 友好文件镜像
 
 ### 高级

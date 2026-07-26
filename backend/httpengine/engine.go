@@ -17,8 +17,19 @@ import (
 	"strings"
 	"time"
 
+	"apirequest/backend/auth"
 	"apirequest/backend/model"
 )
+
+// authProviderTwoPhase 判断该类型是否为两段式认证
+func authProviderTwoPhase(authType string) (auth.TwoPhaseProvider, bool) {
+	p, err := auth.Get(authType)
+	if err != nil || p == nil {
+		return nil, false
+	}
+	tp, ok := p.(auth.TwoPhaseProvider)
+	return tp, ok
+}
 
 // inlineBodyLimit 超过该字节数的响应体不内联返回，落 blobs/（Phase 1 先内联截断，
 // blob 写入在 binding 层接 storage 后启用）
@@ -49,6 +60,9 @@ func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.Respons
 	if err != nil {
 		return res, model.WrapError(model.KindValidation, err)
 	}
+	if err := auth.Apply(httpReq, req.Auth); err != nil {
+		return res, model.WrapError(model.KindValidation, err)
+	}
 
 	tr := newTraceTimer()
 	httpReq = httpReq.WithContext(httptrace.WithClientTrace(httpReq.Context(), tr.clientTrace()))
@@ -65,6 +79,42 @@ func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.Respons
 			kind = model.KindTls
 		}
 		return res, model.WrapError(kind, err)
+	}
+
+	// 两段式认证（Digest）：401 + 挑战头 → 重新签名重发一次
+	if resp.StatusCode == http.StatusUnauthorized {
+		if tp, ok := authProviderTwoPhase(req.Auth.Type); ok {
+			challenge := resp.Header.Get("WWW-Authenticate")
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+
+			retryReq, rerr := e.buildRequest(ctx, req)
+			if rerr != nil {
+				return res, model.WrapError(model.KindValidation, rerr)
+			}
+			handled, herr := tp.OnChallenge(retryReq, challenge, req.Auth.Params)
+			if herr != nil {
+				return res, model.WrapError(model.KindValidation, herr)
+			}
+			if handled {
+				tr = newTraceTimer() // 重置计时：以第二次请求为准
+				retryReq = retryReq.WithContext(httptrace.WithClientTrace(retryReq.Context(), tr.clientTrace()))
+				start = time.Now()
+				resp, err = client.Do(retryReq)
+				if err != nil {
+					if ctx.Err() == context.Canceled {
+						return res, model.NewError(model.KindNetwork, "canceled")
+					}
+					return res, model.WrapError(model.KindNetwork, err)
+				}
+			} else {
+				// 无法处理挑战：重新请求一次拿回原始 401 响应体
+				resp, err = client.Do(retryReq)
+				if err != nil {
+					return res, model.WrapError(model.KindNetwork, err)
+				}
+			}
+		}
 	}
 	defer resp.Body.Close()
 

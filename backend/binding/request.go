@@ -90,8 +90,12 @@ func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx m
 		}
 	}
 
-	// 3. 变量解析
+	// 3. 变量解析（含集合级 auth 继承）
+	resolveInheritedAuth(&req, ec.ancestors)
 	resolved := template.ResolveRequest(req, ec.scope)
+
+	// 3.5 Cookie Jar：为目标 host 注入存储的 cookie（用户已手写 Cookie 头则不覆盖）
+	attachCookies(a.store, &resolved)
 
 	// 4-5. 发送
 	a.emitProgress(sendId, "sending")
@@ -100,6 +104,9 @@ func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx m
 	if err != nil {
 		return res, model.WrapError(model.KindNetwork, err)
 	}
+
+	// 5.5 响应 Set-Cookie 写回 Jar
+	persistCookies(a.store, resolved.Url, res.Cookies)
 
 	// 6. 测试脚本（继承链 + 请求级）
 	sandbox.SetResponse(&res)

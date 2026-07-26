@@ -161,3 +161,17 @@ func applyChanges(vars []model.Variable, c *script.VarChanges) []model.Variable 
 	}
 	return out
 }
+
+// resolveInheritedAuth 请求 auth 为 inherit/空时，沿祖先链（叶→根）找最近的显式 auth
+func resolveInheritedAuth(req *model.HttpRequest, ancestors []model.Node) {
+	if req.Auth.Type != "" && req.Auth.Type != "inherit" {
+		return
+	}
+	for _, n := range ancestors {
+		if n.Auth != nil && n.Auth.Type != "" && n.Auth.Type != "inherit" && n.Auth.Type != "none" {
+			req.Auth = *n.Auth
+			return
+		}
+	}
+	req.Auth = model.Auth{Type: "none"}
+}

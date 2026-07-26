@@ -1,10 +1,11 @@
 // 主应用：三栏布局（侧栏 / 多标签编辑区 / 响应区），发送与保存动作在此编排
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Sidebar from './components/Sidebar';
 import RequestEditor from './components/RequestEditor';
 import ResponseViewer from './components/ResponseViewer';
 import EnvSwitcher from './components/EnvSwitcher';
+import CookieManager from './components/CookieManager';
 import { useTabs } from './stores/tabs';
 import {
   getDefaultWorkspace,
@@ -28,6 +29,7 @@ export default function App() {
     queryKey: ['workspace'],
     queryFn: getDefaultWorkspace,
   });
+  const [showCookies, setShowCookies] = useState(false);
 
   // 首次进入自动开一个空标签
   useEffect(() => {
@@ -126,8 +128,15 @@ export default function App() {
       <header className="flex items-center px-4 py-2 border-b bg-white">
         <h1 className="font-semibold text-sm">ApiRequest</h1>
         <span className="ml-3 text-xs text-gray-400">{workspace.name}</span>
+        <button
+          className="ml-4 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+          onClick={() => setShowCookies(true)}
+        >
+          Cookies
+        </button>
         <EnvSwitcher workspaceId={workspace.id} />
       </header>
+      {showCookies && <CookieManager onClose={() => setShowCookies(false)} />}
 
       <div className="flex-1 flex min-h-0">
         {/* 侧栏 */}

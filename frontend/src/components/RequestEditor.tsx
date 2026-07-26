@@ -4,6 +4,8 @@ import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import { javascript } from '@codemirror/lang-javascript';
 import KVTable from './KVTable';
+import AuthEditor from './AuthEditor';
+import CodegenDialog from './CodegenDialog';
 import type { Tab } from '../stores/tabs';
 import { useTabs } from '../stores/tabs';
 import type { Body } from '../ipc';
@@ -26,8 +28,9 @@ interface Props {
 
 export default function RequestEditor({ tab, onSend, onSave }: Props) {
   const patchDraft = useTabs((s) => s.patchDraft);
-  const [pane, setPane] = useState<'params' | 'headers' | 'body' | 'scripts'>('params');
+  const [pane, setPane] = useState<'params' | 'headers' | 'body' | 'auth' | 'scripts'>('params');
   const [scriptPhase, setScriptPhase] = useState<'pre' | 'test'>('pre');
+  const [showCodegen, setShowCodegen] = useState(false);
   const d = tab.draft;
 
   const patchBody = (patch: Partial<Body>) =>
@@ -71,7 +74,15 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
         >
           保存{tab.dirty ? ' •' : ''}
         </button>
+        <button
+          className="border rounded px-3 py-1.5 text-sm hover:bg-gray-50 text-gray-500"
+          onClick={() => setShowCodegen(true)}
+          title="生成代码片段"
+        >
+          {'</>'}
+        </button>
       </div>
+      {showCodegen && <CodegenDialog request={d} onClose={() => setShowCodegen(false)} />}
 
       {/* 页签 */}
       <div className="flex gap-4 px-3 pt-2 border-b text-sm">
@@ -80,6 +91,7 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
             ['params', `Params${countEnabled(d.params)}`],
             ['headers', `Headers${countEnabled(d.headers)}`],
             ['body', 'Body'],
+            ['auth', `Auth${d.auth?.type && d.auth.type !== 'inherit' && d.auth.type !== 'none' ? ' •' : ''}`],
             ['scripts', `脚本${d.preScript || d.testScript ? ' •' : ''}`],
           ] as const
         ).map(([key, label]) => (
@@ -133,6 +145,9 @@ export default function RequestEditor({ tab, onSend, onSave }: Props) {
               </div>
             )}
           </div>
+        )}
+        {pane === 'auth' && (
+          <AuthEditor auth={d.auth} onChange={(auth) => patchDraft(tab.id, { auth })} />
         )}
         {pane === 'scripts' && (
           <div className="flex flex-col gap-2 h-full">

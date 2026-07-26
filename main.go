@@ -29,6 +29,8 @@ func main() {
 			app.Node,
 			app.History,
 			app.Env,
+			app.Cookie,
+			app.Convert,
 		},
 	})
 

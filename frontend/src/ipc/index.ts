@@ -3,8 +3,10 @@ import * as RequestApi from '../../wailsjs/go/binding/RequestApi';
 import * as NodeApi from '../../wailsjs/go/binding/NodeApi';
 import * as HistoryApi from '../../wailsjs/go/binding/HistoryApi';
 import * as EnvApi from '../../wailsjs/go/binding/EnvApi';
+import * as CookieApi from '../../wailsjs/go/binding/CookieApi';
+import * as ConvertApi from '../../wailsjs/go/binding/ConvertApi';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { model } from '../../wailsjs/go/models';
+import { model, convert, codegen } from '../../wailsjs/go/models';
 import { call } from './error';
 
 export type HttpRequest = model.HttpRequest;
@@ -20,6 +22,10 @@ export type Timing = model.Timing;
 export type Environment = model.Environment;
 export type Variable = model.Variable;
 export type TestResult = model.TestResult;
+export type Cookie = model.Cookie;
+export type Auth = model.Auth;
+export type ImportResult = convert.ImportResult;
+export type CodegenTarget = codegen.Target;
 
 export { toAppError } from './error';
 export type { AppError, ErrorKind } from './error';
@@ -58,6 +64,26 @@ export const getGlobalVariables = (workspaceId: string) =>
   call(() => EnvApi.GetGlobalVariables(workspaceId));
 export const setGlobalVariables = (workspaceId: string, vars: Variable[]) =>
   call(() => EnvApi.SetGlobalVariables(workspaceId, vars));
+
+// ── Cookie ──
+
+export const listCookies = (domain = '') => call(() => CookieApi.ListCookies(domain));
+export const upsertCookie = (c: Cookie) => call(() => CookieApi.UpsertCookie(c));
+export const deleteCookie = (domain: string, path: string, name: string) =>
+  call(() => CookieApi.DeleteCookie(domain, path, name));
+export const clearCookies = (domain = '') => call(() => CookieApi.ClearCookies(domain));
+
+// ── 导入导出与代码生成 ──
+
+export const importPreview = (format: string, payload: string) =>
+  call(() => ConvertApi.ImportPreview(format, payload));
+export const importCommit = (workspaceId: string, res: ImportResult) =>
+  call(() => ConvertApi.ImportCommit(workspaceId, res));
+export const exportData = (collectionId: string, format: string) =>
+  call(() => ConvertApi.ExportData(collectionId, format));
+export const codegenTargets = () => call(() => ConvertApi.CodegenTargets());
+export const generateCode = (target: string, req: HttpRequest) =>
+  call(() => ConvertApi.GenerateCode(target, req));
 
 // ── 事件 ──
 

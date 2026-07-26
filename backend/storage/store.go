@@ -75,6 +75,21 @@ var migrations = []string{
 	  variables     TEXT NOT NULL DEFAULT '[]'
 	);
 	`,
+	// 0003: Phase 3 Cookie Jar（跨工作区全局共享，与浏览器行为一致）
+	`
+	CREATE TABLE cookie (
+	  id          TEXT PRIMARY KEY,
+	  domain      TEXT NOT NULL,
+	  path        TEXT NOT NULL DEFAULT '/',
+	  name        TEXT NOT NULL,
+	  value       TEXT NOT NULL,
+	  expires_at  INTEGER,
+	  http_only   INTEGER NOT NULL DEFAULT 0,
+	  secure      INTEGER NOT NULL DEFAULT 0,
+	  same_site   TEXT,
+	  UNIQUE(domain, path, name)
+	);
+	`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录
