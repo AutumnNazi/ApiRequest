@@ -20,6 +20,7 @@
   <a href="https://wails.io"><img src="https://img.shields.io/badge/Wails-v2-red?style=flat-square" alt="Wails" /></a>
   <a href="https://reactjs.org"><img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" /></a>
+  <a href="https://github.com/AutumnNazi/ApiRequest/actions/workflows/dev-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/AutumnNazi/ApiRequest/dev-build.yml?branch=dev&style=flat-square&label=Build" alt="Build" /></a>
 </p>
 
 <p align="center">
@@ -198,9 +199,9 @@ Design docs live in [`docs/`](docs/) — start at [docs/index.md](docs/index.md)
 
 ## 🤝 Contributing
 
-Issues and PRs welcome. Branch from **`dev`**, PR against **`dev`**.
+Issues and PRs welcome. **Do not push directly to `dev`** — fork the repo, branch from `dev` (`fix/*` / `feature/*`), and open a PR against `dev`. PRs are merged via **Squash and merge**.
 
-Please include version, OS, and repro steps in bug reports.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch model, PR requirements, and release flow. Please include version, OS, and repro steps in bug reports.
 
 ---
 

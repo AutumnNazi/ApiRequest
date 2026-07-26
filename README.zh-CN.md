@@ -19,6 +19,7 @@
   <a href="https://wails.io"><img src="https://img.shields.io/badge/Wails-v2-red?style=flat-square" alt="Wails" /></a>
   <a href="https://reactjs.org"><img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" /></a>
+  <a href="https://github.com/AutumnNazi/ApiRequest/actions/workflows/dev-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/AutumnNazi/ApiRequest/dev-build.yml?branch=dev&style=flat-square&label=Build" alt="Build" /></a>
 </p>
 
 <p align="center">
@@ -197,9 +198,9 @@ cd frontend && npm run build   # 类型检查 + 打包
 
 ## 🤝 参与贡献
 
-欢迎 Issue 与 PR。从 **`dev`** 分支拉取，PR 也请提向 **`dev`**。
+欢迎 Issue 与 PR。**请勿直接向 `dev` 推送** — Fork 仓库后从 `dev` 创建分支（`fix/*` / `feature/*`），PR 提向 `dev`，合并采用 **Squash and merge**。
 
-提交 Bug 时请尽量附上版本、操作系统与复现步骤。
+分支模型、PR 要求与发布流程见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。提交 Bug 时请尽量附上版本、操作系统与复现步骤。
 
 ---
 
