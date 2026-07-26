@@ -152,14 +152,15 @@ jobs:
         run: |
           set -euo pipefail
           SHORT_SHA="${GITHUB_SHA::7}"
+          NOTES="Rolling development build from \`dev\` @ ${GITHUB_SHA}."
+          NOTES+=$'\n\n'
+          NOTES+="Automatically updated on every push to \`dev\`. **Unstable — for testing only.** For stable versions use a \`vX.Y.Z\` release."
           # 删除旧的 dev-latest release 与 tag（首次运行不存在，容错）
           gh release delete dev-latest --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
           gh release create dev-latest \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "🧪 Dev Build (dev-${SHORT_SHA})" \
-            --notes "Rolling development build from \`dev\` @ ${GITHUB_SHA}.
-
-Automatically updated on every push to \`dev\`. **Unstable — for testing only.** For stable versions use a \`vX.Y.Z\` release." \
+            --notes "$NOTES" \
             --prerelease \
             dist/*
