@@ -34,8 +34,19 @@ jobs:
         run: go vet ./backend/...
 
       - name: Go tests
-        # -v 输出便于从 UI 直接定位失败用例（API 日志需 admin 权限）
-        run: go test -v ./backend/...
+        # 失败详情写入 job summary（Actions UI 直接可见，无需日志权限）
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! go test -v ./backend/... 2>&1 | tee test-out.log; then
+            {
+              echo '## Go test failures'
+              echo '```'
+              grep -E "^(--- FAIL|FAIL|panic|\s+.*_test\.go:)" test-out.log | head -80
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
   frontend:
     name: Frontend type-check & build
