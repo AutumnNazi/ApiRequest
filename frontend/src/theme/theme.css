@@ -1,0 +1,99 @@
+/* 主题变量映射层：把界面中高频 Tailwind 工具类重定向到主题 token。
+   默认亮色主题的变量值与原 Tailwind 色一致，因此默认外观不变；
+   切换主题即全局换肤。深色下少数派生态（hover/边框）随 token 自然生效。 */
+
+:root {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--t-bg-app);
+  color: var(--t-fg-1);
+}
+
+/* ── 背景 ── */
+.bg-white { background-color: var(--t-bg-panel) !important; }
+.bg-gray-50 { background-color: var(--t-bg-panel2) !important; }
+.bg-gray-100 { background-color: var(--t-bg-chrome) !important; }
+.hover\:bg-gray-50:hover { background-color: var(--t-bg-hover) !important; }
+.hover\:bg-gray-100:hover,
+.hover\:bg-gray-200:hover { background-color: var(--t-bg-hover) !important; }
+.bg-blue-50 { background-color: var(--t-accent-soft) !important; }
+.bg-blue-600 { background-color: var(--t-accent) !important; color: var(--t-on-accent) !important; }
+.hover\:bg-blue-700:hover { background-color: var(--t-accent-hover) !important; }
+.bg-blue-400, .bg-blue-500 { background-color: var(--t-accent) !important; }
+.bg-red-50 { background-color: var(--t-danger-soft) !important; }
+.hover\:bg-red-50:hover { background-color: var(--t-danger-soft) !important; }
+.bg-green-50 { background-color: color-mix(in srgb, var(--t-success) 12%, transparent) !important; }
+.bg-yellow-50 { background-color: var(--t-warn-soft) !important; }
+.bg-yellow-200 { background-color: color-mix(in srgb, var(--t-warn) 40%, transparent) !important; }
+.bg-black\/30 { background-color: rgba(0, 0, 0, 0.45) !important; }
+
+/* ── 文本 ── */
+.text-gray-900 { color: var(--t-fg-1) !important; }
+.text-gray-700, .text-gray-800 { color: var(--t-fg-2) !important; }
+.text-gray-500, .text-gray-600 { color: var(--t-fg-3) !important; }
+.text-gray-400 { color: var(--t-fg-4) !important; }
+.hover\:text-gray-700:hover,
+.hover\:text-gray-800:hover,
+.hover\:text-gray-900:hover { color: var(--t-fg-1) !important; }
+.text-blue-600, .text-blue-700 { color: var(--t-accent) !important; }
+.text-white { color: var(--t-on-accent) !important; }
+.text-green-600, .text-green-700, .text-green-800 { color: var(--t-success) !important; }
+.text-yellow-600, .text-yellow-800 { color: var(--t-warn) !important; }
+.text-red-500, .text-red-600, .text-red-700, .text-red-800 { color: var(--t-danger) !important; }
+.hover\:text-red-500:hover { color: var(--t-danger) !important; }
+.text-purple-600 { color: var(--t-accent) !important; }
+
+/* ── 边框 ── */
+.border, .border-b, .border-t, .border-l, .border-r { border-color: var(--t-br-1); }
+.border-gray-100 { border-color: var(--t-br-1) !important; }
+.border-gray-400 { border-color: var(--t-br-2) !important; }
+.hover\:border-gray-400:hover { border-color: var(--t-br-2) !important; }
+.border-red-200 { border-color: color-mix(in srgb, var(--t-danger) 35%, transparent) !important; }
+.border-yellow-200 { border-color: color-mix(in srgb, var(--t-warn) 35%, transparent) !important; }
+.border-blue-400, .border-blue-600, .focus\:border-blue-400:focus {
+  border-color: var(--t-accent) !important;
+}
+.border-transparent { border-color: transparent !important; }
+
+/* ── 表单控件 ── */
+input, textarea, select {
+  background-color: var(--t-bg-input);
+  color: var(--t-fg-1);
+  border-color: var(--t-br-2);
+}
+input::placeholder, textarea::placeholder { color: var(--t-fg-4); }
+select option { background-color: var(--t-bg-panel); color: var(--t-fg-1); }
+
+/* ── 代码/预格式区域 ── */
+pre {
+  background-color: transparent;
+  color: var(--t-fg-2);
+}
+mark { color: inherit; }
+
+/* ── CodeMirror 深色适配 ── */
+:root[data-theme='dark'] .cm-editor {
+  background-color: var(--t-bg-input);
+  color: var(--t-fg-1);
+}
+:root[data-theme='dark'] .cm-editor .cm-gutters {
+  background-color: var(--t-bg-panel2);
+  color: var(--t-fg-4);
+  border-color: var(--t-br-1);
+}
+:root[data-theme='dark'] .cm-editor .cm-activeLine { background-color: var(--t-bg-hover); }
+:root[data-theme='dark'] .cm-editor .cm-cursor { border-color: var(--t-fg-1); }
+:root[data-theme='dark'] .cm-editor .cm-selectionBackground { background-color: var(--t-bg-selected) !important; }
+
+/* ── 滚动条（深色下默认太亮）── */
+:root[data-theme='dark'] ::-webkit-scrollbar { width: 10px; height: 10px; }
+:root[data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: var(--t-br-2);
+  border-radius: 6px;
+}
+:root[data-theme='dark'] ::-webkit-scrollbar-track { background: transparent; }

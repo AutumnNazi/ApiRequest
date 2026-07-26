@@ -10,6 +10,7 @@ import WsPanel from './components/WsPanel';
 import SettingsDialog from './components/SettingsDialog';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import GrpcPanel from './components/GrpcPanel';
+import ThemeDialog from './components/ThemeDialog';
 import { useTabs } from './stores/tabs';
 import {
   getDefaultWorkspace,
@@ -43,6 +44,7 @@ export default function App() {
   const [showWs, setShowWs] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showGrpc, setShowGrpc] = useState(false);
+  const [showTheme, setShowTheme] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
 
@@ -205,6 +207,13 @@ export default function App() {
         )}
         <button
           className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+          onClick={() => setShowTheme(true)}
+          title="主题"
+        >
+          🎨
+        </button>
+        <button
+          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
           onClick={() => setShowSettings(true)}
           title="应用设置"
         >
@@ -216,6 +225,7 @@ export default function App() {
       {showWs && <WsPanel onClose={() => setShowWs(false)} />}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
       {showGrpc && <GrpcPanel onClose={() => setShowGrpc(false)} />}
+      {showTheme && <ThemeDialog onClose={() => setShowTheme(false)} />}
 
       <div className="flex-1 flex min-h-0">
         {/* 侧栏 */}
