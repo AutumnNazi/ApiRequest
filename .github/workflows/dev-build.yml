@@ -153,24 +153,26 @@ jobs:
           set -euo pipefail
           SHORT_SHA="${GITHUB_SHA::7}"
           BUILD_TIME="$(date -u '+%Y-%m-%d %H:%M:%S') UTC"
-          NOTES="## 🧪 测试版本 (Dev Build)"
-          NOTES+=$'\n\n'
-          NOTES+="**版本**: \`dev-${SHORT_SHA}\`"$'\n'
-          NOTES+="**分支**: \`dev\`"$'\n'
-          NOTES+="**提交**: [\`${GITHUB_SHA}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})"$'\n'
-          NOTES+="**构建时间**: ${BUILD_TIME}"
-          NOTES+=$'\n\n'
-          NOTES+="> ⚠️ 这是开发测试版本，仅供测试使用，不建议用于生产环境。"$'\n'
-          NOTES+="> 每次 push 到 \`dev\` 分支会自动覆盖此 release。"
-          NOTES+=$'\n\n'
-          NOTES+="> ⚠️ This is a development build for testing only — not recommended for production."$'\n'
-          NOTES+="> Every push to \`dev\` automatically overwrites this release. For stable versions use a \`vX.Y.Z\` release."
+          cat > release-notes.md << EOF
+          ## 🧪 测试版本 (Dev Build)
+
+          **版本**: \`dev-${SHORT_SHA}\`
+          **分支**: \`dev\`
+          **提交**: [\`${GITHUB_SHA}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
+          **构建时间**: ${BUILD_TIME}
+
+          > ⚠️ 这是开发测试版本，仅供测试使用，不建议用于生产环境。
+          > 每次 push 到 \`dev\` 分支会自动覆盖此 release。
+
+          > ⚠️ This is a development build for testing only, not recommended for production.
+          > Every push to \`dev\` automatically overwrites this release. For stable versions use a \`vX.Y.Z\` release.
+          EOF
           # 删除旧的 dev-latest release 与 tag（首次运行不存在，容错）
           gh release delete dev-latest --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
           gh release create dev-latest \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "🧪 Dev Build (dev-${SHORT_SHA})" \
-            --notes "$NOTES" \
+            --notes-file release-notes.md \
             --prerelease \
             dist/*
