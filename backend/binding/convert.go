@@ -3,6 +3,7 @@ package binding
 import (
 	"apirequest/backend/codegen"
 	"apirequest/backend/convert"
+	"apirequest/backend/mirror"
 	"apirequest/backend/model"
 	"apirequest/backend/storage"
 )
@@ -77,6 +78,34 @@ func (a *ConvertApi) CodegenTargets() []codegen.Target {
 // GenerateCode 为请求生成目标语言代码片段
 func (a *ConvertApi) GenerateCode(target string, req model.HttpRequest) (string, error) {
 	return codegen.Generate(target, req)
+}
+
+// ExportMirror 把集合导出为 Git 友好目录镜像（docs/decisions.md OPEN-004）
+func (a *ConvertApi) ExportMirror(collectionId, dir string) error {
+	if dir == "" {
+		return model.NewError(model.KindValidation, "target directory is required")
+	}
+	nodes, collection, err := a.collectTree(collectionId)
+	if err != nil {
+		return err
+	}
+	if err := mirror.Export(dir, collection, nodes); err != nil {
+		return model.WrapError(model.KindStorage, err)
+	}
+	return nil
+}
+
+// ImportMirror 从镜像目录导入为新集合（预览语义同 ImportPreview→ImportCommit 的合并版：
+// 镜像导入低频且来源可信度高，直接落库）
+func (a *ConvertApi) ImportMirror(workspaceId, dir string) (model.Node, error) {
+	if workspaceId == "" || dir == "" {
+		return model.Node{}, model.NewError(model.KindValidation, "workspaceId and dir are required")
+	}
+	collection, children, err := mirror.Import(dir)
+	if err != nil {
+		return model.Node{}, model.WrapError(model.KindImport, err)
+	}
+	return a.ImportCommit(workspaceId, convert.ImportResult{Collection: collection, Children: children})
 }
 
 // collectTree 取集合根与其全部后代

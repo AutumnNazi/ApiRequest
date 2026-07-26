@@ -20,8 +20,9 @@ const errorKindLabel: Record<string, string> = {
 };
 
 export default function ResponseViewer({ response, error, sending, nodeId }: Props) {
-  const [pane, setPane] = useState<'body' | 'headers' | 'tests' | 'timing'>('body');
+  const [pane, setPane] = useState<'body' | 'preview' | 'headers' | 'tests' | 'timing'>('body');
   const [raw, setRaw] = useState(false);
+  const [search, setSearch] = useState('');
   const [exampleSaved, setExampleSaved] = useState(false);
   const [fullBody, setFullBody] = useState<string | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
@@ -66,6 +67,24 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
       return source;
     }
   }, [response, raw, fullBody]);
+
+  const contentType = useMemo(
+    () =>
+      response?.headers?.find((h) => h.key.toLowerCase() === 'content-type')?.value?.toLowerCase() ??
+      '',
+    [response],
+  );
+  const previewable = contentType.includes('html') || contentType.startsWith('image/');
+
+  const matchCount = useMemo(() => {
+    if (!search) return 0;
+    let n = 0;
+    let i = -1;
+    const lower = pretty.toLowerCase();
+    const q = search.toLowerCase();
+    while ((i = lower.indexOf(q, i + 1)) !== -1) n++;
+    return n;
+  }, [pretty, search]);
 
   if (sending) {
     return <Center>发送中…</Center>;
@@ -128,6 +147,7 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
         {(
           [
             ['body', 'Body'],
+            ...(previewable ? ([['preview', 'Preview']] as const) : []),
             ['headers', `Headers (${response.headers.length})`],
             ['tests', testsLabel],
             ['timing', '计时'],
@@ -146,12 +166,23 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
           </button>
         ))}
         {pane === 'body' && (
-          <button
-            className="ml-auto pb-2 text-xs text-gray-500 hover:text-gray-800"
-            onClick={() => setRaw(!raw)}
-          >
-            {raw ? 'Pretty' : 'Raw'}
-          </button>
+          <>
+            <input
+              className="ml-auto mb-1 border rounded px-2 py-0.5 text-xs w-40 outline-none focus:border-blue-400"
+              placeholder="搜索 body…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <span className="pb-2 text-xs text-gray-400 self-center">{matchCount} 处</span>
+            )}
+            <button
+              className="pb-2 text-xs text-gray-500 hover:text-gray-800"
+              onClick={() => setRaw(!raw)}
+            >
+              {raw ? 'Pretty' : 'Raw'}
+            </button>
+          </>
         )}
       </div>
 
@@ -172,8 +203,11 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
                 </button>
               </div>
             )}
-            <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">{pretty}</pre>
+            <HighlightedBody text={pretty} query={search} />
           </div>
+        )}
+        {pane === 'preview' && (
+          <PreviewPane text={fullBody ?? response.body?.text ?? ''} contentType={contentType} />
         )}
         {pane === 'headers' && (
           <table className="w-full text-sm m-3">
@@ -195,6 +229,73 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
         {pane === 'timing' && <TimingBars t={response.timing} />}
       </div>
     </div>
+  );
+}
+
+// HighlightedBody 带搜索高亮的 body 文本（无匹配时直接渲染，避免大文本分片开销）
+function HighlightedBody({ text, query }: { text: string; query: string }) {
+  const parts = useMemo(() => {
+    if (!query) return null;
+    const q = query.toLowerCase();
+    const lower = text.toLowerCase();
+    const out: { s: string; hit: boolean }[] = [];
+    let i = 0;
+    let hit = lower.indexOf(q);
+    // 上限保护：超过 2000 处只高亮前 2000
+    let count = 0;
+    while (hit !== -1 && count < 2000) {
+      if (hit > i) out.push({ s: text.slice(i, hit), hit: false });
+      out.push({ s: text.slice(hit, hit + query.length), hit: true });
+      i = hit + query.length;
+      hit = lower.indexOf(q, i);
+      count++;
+    }
+    out.push({ s: text.slice(i), hit: false });
+    return out;
+  }, [text, query]);
+
+  return (
+    <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
+      {parts
+        ? parts.map((p, i) =>
+            p.hit ? (
+              <mark key={i} className="bg-yellow-200 rounded-sm">
+                {p.s}
+              </mark>
+            ) : (
+              p.s
+            ),
+          )
+        : text}
+    </pre>
+  );
+}
+
+// PreviewPane HTML iframe / 图片预览
+function PreviewPane({ text, contentType }: { text: string; contentType: string }) {
+  if (contentType.startsWith('image/')) {
+    // 文本形式的响应体对二进制图片不可靠；SVG 可直接内联
+    if (contentType.includes('svg')) {
+      return (
+        <div className="p-4 flex justify-center">
+          <img
+            src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`}
+            alt="response preview"
+            className="max-w-full max-h-96 border rounded"
+          />
+        </div>
+      );
+    }
+    return <Center>二进制图片暂不支持预览（可保存为文件查看）</Center>;
+  }
+  // HTML：沙箱 iframe，禁脚本
+  return (
+    <iframe
+      title="response preview"
+      sandbox=""
+      srcDoc={text}
+      className="w-full h-full border-0 bg-white"
+    />
   );
 }
 

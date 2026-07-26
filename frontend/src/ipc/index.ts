@@ -111,6 +111,10 @@ export const exportData = (collectionId: string, format: string) =>
 export const codegenTargets = () => call(() => ConvertApi.CodegenTargets());
 export const generateCode = (target: string, req: HttpRequest) =>
   call(() => ConvertApi.GenerateCode(target, req));
+export const exportMirror = (collectionId: string, dir: string) =>
+  call(() => ConvertApi.ExportMirror(collectionId, dir));
+export const importMirror = (workspaceId: string, dir: string) =>
+  call(() => ConvertApi.ImportMirror(workspaceId, dir));
 
 // ── Runner ──
 

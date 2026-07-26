@@ -1,12 +1,15 @@
 // 侧栏：集合树 + 历史 两个页签
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   listNodes,
   upsertNode,
   deleteNode,
   listHistory,
+  clearHistory,
   exportData,
+  exportMirror,
+  toAppError,
   type Node,
   type HistoryItem,
 } from '../ipc';
@@ -172,6 +175,22 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
               ⇪
             </button>
             <button
+              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+              title="导出为 Git 友好目录镜像"
+              onClick={async () => {
+                const dir = prompt('导出到目录（绝对路径）：', '');
+                if (!dir) return;
+                try {
+                  await exportMirror(col.id, dir);
+                  alert(`已导出镜像到 ${dir}`);
+                } catch (e) {
+                  alert('导出失败: ' + toAppError(e).detail);
+                }
+              }}
+            >
+              ⎘
+            </button>
+            <button
               className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
               title="删除集合"
               onClick={() => {
@@ -218,45 +237,83 @@ function TreeLeaf({ node, onDelete }: { node: Node; onDelete(id: string): void }
 // ── 历史 ──
 
 function HistoryList({ workspaceId }: { workspaceId: string }) {
+  const qc = useQueryClient();
   const openBlank = useTabs((s) => s.openBlank);
   const patchDraft = useTabs((s) => s.patchDraft);
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
+
+  // 300ms 防抖后再查询
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const { data: items = [] } = useQuery({
-    queryKey: ['history', workspaceId],
-    queryFn: () => listHistory(workspaceId),
-    refetchInterval: 3000, // 简单轮询；发送成功后也会主动 invalidate
+    queryKey: ['history', workspaceId, debounced],
+    queryFn: () => listHistory(workspaceId, debounced ? { search: debounced } : {}),
+    refetchInterval: debounced ? false : 3000,
+  });
+
+  const clear = useMutation({
+    mutationFn: () => clearHistory(workspaceId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['history'] }),
   });
 
   const replay = (item: HistoryItem) => {
     openBlank();
-    // openBlank 同步建 tab；取最新 active tab 打入快照
     const { activeId } = useTabs.getState();
     if (activeId) patchDraft(activeId, item.requestSnap);
   };
 
-  if (items.length === 0) {
-    return <p className="text-gray-400 text-center py-6 text-xs">暂无历史记录</p>;
-  }
   return (
-    <div className="text-sm">
-      {items.map((it) => (
-        <div
-          key={it.id}
-          className="px-2 py-1.5 border-b border-gray-100 hover:bg-gray-200 cursor-pointer"
-          onClick={() => replay(it)}
-          title="点击重放"
+    <div className="flex flex-col h-full">
+      <div className="flex gap-1 p-2 border-b">
+        <input
+          className="flex-1 border rounded px-2 py-1 text-xs outline-none focus:border-blue-400"
+          placeholder="搜索 URL / 方法…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button
+          className="text-xs text-gray-400 hover:text-red-500 px-1"
+          title="清空全部历史"
+          onClick={() => {
+            if (confirm('清空全部历史记录？')) clear.mutate();
+          }}
         >
-          <div className="flex items-center gap-2">
-            <span className={`text-xs font-semibold ${methodColor(it.requestSnap.method)}`}>
-              {it.requestSnap.method}
-            </span>
-            <span className={`text-xs ${it.status < 400 ? 'text-green-600' : 'text-red-600'}`}>
-              {it.status}
-            </span>
-            <span className="text-xs text-gray-400 ml-auto">{formatTime(it.createdAt)}</span>
+          清空
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto">
+        {items.length === 0 ? (
+          <p className="text-gray-400 text-center py-6 text-xs">
+            {debounced ? '无匹配记录' : '暂无历史记录'}
+          </p>
+        ) : (
+          <div className="text-sm">
+            {items.map((it) => (
+              <div
+                key={it.id}
+                className="px-2 py-1.5 border-b border-gray-100 hover:bg-gray-200 cursor-pointer"
+                onClick={() => replay(it)}
+                title="点击重放"
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-semibold ${methodColor(it.requestSnap.method)}`}>
+                    {it.requestSnap.method}
+                  </span>
+                  <span className={`text-xs ${it.status < 400 ? 'text-green-600' : 'text-red-600'}`}>
+                    {it.status}
+                  </span>
+                  <span className="text-xs text-gray-400 ml-auto">{formatTime(it.createdAt)}</span>
+                </div>
+                <div className="truncate text-xs text-gray-600 font-mono">{it.requestSnap.url}</div>
+              </div>
+            ))}
           </div>
-          <div className="truncate text-xs text-gray-600 font-mono">{it.requestSnap.url}</div>
-        </div>
-      ))}
+        )}
+      </div>
     </div>
   );
 }

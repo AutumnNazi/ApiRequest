@@ -29,9 +29,9 @@
 - [x] 脚本内 `sendRequest`
 
 ### 响应
-- [ ] Body 视图：Pretty(JSON/XML 折叠) / Raw / Preview(HTML/图片)
-- [ ] Header / Cookie / 测试结果 标签页
-- [ ] 状态码、耗时、大小、分阶段计时
+- [x] Body 视图：Pretty(JSON) / Raw / Preview(HTML/SVG) + 文本搜索高亮
+- [x] Header / Cookie / 测试结果 标签页
+- [x] 状态码、耗时、大小、分阶段计时
 - [x] 大响应流式加载（blob 落盘 + 预览片段 + 按需加载全文）
 - [x] 保存为示例（Example）
 
@@ -39,7 +39,7 @@
 - [ ] 工作区（Workspace）
 - [ ] 集合 / 嵌套文件夹 / 请求树
 - [ ] 多标签页编辑
-- [ ] 历史记录（可搜索、可重放）
+- [x] 历史记录（可搜索、可重放、可清空）
 - [x] Cookie 管理器（Cookie Jar 查看编辑）
 
 ### 协议扩展
@@ -52,7 +52,7 @@
 - [x] 导入：Postman v2.1 / OpenAPI 3.x / Swagger 2 / cURL / HAR / Insomnia
 - [x] 导出：Postman v2.1（OpenAPI / cURL 待做）
 - [x] 代码生成：cURL / JS fetch / Python requests / Go（更多语言待扩展）
-- [ ] 集合的 Git 友好文件镜像
+- [x] 集合的 Git 友好文件镜像（JSON 目录树，单请求单文件）
 
 ### 高级
 - [x] Mock Server

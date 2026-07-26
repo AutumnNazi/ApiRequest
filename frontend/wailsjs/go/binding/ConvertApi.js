@@ -10,12 +10,20 @@ export function ExportData(arg1, arg2) {
   return window['go']['binding']['ConvertApi']['ExportData'](arg1, arg2);
 }
 
+export function ExportMirror(arg1, arg2) {
+  return window['go']['binding']['ConvertApi']['ExportMirror'](arg1, arg2);
+}
+
 export function GenerateCode(arg1, arg2) {
   return window['go']['binding']['ConvertApi']['GenerateCode'](arg1, arg2);
 }
 
 export function ImportCommit(arg1, arg2) {
   return window['go']['binding']['ConvertApi']['ImportCommit'](arg1, arg2);
+}
+
+export function ImportMirror(arg1, arg2) {
+  return window['go']['binding']['ConvertApi']['ImportMirror'](arg1, arg2);
 }
 
 export function ImportPreview(arg1, arg2) {

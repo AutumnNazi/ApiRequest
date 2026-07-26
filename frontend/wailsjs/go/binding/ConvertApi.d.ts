@@ -8,8 +8,12 @@ export function CodegenTargets():Promise<Array<codegen.Target>>;
 
 export function ExportData(arg1:string,arg2:string):Promise<string>;
 
+export function ExportMirror(arg1:string,arg2:string):Promise<void>;
+
 export function GenerateCode(arg1:string,arg2:model.HttpRequest):Promise<string>;
 
 export function ImportCommit(arg1:string,arg2:convert.ImportResult):Promise<model.Node>;
+
+export function ImportMirror(arg1:string,arg2:string):Promise<model.Node>;
 
 export function ImportPreview(arg1:string,arg2:string):Promise<convert.ImportResult>;
