@@ -1,24 +1,28 @@
 // 侧栏：集合树 + 历史 两个页签
-import { useEffect, useState, type DragEvent } from 'react';
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { useEffect, useMemo, useState, type DragEvent } from 'react';
+import { useInfiniteQuery, useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   listNodes,
   upsertNode,
   deleteNode,
   moveNode,
   listHistory,
+  getHistory,
   clearHistory,
   exportData,
   exportMirror,
+  openNativeDirectory,
   toAppError,
   type Node,
-  type HistoryItem,
+  type HistorySummary,
 } from '../ipc';
 import ImportDialog from './ImportDialog';
 import RunnerDialog from './RunnerDialog';
 import MockPanel from './MockPanel';
 import { useTabs } from '../stores/tabs';
 import { newDefaultRequest } from '../ipc';
+import { formatMessage, Verbatim } from '../i18n/locale';
+import { useDialog } from './DialogProvider';
 
 interface Props {
   workspaceId: string;
@@ -60,6 +64,7 @@ export default function Sidebar({ workspaceId }: Props) {
 // ── 集合树 ──
 
 function CollectionTree({ workspaceId }: { workspaceId: string }) {
+  const dialog = useDialog();
   const qc = useQueryClient();
   const openNode = useTabs((s) => s.openNode);
   const [importing, setImporting] = useState(false);
@@ -74,6 +79,22 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     queryFn: () => listNodes(workspaceId),
   });
 
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const childrenByParent = useMemo(() => {
+    const grouped = new Map<string, Node[]>();
+    for (const node of nodes) {
+      const siblings = grouped.get(node.parentId ?? '') ?? [];
+      siblings.push(node);
+      grouped.set(node.parentId ?? '', siblings);
+    }
+    for (const siblings of grouped.values()) {
+      siblings.sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+    }
+    return grouped;
+  }, [nodes]);
+  const childrenOf = (id: string) => childrenByParent.get(id) ?? [];
+  const roots = childrenOf('');
+
   const invalidate = () => qc.invalidateQueries({ queryKey: ['nodes', workspaceId] });
 
   const createCollection = useMutation({
@@ -81,7 +102,9 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       upsertNode({
         workspaceId,
         kind: 'collection',
-        name: `新集合 ${nodes.filter((n) => n.kind === 'collection').length + 1}`,
+        name: formatMessage('新集合 {index}', {
+          index: nodes.filter((n) => n.kind === 'collection').length + 1,
+        }),
       } as Node),
     onSuccess: invalidate,
   });
@@ -103,7 +126,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     onSuccess: (created) => {
       invalidate();
       if (created.kind === 'request' && created.request) {
-        openNode(created.id, created.name, created.request);
+        openNode(workspaceId, created.id, created.name, created.request);
       }
     },
   });
@@ -118,7 +141,10 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     mutationFn: ({ id, parentId, sortOrder }: { id: string; parentId: string; sortOrder: number }) =>
       moveNode(id, parentId, sortOrder),
     onSuccess: invalidate,
-    onError: (e) => alert('移动失败: ' + toAppError(e).detail),
+    onError: (e) =>
+      void dialog.alert(formatMessage('移动失败: {detail}', { detail: toAppError(e).detail }), {
+        title: '移动失败',
+      }),
   });
 
   // 判断 descendant 是否为 ancestor 的后代（含多层），防止把文件夹拖进自身子树造成环路。
@@ -128,7 +154,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     while (cur && !seen.has(cur)) {
       if (cur === ancestor) return true;
       seen.add(cur);
-      const node = nodes.find((n) => n.id === cur);
+      const node = nodeById.get(cur);
       cur = node?.parentId || undefined;
     }
     return false;
@@ -143,10 +169,14 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', n.id);
     },
+    onDragEnd: () => {
+      setDragId(null);
+      setDragOverId(null);
+    },
   });
 
   const canMoveInto = (parent: Node) => {
-    const dragged = nodes.find((n) => n.id === dragId);
+    const dragged = dragId ? nodeById.get(dragId) : undefined;
     return !!dragged
       && dragged.kind !== 'collection'
       && dragged.id !== parent.id
@@ -154,16 +184,17 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   };
 
   const moveInto = (parent: Node) => {
-    const dragged = nodes.find((n) => n.id === dragId);
+    const dragged = dragId ? nodeById.get(dragId) : undefined;
     if (!dragged || !canMoveInto(parent)) return;
-    const nextSort = childrenOf(parent.id).length;
+    const siblings = childrenOf(parent.id);
+    const nextSort = (siblings[siblings.length - 1]?.sortOrder ?? -1) + 1;
     move.mutate({ id: dragged.id, parentId: parent.id, sortOrder: nextSort });
     setDragId(null);
     setDragOverId(null);
   };
 
-  const doRename = (n: Node) => {
-    const name = prompt('重命名：', n.name);
+  const doRename = async (n: Node) => {
+    const name = await dialog.prompt('重命名：', { defaultValue: n.name });
     if (name && name !== n.name) rename.mutate({ ...n, name } as Node);
   };
 
@@ -174,14 +205,6 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       else next.add(id);
       return next;
     });
-
-  const childrenOf = (id: string) =>
-    nodes
-      .filter((n) => n.parentId === id)
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
-  const roots = nodes
-    .filter((n) => !n.parentId)
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
 
   // 递归渲染 folder/request
   const renderChildren = (parentId: string, depth: number) =>
@@ -212,7 +235,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             }}
           >
             <span className="flex-1 truncate text-gray-700">
-              {collapsed.has(n.id) ? '📁' : '📂'} {n.name}
+              {collapsed.has(n.id) ? '📁' : '📂'} <Verbatim value={n.name} />
             </span>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
@@ -239,7 +262,9 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
               title="删除"
               onClick={(e) => {
                 e.stopPropagation();
-                if (confirm(`删除文件夹「${n.name}」及其内容？`)) del.mutate(n.id);
+                void dialog.confirm(formatMessage('删除文件夹「{name}」及其内容？', { name: n.name })).then((ok) => {
+                  if (ok) del.mutate(n.id);
+                });
               }}
             >
               ×
@@ -259,6 +284,10 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             setDragId(n.id);
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', n.id);
+          }}
+          onDragEnd={() => {
+            setDragId(null);
+            setDragOverId(null);
           }}
         />
       ),
@@ -315,7 +344,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             setDragOverId(null);
           }}
           onDragOver={(e) => {
-            const dragged = nodes.find((n) => n.id === dragId);
+            const dragged = dragId ? nodeById.get(dragId) : undefined;
             if (dragged?.kind === 'collection' && dragged.id !== col.id) {
               e.preventDefault();
               setDragOverId(col.id);
@@ -327,7 +356,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             e.stopPropagation();
             setDragOverId(null);
             if (!dragId || dragId === col.id) return;
-            const dragged = nodes.find((n) => n.id === dragId);
+            const dragged = nodeById.get(dragId);
             if (dragged?.kind !== 'collection') return;
             // 插入到当前 col 之前：sortOrder 取前一个 col 与 col 之间的中点
             const nextSort = col.sortOrder;
@@ -344,7 +373,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             onDoubleClick={() => doRename(col)}
           >
             <span className="font-medium flex-1 truncate">
-              {collapsed.has(col.id) ? '📁' : '📂'} {col.name}
+              {collapsed.has(col.id) ? '📁' : '📂'} <Verbatim value={col.name} />
             </span>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
@@ -391,7 +420,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
               title="导出集合"
               onClick={async (e) => {
                 e.stopPropagation();
-                const fmt = prompt('导出格式（postman / openapi / curl）:', 'postman');
+                const fmt = await dialog.prompt('导出格式（postman / openapi / curl）：', { defaultValue: 'postman' });
                 if (!fmt) return;
                 try {
                   const out = await exportData(col.id, fmt.toLowerCase().trim());
@@ -399,9 +428,9 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
                   const label = fmt.toLowerCase().trim() === 'openapi' ? 'OpenAPI 3.0.3'
                     : fmt.toLowerCase().trim() === 'curl' ? 'cURL（JSON + shell）'
                     : 'Postman v2.1';
-                  alert(`已复制 ${label} 到剪贴板`);
+                  void dialog.alert(formatMessage('已复制 {label} 到剪贴板', { label }), { title: '导出完成' });
                 } catch (err) {
-                  alert('导出失败: ' + toAppError(err).detail);
+                  void dialog.alert(formatMessage('导出失败: {detail}', { detail: toAppError(err).detail }), { title: '导出失败' });
                 }
               }}
             >
@@ -412,13 +441,13 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
               title="导出为 Git 友好目录镜像"
               onClick={async (e) => {
                 e.stopPropagation();
-                const dir = prompt('导出到目录（绝对路径）：', '');
-                if (!dir) return;
                 try {
+                  const dir = await openNativeDirectory('选择镜像导出目录');
+                  if (!dir) return;
                   await exportMirror(col.id, dir);
-                  alert(`已导出镜像到 ${dir}`);
+                  void dialog.alert(formatMessage('已导出镜像到 {directory}', { directory: dir }), { title: '导出完成' });
                 } catch (err) {
-                  alert('导出失败: ' + toAppError(err).detail);
+                  void dialog.alert(formatMessage('导出失败: {detail}', { detail: toAppError(err).detail }), { title: '导出失败' });
                 }
               }}
             >
@@ -429,7 +458,9 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
               title="删除集合"
               onClick={(e) => {
                 e.stopPropagation();
-                if (confirm(`删除集合「${col.name}」及其全部请求？`)) del.mutate(col.id);
+                void dialog.confirm(formatMessage('删除集合「{name}」及其全部请求？', { name: col.name })).then((ok) => {
+                  if (ok) del.mutate(col.id);
+                });
               }}
             >
               ×
@@ -448,12 +479,14 @@ function TreeLeaf({
   onDelete,
   onRename,
   onDragStart,
+  onDragEnd,
 }: {
   node: Node;
   depth: number;
   onDelete(id: string): void;
   onRename(): void;
   onDragStart?(e: DragEvent<HTMLDivElement>): void;
+  onDragEnd?(): void;
 }) {
   const openNode = useTabs((s) => s.openNode);
   if (node.kind !== 'request') return null;
@@ -463,7 +496,8 @@ function TreeLeaf({
       style={{ paddingLeft: `${depth * 14 + 4}px` }}
       draggable
       onDragStart={(e) => onDragStart?.(e)}
-      onClick={() => node.request && openNode(node.id, node.name, node.request)}
+      onDragEnd={onDragEnd}
+      onClick={() => node.request && openNode(node.workspaceId, node.id, node.name, node.request)}
       onDoubleClick={(e) => {
         e.stopPropagation();
         onRename();
@@ -472,7 +506,7 @@ function TreeLeaf({
       <span className={`text-xs font-semibold w-12 shrink-0 ${methodColor(node.request?.method)}`}>
         {node.request?.method ?? 'GET'}
       </span>
-      <span className="flex-1 truncate">{node.name}</span>
+      <span className="flex-1 truncate"><Verbatim value={node.name} /></span>
       <button
         className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
         onClick={(e) => {
@@ -489,11 +523,13 @@ function TreeLeaf({
 // ── 历史 ──
 
 function HistoryList({ workspaceId }: { workspaceId: string }) {
+  const dialog = useDialog();
   const qc = useQueryClient();
   const openBlank = useTabs((s) => s.openBlank);
   const patchDraft = useTabs((s) => s.patchDraft);
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [replayingId, setReplayingId] = useState('');
 
   // 300ms 防抖后再查询
   useEffect(() => {
@@ -501,21 +537,39 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
     return () => clearTimeout(t);
   }, [search]);
 
-  const { data: items = [] } = useQuery({
+  const history = useInfiniteQuery({
     queryKey: ['history', workspaceId, debounced],
-    queryFn: () => listHistory(workspaceId, debounced ? { search: debounced } : {}),
-    refetchInterval: debounced ? false : 3000,
+    initialPageParam: '',
+    queryFn: ({ pageParam }) =>
+      listHistory(workspaceId, {
+        ...(debounced ? { search: debounced } : {}),
+        ...(pageParam ? { cursor: pageParam } : {}),
+        limit: 50,
+      }),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor : undefined),
   });
+  const items = history.data?.pages.flatMap((page) => page.items) ?? [];
 
   const clear = useMutation({
     mutationFn: () => clearHistory(workspaceId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['history'] }),
   });
 
-  const replay = (item: HistoryItem) => {
-    openBlank();
-    const { activeId } = useTabs.getState();
-    if (activeId) patchDraft(activeId, item.requestSnap);
+  const replay = async (item: HistorySummary) => {
+    if (replayingId) return;
+    setReplayingId(item.id);
+    try {
+      const detail = await getHistory(workspaceId, item.id);
+      const tabId = openBlank(workspaceId);
+      patchDraft(tabId, detail.requestSnap);
+    } catch (error) {
+      void dialog.alert(
+        formatMessage('加载历史详情失败：{detail}', { detail: toAppError(error).detail }),
+        { title: '历史记录加载失败' },
+      );
+    } finally {
+      setReplayingId('');
+    }
   };
 
   return (
@@ -531,7 +585,9 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
           className="text-xs text-gray-400 hover:text-red-500 px-1"
           title="清空全部历史"
           onClick={() => {
-            if (confirm('清空全部历史记录？')) clear.mutate();
+            void dialog.confirm('清空全部历史记录？').then((ok) => {
+              if (ok) clear.mutate();
+            });
           }}
         >
           清空
@@ -548,21 +604,30 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
               <div
                 key={it.id}
                 className="px-2 py-1.5 border-b border-gray-100 hover:bg-gray-200 cursor-pointer"
-                onClick={() => replay(it)}
+                onClick={() => void replay(it)}
                 title="点击重放"
               >
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs font-semibold ${methodColor(it.requestSnap.method)}`}>
-                    {it.requestSnap.method}
+                  <span className={`text-xs font-semibold ${methodColor(it.method)}`}>
+                    <Verbatim value={it.method} />
                   </span>
                   <span className={`text-xs ${it.status < 400 ? 'text-green-600' : 'text-red-600'}`}>
                     {it.status}
                   </span>
                   <span className="text-xs text-gray-400 ml-auto">{formatTime(it.createdAt)}</span>
                 </div>
-                <div className="truncate text-xs text-gray-600 font-mono">{it.requestSnap.url}</div>
+                <div className="truncate text-xs text-gray-600 font-mono"><Verbatim value={it.url} /></div>
               </div>
             ))}
+            {history.hasNextPage && (
+              <button
+                className="w-full py-2 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+                disabled={history.isFetchingNextPage}
+                onClick={() => void history.fetchNextPage()}
+              >
+                {history.isFetchingNextPage ? '加载中…' : '加载更多'}
+              </button>
+            )}
           </div>
         )}
       </div>

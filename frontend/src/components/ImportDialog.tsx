@@ -1,7 +1,8 @@
 // 导入弹窗：粘贴 Postman JSON / cURL → 预览 → 确认落库
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { importPreview, importCommit, toAppError, type ImportResult } from '../ipc';
+import { importPreview, importCommit, openNativeFile, readNativeTextFile, toAppError, type ImportResult } from '../ipc';
+import { Verbatim } from '../i18n/locale';
 
 interface Props {
   workspaceId: string;
@@ -11,6 +12,7 @@ interface Props {
 export default function ImportDialog({ workspaceId, onClose }: Props) {
   const qc = useQueryClient();
   const [payload, setPayload] = useState('');
+  const [sourcePath, setSourcePath] = useState('');
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -25,6 +27,20 @@ export default function ImportDialog({ workspaceId, onClose }: Props) {
       setError(toAppError(e).detail);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const chooseImportFile = async () => {
+    setError('');
+    try {
+      const path = await openNativeFile('选择要导入的集合文件');
+      if (!path) return;
+      const text = await readNativeTextFile(path);
+      setSourcePath(path);
+      setPayload(text);
+      setPreview(null);
+    } catch (cause) {
+      setError(toAppError(cause).detail);
     }
   };
 
@@ -58,37 +74,44 @@ export default function ImportDialog({ workspaceId, onClose }: Props) {
           </button>
         </div>
         <div className="flex-1 overflow-auto p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <button className="border rounded px-3 py-1.5 text-xs hover:bg-gray-50" onClick={() => void chooseImportFile()}>
+              从文件读取…
+            </button>
+            {sourcePath && <span className="min-w-0 truncate text-xs text-gray-400" title={sourcePath} data-i18n-verbatim><Verbatim value={sourcePath} /></span>}
+          </div>
           <textarea
             className="w-full h-40 border rounded p-2 text-xs font-mono outline-none focus:border-blue-400"
             placeholder={'粘贴 Postman 集合 JSON，或 curl 命令…'}
             value={payload}
             onChange={(e) => {
               setPayload(e.target.value);
+              setSourcePath('');
               setPreview(null);
             }}
           />
           {error && (
             <div className="border border-red-200 bg-red-50 rounded p-2 text-xs text-red-600">
-              {error}
+              <Verbatim value={error} />
             </div>
           )}
           {preview && (
             <div className="border rounded p-3 text-sm space-y-1">
               <div>
-                📁 <span className="font-medium">{preview.collection.name}</span>
+                📁 <span className="font-medium"><Verbatim value={preview.collection.name} /></span>
                 <span className="text-gray-400 text-xs ml-2">{requestCount} 个请求</span>
               </div>
               <ul className="text-xs text-gray-600 max-h-40 overflow-auto">
                 {preview.children.map((n) => (
                   <li key={n.id} className="truncate">
-                    {n.kind === 'folder' ? '📂' : '·'} {n.name}
+                    {n.kind === 'folder' ? '📂' : '·'} <Verbatim value={n.name} />
                   </li>
                 ))}
               </ul>
               {(preview.warnings ?? []).length > 0 && (
                 <div className="text-xs text-yellow-600">
                   {preview.warnings!.map((w, i) => (
-                    <div key={i}>⚠ {w}</div>
+                    <div key={i}>⚠ <Verbatim value={w} /></div>
                   ))}
                 </div>
               )}

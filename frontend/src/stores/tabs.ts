@@ -1,12 +1,13 @@
-// tabs store：打开的标签页与每页的请求草稿 + 响应态（docs/frontend.md §1）。
-// 草稿与已保存态分离，脏标记提示未保存。
+// Workspace Session store：每个工作区独立保存标签、活动页与可恢复草稿。
 import { create } from 'zustand';
-import type { HttpRequest, ResponseResult, AppError } from '../ipc';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import type { AppError, HttpRequest, RequestProgress, ResponseResult } from '../ipc';
 import { newDefaultRequest } from '../ipc';
 
 export interface Tab {
-  id: string; // tab 自身 id（即 sendId 前缀）
-  nodeId?: string; // 关联的已保存请求节点；无 = 未保存草稿
+  id: string;
+  workspaceId: string;
+  nodeId?: string;
   name: string;
   draft: HttpRequest;
   dirty: boolean;
@@ -14,114 +15,273 @@ export interface Tab {
   sendId?: string;
   response?: ResponseResult;
   error?: AppError;
+  progress?: RequestProgress;
+}
+
+export interface WorkspaceSession {
+  tabs: Tab[];
+  activeId: string | null;
 }
 
 interface TabsState {
-  tabs: Tab[];
-  activeId: string | null;
-  openBlank(): void;
-  openNode(nodeId: string, name: string, req: HttpRequest): void;
+  sessions: Record<string, WorkspaceSession>;
+  openBlank(workspaceId: string): string;
+  openNode(workspaceId: string, nodeId: string, name: string, req: HttpRequest): string;
   close(tabId: string): void;
+  removeSession(workspaceId: string): void;
   setActive(tabId: string): void;
   patchDraft(tabId: string, patch: Partial<HttpRequest>): void;
   markSaved(tabId: string, nodeId: string, name: string): void;
   setSending(tabId: string, sending: boolean, sendId?: string): void;
-  setResponse(tabId: string, r: ResponseResult): void;
-  setError(tabId: string, e: AppError): void;
+  setResponse(tabId: string, response: ResponseResult): void;
+  setError(tabId: string, error: AppError): void;
+  setProgress(progress: RequestProgress): void;
 }
 
 let seq = 0;
 const nextId = () => `tab-${Date.now()}-${seq++}`;
+const emptySession = (): WorkspaceSession => ({ tabs: [], activeId: null });
 
-export const useTabs = create<TabsState>((set, get) => ({
-  tabs: [],
-  activeId: null,
+function updateTab(
+  sessions: Record<string, WorkspaceSession>,
+  tabId: string,
+  updater: (tab: Tab) => Tab,
+): Record<string, WorkspaceSession> {
+  for (const [workspaceId, session] of Object.entries(sessions)) {
+    const index = session.tabs.findIndex((tab) => tab.id === tabId);
+    if (index < 0) continue;
+    const tabs = [...session.tabs];
+    tabs[index] = updater(tabs[index]);
+    return { ...sessions, [workspaceId]: { ...session, tabs } };
+  }
+  return sessions;
+}
 
-  openBlank() {
-    // 始终新建标签（Ctrl+T / 标签栏 + 依赖此行为）。
-    // StrictMode 双触发防护放在 App.tsx 的 bootstrap useEffect 里
-    // （仅当 tabs.length === 0 时才调用），不要在这里做幂等拦截。
-    const t: Tab = {
-      id: nextId(),
-      name: '新请求',
-      draft: newDefaultRequest(),
-      dirty: false,
-      sending: false,
+export function serializeWorkspaceSessions(sessions: Record<string, WorkspaceSession>) {
+  const persisted: Record<string, WorkspaceSession> = {};
+  for (const [workspaceId, session] of Object.entries(sessions)) {
+    const tabs = session.tabs
+      .filter((tab) => tab.dirty)
+      .map(({ response: _response, error: _error, sendId: _sendId, progress: _progress, ...tab }) => ({
+        ...tab,
+        draft: draftWithoutPersistedCredentials(tab.draft),
+        sending: false,
+      }));
+    if (tabs.length === 0) continue;
+    persisted[workspaceId] = {
+      tabs,
+      activeId: tabs.some((tab) => tab.id === session.activeId) ? session.activeId : tabs[0].id,
     };
-    set((s) => ({ tabs: [...s.tabs, t], activeId: t.id }));
-  },
+  }
+  return persisted;
+}
 
-  openNode(nodeId, name, req) {
-    const existing = get().tabs.find((t) => t.nodeId === nodeId);
-    if (existing) {
-      set({ activeId: existing.id });
-      return;
-    }
-    const t: Tab = {
-      id: nextId(),
-      nodeId,
-      name,
-      // 深拷贝：草稿独立于集合树缓存
-      draft: JSON.parse(JSON.stringify(req)),
-      dirty: false,
-      sending: false,
-    };
-    set((s) => ({ tabs: [...s.tabs, t], activeId: t.id }));
-  },
+const sensitiveAuthParams: Record<string, Set<string>> = {
+  basic: new Set(['password']),
+  digest: new Set(['password']),
+  bearer: new Set(['token']),
+  apikey: new Set(['value']),
+  oauth1: new Set(['consumersecret', 'token', 'tokensecret']),
+  oauth2: new Set(['clientsecret', 'password', 'accesstoken', 'refreshtoken']),
+  awsv4: new Set(['secretkey', 'sessiontoken']),
+};
 
-  close(tabId) {
-    set((s) => {
-      const tabs = s.tabs.filter((t) => t.id !== tabId);
-      let activeId = s.activeId;
-      if (activeId === tabId) {
-        const idx = s.tabs.findIndex((t) => t.id === tabId);
-        activeId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null;
-      }
-      return { tabs, activeId };
-    });
-  },
+const normalizedAuthKey = (key: string) => key.toLowerCase().replace(/[_\-\s]/g, '');
 
-  setActive(tabId) {
-    set({ activeId: tabId });
-  },
+function draftWithoutPersistedCredentials(draft: HttpRequest): HttpRequest {
+  const copy = JSON.parse(JSON.stringify(draft)) as HttpRequest;
+  const sensitive = sensitiveAuthParams[copy.auth?.type?.toLowerCase() ?? ''];
+  if (copy.auth?.params) {
+    copy.auth.params = Object.fromEntries(
+      Object.entries(copy.auth.params).map(([key, value]) => [
+        key,
+        !sensitive || sensitive.has(normalizedAuthKey(key)) ? '' : value,
+      ]),
+    );
+  }
+  return copy;
+}
 
-  patchDraft(tabId, patch) {
-    set((s) => ({
-      tabs: s.tabs.map((t) =>
-        t.id === tabId ? { ...t, draft: { ...t.draft, ...patch } as HttpRequest, dirty: true } : t,
-      ),
-    }));
-  },
+export const useTabs = create<TabsState>()(
+  persist(
+    (set, get) => ({
+      sessions: {},
 
-  markSaved(tabId, nodeId, name) {
-    set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, nodeId, name, dirty: false } : t)),
-    }));
-  },
+      openBlank(workspaceId) {
+        const tab: Tab = {
+          id: nextId(),
+          workspaceId,
+          name: '新请求',
+          draft: newDefaultRequest(),
+          dirty: false,
+          sending: false,
+        };
+        set((state) => {
+          const session = state.sessions[workspaceId] ?? emptySession();
+          return {
+            sessions: {
+              ...state.sessions,
+              [workspaceId]: { tabs: [...session.tabs, tab], activeId: tab.id },
+            },
+          };
+        });
+        return tab.id;
+      },
 
-  setSending(tabId, sending, sendId) {
-    set((s) => ({
-      tabs: s.tabs.map((t) =>
-        t.id === tabId
-          ? { ...t, sending, ...(sending ? { sendId, error: undefined } : { sendId: undefined }) }
-          : t,
-      ),
-    }));
-  },
+      openNode(workspaceId, nodeId, name, req) {
+        const session = get().sessions[workspaceId] ?? emptySession();
+        const existing = session.tabs.find((tab) => tab.nodeId === nodeId);
+        if (existing) {
+          set((state) => ({
+            sessions: {
+              ...state.sessions,
+              [workspaceId]: { ...session, activeId: existing.id },
+            },
+          }));
+          return existing.id;
+        }
+        const tab: Tab = {
+          id: nextId(),
+          workspaceId,
+          nodeId,
+          name,
+          draft: JSON.parse(JSON.stringify(req)) as HttpRequest,
+          dirty: false,
+          sending: false,
+        };
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [workspaceId]: { tabs: [...session.tabs, tab], activeId: tab.id },
+          },
+        }));
+        return tab.id;
+      },
 
-  setResponse(tabId, response) {
-    set((s) => ({
-      tabs: s.tabs.map((t) =>
-        t.id === tabId ? { ...t, response, error: undefined, sending: false, sendId: undefined } : t,
-      ),
-    }));
-  },
+      close(tabId) {
+        set((state) => {
+          for (const [workspaceId, session] of Object.entries(state.sessions)) {
+            const index = session.tabs.findIndex((tab) => tab.id === tabId);
+            if (index < 0) continue;
+            const tabs = session.tabs.filter((tab) => tab.id !== tabId);
+            const activeId =
+              session.activeId === tabId
+                ? (tabs[Math.min(index, tabs.length - 1)]?.id ?? null)
+                : session.activeId;
+            return {
+              sessions: {
+                ...state.sessions,
+                [workspaceId]: { tabs, activeId },
+              },
+            };
+          }
+          return state;
+        });
+      },
 
-  setError(tabId, error) {
-    set((s) => ({
-      tabs: s.tabs.map((t) =>
-        t.id === tabId ? { ...t, error, sending: false, sendId: undefined } : t,
-      ),
-    }));
-  },
-}));
+      removeSession(workspaceId) {
+        set((state) => {
+          const sessions = { ...state.sessions };
+          delete sessions[workspaceId];
+          return { sessions };
+        });
+      },
+
+      setActive(tabId) {
+        set((state) => {
+          for (const [workspaceId, session] of Object.entries(state.sessions)) {
+            if (session.tabs.some((tab) => tab.id === tabId)) {
+              return {
+                sessions: {
+                  ...state.sessions,
+                  [workspaceId]: { ...session, activeId: tabId },
+                },
+              };
+            }
+          }
+          return state;
+        });
+      },
+
+      patchDraft(tabId, patch) {
+        set((state) => ({
+          sessions: updateTab(state.sessions, tabId, (tab) => ({
+            ...tab,
+            draft: { ...tab.draft, ...patch } as HttpRequest,
+            dirty: true,
+          })),
+        }));
+      },
+
+      markSaved(tabId, nodeId, name) {
+        set((state) => ({
+          sessions: updateTab(state.sessions, tabId, (tab) => ({
+            ...tab,
+            nodeId,
+            name,
+            dirty: false,
+          })),
+        }));
+      },
+
+      setSending(tabId, sending, sendId) {
+        set((state) => ({
+          sessions: updateTab(state.sessions, tabId, (tab) => ({
+            ...tab,
+            sending,
+            ...(sending
+              ? {
+                  sendId,
+                  error: undefined,
+                  progress: { sendId: sendId ?? '', phase: 'sending', bytesReceived: 0, totalBytes: 0 },
+                }
+              : { sendId: undefined }),
+          })),
+        }));
+      },
+
+      setResponse(tabId, response) {
+        set((state) => ({
+          sessions: updateTab(state.sessions, tabId, (tab) => ({
+            ...tab,
+            response,
+            error: undefined,
+            sending: false,
+            sendId: undefined,
+            progress: undefined,
+          })),
+        }));
+      },
+
+      setError(tabId, error) {
+        set((state) => ({
+          sessions: updateTab(state.sessions, tabId, (tab) => ({
+            ...tab,
+            error,
+            sending: false,
+            sendId: undefined,
+            progress: undefined,
+          })),
+        }));
+      },
+
+      setProgress(progress) {
+        set((state) => {
+          for (const session of Object.values(state.sessions)) {
+            const tab = session.tabs.find((candidate) => candidate.sendId === progress.sendId);
+            if (tab) {
+              return { sessions: updateTab(state.sessions, tab.id, (current) => ({ ...current, progress })) };
+            }
+          }
+          return state;
+        });
+      },
+    }),
+    {
+      name: 'apirequest.workspace-sessions.v1',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ sessions: serializeWorkspaceSessions(state.sessions) }) as TabsState,
+      version: 1,
+    },
+  ),
+);

@@ -73,22 +73,16 @@ English | [简体中文](../roadmap.md)
 
 ---
 
-## 2. Phased Implementation Roadmap
+## 2. Current Status and Next Work
 
-**Phase 1 - Foundation and Core Requests (MVP baseline)**
-Wails v2 + React scaffold -> data model and SQLite -> HTTP engine (`SendRequest`) -> request editor + response viewer -> collection tree + history.
+Phases 1 through 5 are implemented in the current `dev` line: the native request engine, scoped variables and scripts, authentication and converters, Runner/Mock/protocol extensions, WebDAV synchronization, gRPC, the CLI runner, and the theme/accessibility foundations are all covered by backend or frontend tests.
 
-**Phase 2 - Variables and Scripts**
-Scoped variables and environments -> template resolution -> goja script engine + `pm.*` -> test results panel.
+The remaining work is deliberately incremental rather than a second rewrite:
 
-**Phase 3 - Authentication and Interoperability**
-All auth types -> import/export converters -> code generation -> Cookie management.
-
-**Phase 4 - Advanced Capabilities**
-Collection Runner -> Mock Server -> WebSocket/SSE/GraphQL.
-
-**Phase 5 - Collaboration and Polish**
-Synchronization -> gRPC -> performance, shortcuts, themes, and accessibility.
+- Improve URL/query and header bulk-edit ergonomics while preserving ordered rows and disabled entries.
+- Add a virtualized history viewport for very large local databases.
+- Expand end-to-end desktop smoke coverage for native dialogs, keychain fallback, signed artifacts, and update-manifest consumption.
+- Define a signed updater protocol and rollback policy before enabling in-app binary replacement. The current Settings action opens the verified GitHub release page; it never replaces binaries silently.
 
 ---
 

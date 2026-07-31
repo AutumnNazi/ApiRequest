@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 )
 
 func nowMs() int64 { return time.Now().UnixMilli() }
@@ -81,55 +82,61 @@ func (s *Store) RenameWorkspace(id, name string) error {
 
 // DeleteWorkspace 删除工作区及其全部数据（节点/环境/全局变量/历史），并清理关联 blob 文件。
 func (s *Store) DeleteWorkspace(id string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	var blobRefs []string
+	err := s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		workspaceRefs, err := s.storedWorkspaceSecretReferences(id)
+		if err != nil {
+			return err
+		}
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
 
-	// 1. 先收集将删除的 blob 引用（DB 行删除后无法回查）
-	rows, err := tx.Query(
-		"SELECT body_ref FROM history WHERE workspace_id = ? AND body_ref != ''", id)
-	if err != nil {
-		return err
-	}
-	var refs []string
-	for rows.Next() {
-		var ref sql.NullString
-		if err := rows.Scan(&ref); err != nil {
+		// Collect blob references before deleting their database rows.
+		rows, err := tx.Query(
+			"SELECT body_ref FROM history WHERE workspace_id = ? AND body_ref != ''", id)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var ref sql.NullString
+			if err := rows.Scan(&ref); err != nil {
+				rows.Close()
+				return err
+			}
+			if ref.Valid && ref.String != "" {
+				blobRefs = append(blobRefs, ref.String)
+			}
+		}
+		if err := rows.Err(); err != nil {
 			rows.Close()
 			return err
 		}
-		if ref.Valid && ref.String != "" {
-			refs = append(refs, ref.String)
-		}
-	}
-	if err := rows.Err(); err != nil {
 		rows.Close()
-		return err
-	}
-	rows.Close()
 
-	// 2. 删除 DB 数据（同一事务）
-	for _, q := range []string{
-		"DELETE FROM history WHERE workspace_id = ?",
-		"DELETE FROM environment WHERE workspace_id = ?",
-		"DELETE FROM global_var WHERE workspace_id = ?",
-		// example 经 node 级联：先删本工作区节点下的 example，再删 node
-		`DELETE FROM example WHERE node_id IN (SELECT id FROM node WHERE workspace_id = ?)`,
-		"DELETE FROM node WHERE workspace_id = ?",
-		"DELETE FROM workspace WHERE id = ?",
-	} {
-		if _, err := tx.Exec(q, id); err != nil {
+		if err := deleteRemovedSecretReferences(writer, workspaceRefs, nil); err != nil {
 			return err
 		}
-	}
-	if err := tx.Commit(); err != nil {
+		for _, query := range []string{
+			"DELETE FROM history WHERE workspace_id = ?",
+			"DELETE FROM environment WHERE workspace_id = ?",
+			"DELETE FROM global_var WHERE workspace_id = ?",
+			`DELETE FROM example WHERE node_id IN (SELECT id FROM node WHERE workspace_id = ?)`,
+			"DELETE FROM node WHERE workspace_id = ?",
+			"DELETE FROM workspace WHERE id = ?",
+		} {
+			if _, err := tx.Exec(query, id); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	})
+	if err != nil {
 		return err
 	}
-
-	// 3. 提交成功后清理孤儿 blob 文件
-	for _, ref := range refs {
+	for _, ref := range blobRefs {
 		s.removeBlobFile(ref)
 	}
 	return nil

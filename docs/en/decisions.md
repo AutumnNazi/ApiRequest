@@ -74,7 +74,7 @@ Status markers: `Accepted` = adopted and reflected in the design docs; `Preferre
 - **Decision**: use `zalando/go-keyring` to access Windows Credential Manager and macOS Keychain for secret variables, OAuth access tokens, and refresh tokens. Never write secret values into SQLite, history, or collection mirrors. If the system keychain is unavailable, require a master password and derive a key with `golang.org/x/crypto/argon2` (Argon2id) to encrypt local secret data.
 - **Rationale**: reuse the OS credential protection and unlock model by default for a consistent Windows/macOS security experience. The fallback keeps core features usable in CI, restricted enterprise environments, and Linux systems without a GUI keychain.
 - **Tradeoff**: fallback mode requires entering a master password on first use. A forgotten master password cannot recover encrypted secrets; users must clear and reauthorize them.
-- **Boundary**: only the `secrets` implementation in the `platform` package may call the keychain, store fallback data, and normalize errors. Business modules must not know which platform backend is active. See [ops.md](./ops.md#1-security-considerations).
+- **Boundary**: only `backend/secrets` may call the keychain, persist fallback data, and normalize errors. Business modules must not know which platform backend is active. Secret changes and SQLite writes use a recoverable Vault batch: a database failure restores old values or deletes new entries without pretending the two systems provide a shared ACID transaction. See [ops.md](./ops.md#1-security-considerations).
 
 ---
 
@@ -117,17 +117,17 @@ The former open question about secret storage was resolved by [ADR-013](#adr-013
 
 ### OPEN-004 Define the Collection Mirror Directory Format (Accepted: Implemented 2026-07-26)
 
-- **Decision**: use JSON isomorphic to the internal IR: `collection.json`, one `*.request.json` file per request, nested directories with `_folder.json`, slug-safe filenames, and forward-compatible `schemaVersion`. See `backend/mirror`.
+- **Decision**: use JSON isomorphic to the internal IR: `collection.json`, one `*.request.json` file per request, nested directories with `_folder.json`, and forward-compatible `schemaVersion`. Slugs use the common safe subset across Windows, macOS, and Linux. Case-insensitive sibling collisions and metadata filename conflicts receive a stable node suffix, and mirror JSON is never read or written through symlinks. See `backend/mirror`.
 
 ### OPEN-005 License
 
 - The README marks this as undecided. Product-level confirmation is required for open source (MIT/Apache-2.0) versus closed source.
 
-### OPEN-006 Automatic Updates (Wails Has No Built-In Updater)
+### OPEN-006 Automatic Updates (Interim Decision: Check and Redirect Only)
 
 - **Background**: Wails does not provide a built-in signed update pipeline.
-- **Open decision**: build an update service with signature verification or integrate a third-party updater, such as one based on GitHub Releases. Define signing, stable/beta channels, and rollback behavior.
-- **Recommendation**: address this during Phase 5 polish; manually distribute MVP installers first.
+- **Current decision (2026-07-31)**: the release workflow publishes `SHA256SUMS` and `update-manifest.json`; Settings only checks and opens the official GitHub release download page. It never replaces binaries silently.
+- **Still open**: before enabling in-app updates, define signature verification, stable/beta channels, atomic replacement, and failure rollback.
 
 ---
 

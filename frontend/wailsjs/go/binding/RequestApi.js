@@ -6,8 +6,16 @@ export function CancelRequest(arg1) {
   return window['go']['binding']['RequestApi']['CancelRequest'](arg1);
 }
 
-export function GetResponseBlob(arg1) {
-  return window['go']['binding']['RequestApi']['GetResponseBlob'](arg1);
+export function GetResponseBlobInfo(arg1) {
+  return window['go']['binding']['RequestApi']['GetResponseBlobInfo'](arg1);
+}
+
+export function ReadResponseBlobRange(arg1, arg2, arg3) {
+  return window['go']['binding']['RequestApi']['ReadResponseBlobRange'](arg1, arg2, arg3);
+}
+
+export function SaveResponseBlob(arg1, arg2) {
+  return window['go']['binding']['RequestApi']['SaveResponseBlob'](arg1, arg2);
 }
 
 export function SendRequest(arg1, arg2, arg3) {

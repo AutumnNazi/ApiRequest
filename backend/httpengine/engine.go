@@ -7,9 +7,12 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptrace"
@@ -19,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -39,10 +43,22 @@ func authProviderTwoPhase(authType string) (auth.TwoPhaseProvider, bool) {
 // inlineBodyLimit 超过该字节数的响应体不内联返回，落 blobs/ 并返回引用
 const inlineBodyLimit = 2 << 20 // 2 MiB
 
+const maxTLSMaterialSize = 4 << 20
+
+// Progress is request-scoped transfer progress reported by SendWithProgress.
+type Progress struct {
+	Phase         string `json:"phase"` // ttfb | downloading
+	BytesReceived int64  `json:"bytesReceived"`
+	TotalBytes    int64  `json:"totalBytes,omitempty"`
+}
+
+type ProgressFunc func(Progress)
+
 // Engine 持有共享的 http.Transport（连接池）与 blobs 目录
 type Engine struct {
-	transport *http.Transport
-	blobsDir  string // 空 = 不落盘（超限截断），非空 = 超限写 blob
+	transportMu sync.RWMutex
+	transport   *http.Transport
+	blobsDir    string // 空 = 不落盘（超限截断），非空 = 超限写 blob
 	// proxyOverride 应用级代理设置（nil = 系统代理）
 	proxyMu   sync.RWMutex
 	proxyFunc func(*http.Request) (*url.URL, error)
@@ -76,21 +92,22 @@ func (e *Engine) SetBlobsDir(dir string) { e.blobsDir = dir }
 // SetProxy 应用代理设置。mode: system | manual | none；manual 时用 proxyUrl。
 func (e *Engine) SetProxy(mode, proxyUrl string) error {
 	e.proxyMu.Lock()
-	defer e.proxyMu.Unlock()
 	switch mode {
 	case "none":
 		e.proxyFunc = nil
 	case "manual":
 		u, err := url.Parse(proxyUrl)
 		if err != nil || u.Host == "" {
+			e.proxyMu.Unlock()
 			return model.NewError(model.KindValidation, "invalid proxy url: "+proxyUrl)
 		}
 		e.proxyFunc = http.ProxyURL(u)
 	default: // system
 		e.proxyFunc = http.ProxyFromEnvironment
 	}
+	e.proxyMu.Unlock()
 	// 代理变更后关闭旧连接，避免复用到旧代理的连接
-	e.transport.CloseIdleConnections()
+	e.currentTransport().CloseIdleConnections()
 	return nil
 }
 
@@ -105,7 +122,7 @@ type TLSSettings struct {
 func (e *Engine) SetTLS(s TLSSettings) error {
 	cfg := &tls.Config{}
 	if s.CaCertPath != "" {
-		pem, err := os.ReadFile(s.CaCertPath)
+		pem, err := readBoundedFile(s.CaCertPath, maxTLSMaterialSize)
 		if err != nil {
 			return model.NewError(model.KindTls, "read CA cert: "+err.Error())
 		}
@@ -123,7 +140,15 @@ func (e *Engine) SetTLS(s TLSSettings) error {
 		if s.ClientCertPath == "" || s.ClientKeyPath == "" {
 			return model.NewError(model.KindTls, "client cert and key must both be set")
 		}
-		cert, err := tls.LoadX509KeyPair(s.ClientCertPath, s.ClientKeyPath)
+		certPEM, err := readBoundedFile(s.ClientCertPath, maxTLSMaterialSize)
+		if err != nil {
+			return model.NewError(model.KindTls, "read client cert: "+err.Error())
+		}
+		keyPEM, err := readBoundedFile(s.ClientKeyPath, maxTLSMaterialSize)
+		if err != nil {
+			return model.NewError(model.KindTls, "read client key: "+err.Error())
+		}
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
 		if err != nil {
 			return model.NewError(model.KindTls, "load client cert: "+err.Error())
 		}
@@ -132,13 +157,59 @@ func (e *Engine) SetTLS(s TLSSettings) error {
 	if s.CaCertPath == "" && s.ClientCertPath == "" {
 		cfg = nil // 清除自定义配置，回到默认
 	}
-	e.transport.TLSClientConfig = cfg
-	e.transport.CloseIdleConnections()
+	e.transportMu.Lock()
+	oldTransport := e.transport
+	nextTransport := oldTransport.Clone()
+	nextTransport.TLSClientConfig = cfg
+	e.transport = nextTransport
+	e.transportMu.Unlock()
+	oldTransport.CloseIdleConnections()
 	return nil
+}
+
+func readBoundedFile(path string, limit int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("path is not a regular file")
+	}
+	if info.Size() > limit {
+		return nil, fmt.Errorf("file exceeds %d MiB limit", limit>>20)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("file exceeds %d MiB limit", limit>>20)
+	}
+	return data, nil
+}
+
+func (e *Engine) currentTransport() *http.Transport {
+	e.transportMu.RLock()
+	defer e.transportMu.RUnlock()
+	return e.transport
 }
 
 // Send 执行请求。ctx 取消即中止（对应 CancelRequest）。
 func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.ResponseResult, error) {
+	return e.send(ctx, req, nil)
+}
+
+// SendWithProgress executes a request and reports final-response transfer progress.
+func (e *Engine) SendWithProgress(ctx context.Context, req model.HttpRequest, progress ProgressFunc) (model.ResponseResult, error) {
+	return e.send(ctx, req, progress)
+}
+
+func (e *Engine) send(ctx context.Context, req model.HttpRequest, progress ProgressFunc) (model.ResponseResult, error) {
 	var res model.ResponseResult
 
 	httpReq, err := e.buildRequest(ctx, req)
@@ -146,6 +217,9 @@ func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.Respons
 		return res, model.WrapError(model.KindValidation, err)
 	}
 	if err := auth.Apply(httpReq, req.Auth); err != nil {
+		if httpReq.Body != nil {
+			_ = httpReq.Body.Close()
+		}
 		return res, model.WrapError(model.KindValidation, err)
 	}
 
@@ -179,6 +253,9 @@ func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.Respons
 			}
 			handled, herr := tp.OnChallenge(retryReq, challenge, req.Auth.Params)
 			if herr != nil {
+				if retryReq.Body != nil {
+					_ = retryReq.Body.Close()
+				}
 				return res, model.WrapError(model.KindValidation, herr)
 			}
 			if handled {
@@ -202,9 +279,25 @@ func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.Respons
 		}
 	}
 	defer resp.Body.Close()
+	totalBytes := resp.ContentLength
+	if totalBytes < 0 {
+		totalBytes = 0
+	}
+	if progress != nil {
+		progress(Progress{Phase: "ttfb", TotalBytes: totalBytes})
+	}
 
 	// 流式读 body：前 2MiB 进内存，超限部分边收边写 blob（有 blobsDir 时）
-	body, size, blobRef, err := e.readBodyWithBlob(resp.Body)
+	bodyReader := io.Reader(resp.Body)
+	var tracker *downloadProgressReader
+	if progress != nil {
+		tracker = &downloadProgressReader{reader: resp.Body, total: totalBytes, emit: progress}
+		bodyReader = tracker
+	}
+	body, size, blobRef, err := e.readBodyWithBlob(bodyReader)
+	if tracker != nil {
+		tracker.finish()
+	}
 	end := time.Now()
 	if err != nil && ctx.Err() == context.Canceled {
 		return res, model.NewError(model.KindNetwork, "canceled")
@@ -219,18 +312,80 @@ func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.Respons
 	res.Cookies = convertCookies(resp.Cookies())
 	res.SizeBytes = size
 	res.Timing = tr.timing(start, end)
+	isText := responseBodyIsText(resp.Header.Get("Content-Type"), body)
 	if blobRef != "" {
-		// 大响应：内联预览片段 + blob 引用（前端按需拉全量）
-		res.Body = model.ResponseBody{
-			Inline: false, BlobRef: blobRef,
-			Text: string(body[:min(len(body), 64<<10)]) + "\n… (预览片段，完整响应 " + formatBytes(size) + ")",
+		res.Body = model.ResponseBody{Inline: false, BlobRef: blobRef}
+		if isText {
+			res.Body.Text = string(body[:min(len(body), 64<<10)]) + "\n… (预览片段，完整响应 " + formatBytes(size) + ")"
+			res.Body.Encoding = "utf8"
+		} else {
+			res.Body.Encoding = "binary"
 		}
 	} else {
-		res.Body = model.ResponseBody{Inline: true, Text: string(body)}
+		res.Body = model.ResponseBody{Inline: true}
+		if isText {
+			res.Body.Text = string(body)
+			res.Body.Encoding = "utf8"
+		} else {
+			res.Body.Text = base64.StdEncoding.EncodeToString(body)
+			res.Body.Encoding = "base64"
+		}
 	}
 	res.TestResults = []model.TestResult{}
 	res.ScriptLogs = []string{}
 	return res, nil
+}
+
+type downloadProgressReader struct {
+	reader       io.Reader
+	total        int64
+	received     int64
+	lastReported int64
+	lastEmit     time.Time
+	emit         ProgressFunc
+}
+
+func (r *downloadProgressReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.received += int64(n)
+		if r.received-r.lastReported >= 64<<10 || time.Since(r.lastEmit) >= 50*time.Millisecond {
+			r.report()
+		}
+	}
+	return n, err
+}
+
+func (r *downloadProgressReader) report() {
+	r.lastReported = r.received
+	r.lastEmit = time.Now()
+	r.emit(Progress{Phase: "downloading", BytesReceived: r.received, TotalBytes: r.total})
+}
+
+func (r *downloadProgressReader) finish() {
+	if r.lastReported != r.received || r.received == 0 {
+		r.report()
+	}
+}
+
+func responseBodyIsText(contentType string, body []byte) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil && mediaType != "" {
+		if strings.HasPrefix(mediaType, "text/") {
+			return true
+		}
+		switch mediaType {
+		case "application/json", "application/problem+json", "application/xml",
+			"application/xhtml+xml", "application/javascript", "application/graphql",
+			"application/x-www-form-urlencoded", "image/svg+xml":
+			return true
+		}
+		if strings.HasSuffix(mediaType, "+json") || strings.HasSuffix(mediaType, "+xml") {
+			return true
+		}
+		return false
+	}
+	return utf8.Valid(body)
 }
 
 // readBodyWithBlob 读响应体：≤限额全内联；超限时（有 blobsDir）全量写 blob 文件，
@@ -264,29 +419,46 @@ func (e *Engine) readBodyWithBlob(r io.Reader) (head []byte, total int64, blobRe
 	}
 
 	// 落盘：头部 + probe + 剩余 全量写文件
-	name := uuid.NewString() + ".bin"
-	f, ferr := os.Create(filepath.Join(e.blobsDir, name))
+	temp, ferr := os.CreateTemp(e.blobsDir, ".response-*.tmp")
 	if ferr != nil {
 		rest, derr := io.Copy(io.Discard, r)
 		total += int64(pn) + rest
 		return appendTruncationMarker(buf.Bytes()), total, "", derr // 落盘失败降级为截断，不阻断响应
 	}
-	defer f.Close()
-	if _, werr := f.Write(buf.Bytes()); werr != nil {
+	tempPath := temp.Name()
+	committed := false
+	defer func() {
+		_ = temp.Close()
+		if !committed {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if _, werr := temp.Write(buf.Bytes()); werr != nil {
 		rest, derr := io.Copy(io.Discard, r)
 		total += int64(pn) + rest
 		return appendTruncationMarker(buf.Bytes()), total, "", derr
 	}
-	if _, werr := f.Write(probe[:pn]); werr != nil {
+	if _, werr := temp.Write(probe[:pn]); werr != nil {
 		rest, derr := io.Copy(io.Discard, r)
 		total += int64(pn) + rest
 		return appendTruncationMarker(buf.Bytes()), total, "", derr
 	}
-	rest, rerr := io.Copy(f, r)
+	rest, rerr := io.Copy(temp, r)
 	total += int64(pn) + rest
 	if rerr != nil {
 		return buf.Bytes(), total, "", rerr
 	}
+	if err := temp.Sync(); err != nil {
+		return appendTruncationMarker(buf.Bytes()), total, "", nil
+	}
+	if err := temp.Close(); err != nil {
+		return appendTruncationMarker(buf.Bytes()), total, "", nil
+	}
+	name := uuid.NewString() + ".bin"
+	if err := os.Rename(tempPath, filepath.Join(e.blobsDir, name)); err != nil {
+		return appendTruncationMarker(buf.Bytes()), total, "", nil
+	}
+	committed = true
 	return buf.Bytes(), total, name, nil
 }
 
@@ -302,10 +474,10 @@ func formatBytes(n int64) string {
 }
 
 func (e *Engine) buildClient(s model.RequestSettings) *http.Client {
-	transport := e.transport
+	transport := e.currentTransport()
 	if !s.VerifyTLS {
 		// 关闭校验时克隆 transport，避免污染共享连接池；保留自定义 CA/客户端证书
-		t := e.transport.Clone()
+		t := transport.Clone()
 		if t.TLSClientConfig == nil {
 			t.TLSClientConfig = &tls.Config{}
 		}
@@ -350,7 +522,7 @@ func (e *Engine) buildRequest(ctx context.Context, req model.HttpRequest) (*http
 	}
 	u.RawQuery = q.Encode()
 
-	bodyReader, contentType, err := buildBody(req.Body)
+	body, err := prepareBody(req.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -359,12 +531,21 @@ func (e *Engine) buildRequest(ctx context.Context, req model.HttpRequest) (*http
 	if method == "" {
 		method = "GET"
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, method, u.String(), bodyReader)
+	httpReq, err := http.NewRequestWithContext(ctx, method, u.String(), body.reader)
 	if err != nil {
+		if closer, ok := body.reader.(io.Closer); ok {
+			_ = closer.Close()
+		}
 		return nil, err
 	}
-	if contentType != "" {
-		httpReq.Header.Set("Content-Type", contentType)
+	if body.getBody != nil {
+		httpReq.GetBody = body.getBody
+	}
+	if body.reader != nil && body.contentLength >= 0 {
+		httpReq.ContentLength = body.contentLength
+	}
+	if body.contentType != "" {
+		httpReq.Header.Set("Content-Type", body.contentType)
 	}
 	for _, h := range req.Headers {
 		if h.Enabled && h.Key != "" {
@@ -374,16 +555,31 @@ func (e *Engine) buildRequest(ctx context.Context, req model.HttpRequest) (*http
 	return httpReq, nil
 }
 
+type bodyPlan struct {
+	reader        io.Reader
+	contentType   string
+	contentLength int64
+	getBody       func() (io.ReadCloser, error)
+}
+
 func buildBody(b model.Body) (io.Reader, string, error) {
+	body, err := prepareBody(b)
+	if err != nil {
+		return nil, "", err
+	}
+	return body.reader, body.contentType, nil
+}
+
+func prepareBody(b model.Body) (bodyPlan, error) {
 	switch b.Kind {
 	case "", "none":
-		return nil, "", nil
+		return bodyPlan{}, nil
 	case "raw":
 		ct := map[string]string{
 			"json": "application/json", "xml": "application/xml",
 			"html": "text/html", "text": "text/plain",
 		}[b.Language]
-		return strings.NewReader(b.Text), ct, nil
+		return stringBodyPlan(b.Text, ct), nil
 	case "urlencoded":
 		form := url.Values{}
 		for _, it := range b.Items {
@@ -391,54 +587,130 @@ func buildBody(b model.Body) (io.Reader, string, error) {
 				form.Add(it.Key, it.Value)
 			}
 		}
-		return strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", nil
+		return stringBodyPlan(form.Encode(), "application/x-www-form-urlencoded"), nil
 	case "formdata":
-		var buf bytes.Buffer
-		w := multipart.NewWriter(&buf)
-		for _, it := range b.Items {
-			if !it.Enabled || it.Key == "" {
-				continue
-			}
-			if it.Type == "file" {
-				f, err := os.Open(it.Path)
-				if err != nil {
-					return nil, "", fmt.Errorf("form file %q: %w", it.Key, err)
-				}
-				fw, err := w.CreateFormFile(it.Key, filepathBase(it.Path))
-				if err == nil {
-					_, err = io.Copy(fw, f)
-				}
-				f.Close()
-				if err != nil {
-					return nil, "", err
-				}
-			} else if err := w.WriteField(it.Key, it.Value); err != nil {
-				return nil, "", err
-			}
-		}
-		if err := w.Close(); err != nil {
-			return nil, "", err
-		}
-		return &buf, w.FormDataContentType(), nil
+		return prepareMultipartBody(b.Items)
 	case "binary":
 		f, err := os.Open(b.Path)
 		if err != nil {
-			return nil, "", fmt.Errorf("binary body: %w", err)
+			return bodyPlan{}, fmt.Errorf("binary body: %w", err)
 		}
-		return f, "application/octet-stream", nil // 流式，client.Do 后由 http 层关闭
+		info, err := f.Stat()
+		if err != nil {
+			_ = f.Close()
+			return bodyPlan{}, fmt.Errorf("binary body: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			_ = f.Close()
+			return bodyPlan{}, errors.New("binary body path is not a regular file")
+		}
+		path := b.Path
+		return bodyPlan{
+			reader:        f,
+			contentType:   "application/octet-stream",
+			contentLength: info.Size(),
+			getBody: func() (io.ReadCloser, error) {
+				return os.Open(path)
+			},
+		}, nil
 	case "graphql":
 		vars := b.Variables
 		if strings.TrimSpace(vars) == "" {
 			vars = "{}"
 		}
 		if !json.Valid([]byte(vars)) {
-			return nil, "", fmt.Errorf("graphql variables must be valid JSON")
+			return bodyPlan{}, fmt.Errorf("graphql variables must be valid JSON")
 		}
 		payload := fmt.Sprintf(`{"query":%s,"variables":%s}`, jsonString(b.Query), vars)
-		return strings.NewReader(payload), "application/json", nil
+		return stringBodyPlan(payload, "application/json"), nil
 	default:
-		return nil, "", fmt.Errorf("unsupported body kind: %s", b.Kind)
+		return bodyPlan{}, fmt.Errorf("unsupported body kind: %s", b.Kind)
 	}
+}
+
+func stringBodyPlan(value, contentType string) bodyPlan {
+	return bodyPlan{
+		reader:        strings.NewReader(value),
+		contentType:   contentType,
+		contentLength: int64(len(value)),
+	}
+}
+
+func prepareMultipartBody(items []model.FormItem) (bodyPlan, error) {
+	items = append([]model.FormItem(nil), items...)
+	for _, item := range items {
+		if !item.Enabled || item.Key == "" || item.Type != "file" {
+			continue
+		}
+		info, err := os.Stat(item.Path)
+		if err != nil {
+			return bodyPlan{}, fmt.Errorf("form file %q: %w", item.Key, err)
+		}
+		if !info.Mode().IsRegular() {
+			return bodyPlan{}, fmt.Errorf("form file %q path is not a regular file", item.Key)
+		}
+	}
+
+	boundaryWriter := multipart.NewWriter(io.Discard)
+	boundary := boundaryWriter.Boundary()
+	contentType := boundaryWriter.FormDataContentType()
+	open := func() (io.ReadCloser, error) {
+		reader, writer := io.Pipe()
+		go writeMultipartBody(writer, boundary, items)
+		return reader, nil
+	}
+	reader, err := open()
+	if err != nil {
+		return bodyPlan{}, err
+	}
+	return bodyPlan{
+		reader:        reader,
+		contentType:   contentType,
+		contentLength: -1,
+		getBody:       open,
+	}, nil
+}
+
+func writeMultipartBody(pipe *io.PipeWriter, boundary string, items []model.FormItem) {
+	writer := multipart.NewWriter(pipe)
+	if err := writer.SetBoundary(boundary); err != nil {
+		_ = pipe.CloseWithError(err)
+		return
+	}
+	for _, item := range items {
+		if !item.Enabled || item.Key == "" {
+			continue
+		}
+		if item.Type != "file" {
+			if err := writer.WriteField(item.Key, item.Value); err != nil {
+				_ = pipe.CloseWithError(err)
+				return
+			}
+			continue
+		}
+		file, err := os.Open(item.Path)
+		if err != nil {
+			_ = pipe.CloseWithError(fmt.Errorf("form file %q: %w", item.Key, err))
+			return
+		}
+		part, err := writer.CreateFormFile(item.Key, filepathBase(item.Path))
+		if err == nil {
+			_, err = io.Copy(part, file)
+		}
+		closeErr := file.Close()
+		if err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			_ = pipe.CloseWithError(err)
+			return
+		}
+	}
+	if err := writer.Close(); err != nil {
+		_ = pipe.CloseWithError(err)
+		return
+	}
+	_ = pipe.Close()
 }
 
 func appendTruncationMarker(head []byte) []byte {

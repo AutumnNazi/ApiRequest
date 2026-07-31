@@ -1,15 +1,31 @@
 // 响应查看器：状态行 + Body(Pretty/Raw)/Headers 页签 + 分阶段计时
-import { useEffect, useMemo, useState } from 'react';
-import { upsertExample, getResponseBlob, toAppError, type ResponseResult, type AppError, type Example } from '../ipc';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  upsertExample,
+  getResponseBlobInfo,
+  readResponseBlobRange,
+  saveResponseBlob,
+  saveNativeFile,
+  toAppError,
+  type ResponseResult,
+  type AppError,
+  type Example,
+  type RequestProgress,
+} from '../ipc';
+import { formatMessage, useLocale, Verbatim } from '../i18n/locale';
 
 interface Props {
   response?: ResponseResult;
   error?: AppError;
   sending: boolean;
+  progress?: RequestProgress;
   nodeId?: string; // 已保存请求的节点 id（"保存为示例"需要）
 }
 
 const BODY_RENDER_CHAR_LIMIT = 500_000;
+const BLOB_CHUNK_SIZE = 256 << 10;
+const BODY_INSPECT_BYTE_LIMIT = BODY_RENDER_CHAR_LIMIT * 4;
+const IMAGE_PREVIEW_BYTE_LIMIT = 16 << 20;
 
 const errorKindLabel: Record<string, string> = {
   network: '网络错误',
@@ -21,28 +37,137 @@ const errorKindLabel: Record<string, string> = {
   unknown: '错误',
 };
 
-export default function ResponseViewer({ response, error, sending, nodeId }: Props) {
+export default function ResponseViewer({ response, error, sending, progress, nodeId }: Props) {
+  const locale = useLocale((state) => state.locale);
   const [pane, setPane] = useState<'body' | 'preview' | 'headers' | 'tests' | 'timing'>('body');
   const [raw, setRaw] = useState(false);
   const [search, setSearch] = useState('');
   const [exampleSaved, setExampleSaved] = useState(false);
-  const [fullBody, setFullBody] = useState<string | null>(null);
-  const [loadingFull, setLoadingFull] = useState(false);
+  const [blobBytes, setBlobBytes] = useState<Uint8Array>(() => new Uint8Array());
+  const [blobSize, setBlobSize] = useState(0);
+  const [blobEof, setBlobEof] = useState(false);
+  const [loadingChunk, setLoadingChunk] = useState(false);
+  const [blobError, setBlobError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const responseBlobRef = response?.body?.blobRef ?? '';
+  const activeBlobRef = useRef(responseBlobRef);
+  const loadingBlobRef = useRef('');
+  activeBlobRef.current = responseBlobRef;
 
-  // 新响应到来时丢弃已加载的全文
+  // 新响应到来时丢弃旧 chunk，并只读取 metadata。
   useEffect(() => {
-    setFullBody(null);
-  }, [response]);
+    let cancelled = false;
+    setBlobBytes(new Uint8Array());
+    setBlobSize(response?.sizeBytes ?? 0);
+    setBlobEof(false);
+    setBlobError('');
+    setSaveMessage('');
+    setLoadingChunk(false);
+    setSaving(false);
+    loadingBlobRef.current = '';
+    const ref = responseBlobRef;
+    if (ref) {
+      void getResponseBlobInfo(ref)
+        .then((info) => {
+          if (!cancelled) setBlobSize(info.sizeBytes);
+        })
+        .catch((error) => {
+          if (!cancelled) setBlobError(toAppError(error).detail);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [response, responseBlobRef]);
 
-  const loadFullBody = async () => {
-    if (!response?.body?.blobRef) return;
-    setLoadingFull(true);
+  const loadNextChunk = async () => {
+    const ref = response?.body?.blobRef;
+    if (!ref || loadingBlobRef.current || blobEof || blobBytes.byteLength >= BODY_INSPECT_BYTE_LIMIT) {
+      return;
+    }
+    loadingBlobRef.current = ref;
+    setLoadingChunk(true);
+    setBlobError('');
     try {
-      setFullBody(await getResponseBlob(response.body.blobRef));
-    } catch (e) {
-      setFullBody(`// 加载失败: ${toAppError(e).detail}`);
+      const chunk = await readResponseBlobRange(
+        ref,
+        blobBytes.byteLength,
+        Math.min(BLOB_CHUNK_SIZE, BODY_INSPECT_BYTE_LIMIT - blobBytes.byteLength),
+      );
+      if (activeBlobRef.current !== ref) return;
+      const next = concatBytes(blobBytes, decodeBase64(chunk.dataBase64));
+      setBlobBytes(next);
+      setBlobEof(chunk.eof);
+    } catch (error) {
+      if (activeBlobRef.current === ref) setBlobError(toAppError(error).detail);
     } finally {
-      setLoadingFull(false);
+      if (loadingBlobRef.current === ref) {
+        loadingBlobRef.current = '';
+        setLoadingChunk(false);
+      }
+    }
+  };
+
+  const loadImagePreview = async () => {
+    const ref = response?.body?.blobRef;
+    if (!ref || loadingBlobRef.current || blobEof) return;
+    if (blobSize > IMAGE_PREVIEW_BYTE_LIMIT) {
+      setBlobError(
+        formatMessage('图片为 {size}，超过 {limit} 预览上限，请另存为查看。', {
+          size: formatSize(blobSize),
+          limit: formatSize(IMAGE_PREVIEW_BYTE_LIMIT),
+        }),
+      );
+      return;
+    }
+    loadingBlobRef.current = ref;
+    setLoadingChunk(true);
+    setBlobError('');
+    try {
+      let next = blobBytes;
+      let eof: boolean = blobEof;
+      while (!eof && next.byteLength < blobSize) {
+        const chunk = await readResponseBlobRange(
+          ref,
+          next.byteLength,
+          Math.min(1 << 20, blobSize - next.byteLength),
+        );
+        if (activeBlobRef.current !== ref) return;
+        next = concatBytes(next, decodeBase64(chunk.dataBase64));
+        eof = chunk.eof;
+      }
+      setBlobBytes(next);
+      setBlobEof(eof);
+    } catch (error) {
+      if (activeBlobRef.current === ref) setBlobError(toAppError(error).detail);
+    } finally {
+      if (loadingBlobRef.current === ref) {
+        loadingBlobRef.current = '';
+        setLoadingChunk(false);
+      }
+    }
+  };
+
+  const saveBlobAs = async () => {
+    const ref = response?.body?.blobRef;
+    if (!ref || saving) return;
+    setSaving(true);
+    setSaveMessage('');
+    try {
+      const destination = await saveNativeFile('保存响应', suggestedResponseFilename(response));
+      if (!destination) return;
+      const written = await saveResponseBlob(ref, destination);
+      if (activeBlobRef.current === ref) {
+        setSaveMessage(formatMessage('已保存 {size}', { size: formatSize(written) }));
+      }
+    } catch (error) {
+      if (activeBlobRef.current === ref) {
+        setSaveMessage(formatMessage('保存失败：{detail}', { detail: toAppError(error).detail }));
+      }
+    } finally {
+      if (activeBlobRef.current === ref) setSaving(false);
     }
   };
 
@@ -50,7 +175,7 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
     if (!response || !nodeId) return;
     await upsertExample({
       nodeId,
-      name: `${response.status} 示例`,
+      name: formatMessage('{status} 示例', { status: response.status }),
       status: response.status,
       headers: response.headers,
       body: response.body?.text ?? '',
@@ -59,8 +184,48 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
     setTimeout(() => setExampleSaved(false), 1500);
   };
 
+  const contentType = useMemo(
+    () =>
+      response?.headers?.find((h) => h.key.toLowerCase() === 'content-type')?.value?.toLowerCase() ??
+      '',
+    [response],
+  );
+  const binaryBody = response?.body?.encoding === 'base64' || response?.body?.encoding === 'binary';
+  const inlineBinaryBytes = useMemo(
+    () =>
+      response?.body?.encoding === 'base64' && response.body.text
+        ? decodeBase64(response.body.text)
+        : new Uint8Array(),
+    [response],
+  );
+  const sourceText = useMemo(() => {
+    if (binaryBody) {
+      const bytes = blobBytes.byteLength > 0 ? blobBytes : inlineBinaryBytes;
+      return bytes.byteLength > 0 ? hexPreview(bytes) : '[binary response]';
+    }
+    if (blobBytes.byteLength > 0) return new TextDecoder().decode(blobBytes);
+    return response?.body?.text ?? '';
+  }, [binaryBody, blobBytes, inlineBinaryBytes, locale, response]);
+
+  const completeImageBytes = contentType.startsWith('image/')
+    ? response?.body?.encoding === 'base64'
+      ? inlineBinaryBytes
+      : blobEof
+        ? blobBytes
+        : null
+    : null;
+
+  useEffect(() => {
+    setImageUrl('');
+    if (!completeImageBytes || completeImageBytes.byteLength === 0) return;
+    const data = completeImageBytes.slice().buffer;
+    const url = URL.createObjectURL(new Blob([data], { type: contentType || 'application/octet-stream' }));
+    setImageUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [completeImageBytes, contentType]);
+
   const pretty = useMemo(() => {
-    const source = fullBody ?? response?.body?.text;
+    const source = sourceText;
     if (!source) return '';
     // 大 JSON 的 parse + stringify 也会阻塞主线程，并可能把文本再膨胀数倍。
     if (raw || source.length > BODY_RENDER_CHAR_LIMIT) return source;
@@ -69,16 +234,10 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
     } catch {
       return source;
     }
-  }, [response, raw, fullBody]);
+  }, [sourceText, raw]);
 
   const renderedBody = useMemo(() => sliceBodyForRender(pretty), [pretty]);
 
-  const contentType = useMemo(
-    () =>
-      response?.headers?.find((h) => h.key.toLowerCase() === 'content-type')?.value?.toLowerCase() ??
-      '',
-    [response],
-  );
   const previewable = contentType.includes('html') || contentType.startsWith('image/');
 
   const matchCount = useMemo(() => {
@@ -92,7 +251,7 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
   }, [renderedBody.visibleText, search]);
 
   if (sending) {
-    return <Center>发送中…</Center>;
+    return <SendingProgress progress={progress} />;
   }
   if (error) {
     return (
@@ -101,7 +260,9 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
           <div className="font-medium text-red-700 mb-1">
             {errorKindLabel[error.kind] ?? '错误'}
           </div>
-          <div className="text-red-600 font-mono break-all">{error.detail}</div>
+          <div className="text-red-600 font-mono break-all">
+            <Verbatim value={error.detail} />
+          </div>
         </div>
       </div>
     );
@@ -117,7 +278,7 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
   const passCount = tests.filter((t) => t.pass).length;
   const testsLabel =
     tests.length > 0
-      ? `测试 (${passCount}/${tests.length})`
+      ? formatMessage('测试 ({passed}/{total})', { passed: passCount, total: tests.length })
       : (response.scriptLogs ?? []).length > 0
         ? '测试 (日志)'
         : '测试';
@@ -127,7 +288,7 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
       {/* 状态行 */}
       <div className="flex items-center gap-4 px-3 py-2 border-b text-sm">
         <span className={`font-semibold ${statusColor}`}>
-          {response.status} {response.statusText}
+          {response.status} <Verbatim value={response.statusText} />
         </span>
         <span className="text-gray-500">{response.timing.totalMs.toFixed(0)} ms</span>
         <span className="text-gray-500">{formatSize(response.sizeBytes)}</span>
@@ -136,7 +297,7 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
             {passCount === tests.length ? '✓' : '✗'} {passCount}/{tests.length}
           </span>
         )}
-        {nodeId && (
+        {nodeId && !response.body?.blobRef && (
           <button
             className="ml-auto text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-0.5"
             onClick={saveAsExample}
@@ -196,25 +357,47 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
       <div className="flex-1 overflow-auto">
         {pane === 'body' && (
           <div>
-            {response.body?.blobRef && !fullBody && (
-              <div className="m-3 mb-0 border border-yellow-200 bg-yellow-50 rounded px-3 py-2 text-xs flex items-center gap-2">
+            {response.body?.blobRef && (
+              <div className="m-3 mb-0 border border-yellow-200 bg-yellow-50 rounded px-3 py-2 text-xs flex flex-wrap items-center gap-2">
                 <span className="text-yellow-800">
-                  大响应仅显示预览片段（完整 {formatSize(response.sizeBytes)}）
+                  已加载 {formatSize(blobBytes.byteLength)} / {formatSize(blobSize || response.sizeBytes)}
                 </span>
+                {!blobEof && blobBytes.byteLength < BODY_INSPECT_BYTE_LIMIT && (
+                  <button
+                    className="text-blue-600 hover:underline disabled:opacity-50"
+                    disabled={loadingChunk}
+                    onClick={() => void loadNextChunk()}
+                  >
+                    {loadingChunk ? '加载中…' : '加载下一块'}
+                  </button>
+                )}
+                {!blobEof && blobBytes.byteLength >= BODY_INSPECT_BYTE_LIMIT && (
+                  <span className="text-gray-500">已达到片段读取上限</span>
+                )}
                 <button
                   className="text-blue-600 hover:underline disabled:opacity-50"
-                  disabled={loadingFull}
-                  onClick={loadFullBody}
+                  disabled={saving}
+                  onClick={() => void saveBlobAs()}
                 >
-                  {loadingFull ? '加载中…' : '加载完整响应'}
+                  {saving ? '保存中…' : '另存为…'}
                 </button>
+                {saveMessage && <span className="text-gray-600"><Verbatim value={saveMessage} /></span>}
+                {blobError && <span className="basis-full text-red-600"><Verbatim value={blobError} /></span>}
               </div>
             )}
             <HighlightedBody body={renderedBody} query={search} />
           </div>
         )}
         {pane === 'preview' && (
-          <PreviewPane text={fullBody ?? response.body?.text ?? ''} contentType={contentType} />
+          <PreviewPane
+            text={binaryBody ? '' : sourceText}
+            contentType={contentType}
+            imageUrl={imageUrl}
+            hasBlob={Boolean(response.body?.blobRef)}
+            loading={loadingChunk}
+            error={blobError}
+            onLoadImage={() => void loadImagePreview()}
+          />
         )}
         {pane === 'headers' && (
           <table className="w-full text-sm m-3">
@@ -222,9 +405,9 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
               {response.headers.map((h, i) => (
                 <tr key={i} className="border-b border-gray-100">
                   <td className="p-1 pr-4 font-medium text-gray-700 whitespace-nowrap align-top">
-                    {h.key}
+                    <Verbatim value={h.key} />
                   </td>
-                  <td className="p-1 font-mono text-xs break-all">{h.value}</td>
+                  <td className="p-1 font-mono text-xs break-all"><Verbatim value={h.value} /></td>
                 </tr>
               ))}
             </tbody>
@@ -289,26 +472,41 @@ function HighlightedBody({ body, query }: { body: BodyRenderSlice; query: string
           ? parts.map((p, i) =>
               p.hit ? (
                 <mark key={i} className="bg-yellow-200 rounded-sm">
-                  {p.s}
+                  <Verbatim value={p.s} />
                 </mark>
               ) : (
-                p.s
+                <Verbatim key={i} value={p.s} />
               ),
             )
-          : visibleText}
+          : <Verbatim value={visibleText} />}
       </pre>
     </>
   );
 }
 
-// PreviewPane HTML iframe / 图片预览
-function PreviewPane({ text, contentType }: { text: string; contentType: string }) {
-  if (text.length > BODY_RENDER_CHAR_LIMIT) {
-    return <Center>响应体过大，Preview 暂不渲染（请使用 Body 片段查看）</Center>;
-  }
+// PreviewPane HTML iframe / binary-safe 图片预览。
+function PreviewPane({
+  text,
+  contentType,
+  imageUrl,
+  hasBlob,
+  loading,
+  error,
+  onLoadImage,
+}: {
+  text: string;
+  contentType: string;
+  imageUrl: string;
+  hasBlob: boolean;
+  loading: boolean;
+  error: string;
+  onLoadImage(): void;
+}) {
   if (contentType.startsWith('image/')) {
-    // 文本形式的响应体对二进制图片不可靠；SVG 可直接内联
-    if (contentType.includes('svg')) {
+    if (!hasBlob && contentType.includes('svg') && text) {
+      if (text.length > BODY_RENDER_CHAR_LIMIT) {
+        return <Center>响应体过大，Preview 暂不渲染（请使用 Body 片段查看）</Center>;
+      }
       return (
         <div className="p-4 flex justify-center">
           <img
@@ -319,7 +517,38 @@ function PreviewPane({ text, contentType }: { text: string; contentType: string 
         </div>
       );
     }
-    return <Center>二进制图片暂不支持预览（可保存为文件查看）</Center>;
+    if (imageUrl) {
+      return (
+        <div className="p-4 flex justify-center">
+          <img
+            src={imageUrl}
+            alt="response preview"
+            className="max-w-full max-h-96 border rounded"
+          />
+        </div>
+      );
+    }
+    if (hasBlob) {
+      return (
+        <div className="h-full flex flex-col items-center justify-center gap-2 text-sm">
+          <button
+            className="border rounded px-3 py-1.5 text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+            disabled={loading}
+            onClick={onLoadImage}
+          >
+            {loading ? '加载图片中…' : '加载图片预览'}
+          </button>
+          {error && <span className="text-xs text-red-600"><Verbatim value={error} /></span>}
+        </div>
+      );
+    }
+    return <Center>图片数据不可用</Center>;
+  }
+  if (hasBlob) {
+    return <Center>大型 HTML 响应不加载到 Preview，请使用 Body 片段或另存为查看</Center>;
+  }
+  if (text.length > BODY_RENDER_CHAR_LIMIT) {
+    return <Center>响应体过大，Preview 暂不渲染（请使用 Body 片段查看）</Center>;
   }
   // HTML：沙箱 iframe，禁脚本
   return (
@@ -357,9 +586,9 @@ function TestsPane({
                 {t.pass ? '✓' : '✗'}
               </span>
               <div className="min-w-0">
-                <div className={t.pass ? 'text-green-800' : 'text-red-800'}>{t.name}</div>
+                <div className={t.pass ? 'text-green-800' : 'text-red-800'}><Verbatim value={t.name} /></div>
                 {t.error && (
-                  <div className="text-xs text-red-600 font-mono mt-0.5 break-all">{t.error}</div>
+                  <div className="text-xs text-red-600 font-mono mt-0.5 break-all"><Verbatim value={t.error} /></div>
                 )}
               </div>
             </div>
@@ -370,7 +599,7 @@ function TestsPane({
         <div>
           <div className="text-xs text-gray-500 mb-1">控制台输出</div>
           <pre className="bg-gray-50 border rounded p-2 text-xs font-mono whitespace-pre-wrap break-all">
-            {logs.join('\n')}
+            <Verbatim value={logs.join('\n')} />
           </pre>
         </div>
       )}
@@ -409,10 +638,87 @@ function TimingBars({ t }: { t: ResponseResult['timing'] }) {
   );
 }
 
+function SendingProgress({ progress }: { progress?: RequestProgress }) {
+  const phase = progress?.phase ?? 'sending';
+  const labels: Record<RequestProgress['phase'], string> = {
+    sending: '正在建立连接…',
+    ttfb: '已收到响应头，等待响应体…',
+    downloading: '正在下载响应…',
+    done: '请求完成',
+  };
+  const received = progress?.bytesReceived ?? 0;
+  const total = progress?.totalBytes ?? 0;
+  const percent = total > 0 ? Math.min((received / total) * 100, 100) : 0;
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-gray-500">
+      <span>{labels[phase]}</span>
+      <div className="w-64 h-1.5 rounded bg-gray-100 overflow-hidden">
+        <div
+          className={`h-full bg-blue-500 ${total <= 0 ? 'w-1/3 animate-pulse' : ''}`}
+          style={total > 0 ? { width: `${percent}%` } : undefined}
+        />
+      </div>
+      {(phase === 'downloading' || received > 0) && (
+        <span className="text-xs text-gray-400">
+          {formatSize(received)}{total > 0 ? ` / ${formatSize(total)} (${percent.toFixed(0)}%)` : ''}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Center({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-full flex items-center justify-center text-gray-400 text-sm">{children}</div>
   );
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const combined = new Uint8Array(left.byteLength + right.byteLength);
+  combined.set(left, 0);
+  combined.set(right, left.byteLength);
+  return combined;
+}
+
+function hexPreview(bytes: Uint8Array): string {
+  const visible = bytes.subarray(0, Math.min(bytes.byteLength, 64 << 10));
+  const lines: string[] = [];
+  for (let offset = 0; offset < visible.byteLength; offset += 16) {
+    const row = visible.subarray(offset, offset + 16);
+    const hex = Array.from(row, (value) => value.toString(16).padStart(2, '0')).join(' ');
+    const ascii = Array.from(row, (value) => (value >= 32 && value <= 126 ? String.fromCharCode(value) : '.')).join('');
+    lines.push(`${offset.toString(16).padStart(8, '0')}  ${hex.padEnd(47)}  ${ascii}`);
+  }
+  if (bytes.byteLength > visible.byteLength) {
+    lines.push(formatMessage('\n… {size} 未显示', { size: formatSize(bytes.byteLength - visible.byteLength) }));
+  }
+  return lines.join('\n');
+}
+
+function suggestedResponseFilename(response: ResponseResult): string {
+  const contentType =
+    response.headers.find((header) => header.key.toLowerCase() === 'content-type')?.value.toLowerCase() ?? '';
+  const extensions: [string, string][] = [
+    ['application/json', 'json'],
+    ['text/html', 'html'],
+    ['text/plain', 'txt'],
+    ['application/xml', 'xml'],
+    ['image/png', 'png'],
+    ['image/jpeg', 'jpg'],
+    ['image/gif', 'gif'],
+    ['image/webp', 'webp'],
+    ['image/svg+xml', 'svg'],
+    ['application/pdf', 'pdf'],
+  ];
+  const extension = extensions.find(([mime]) => contentType.includes(mime))?.[1] ?? 'bin';
+  return `response-${Date.now()}.${extension}`;
 }
 
 function formatSize(bytes: number): string {

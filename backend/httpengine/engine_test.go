@@ -1,14 +1,21 @@
 package httpengine
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +28,24 @@ func testReq(url string) model.HttpRequest {
 		Url:      url,
 		Settings: model.DefaultSettings(),
 	}
+}
+
+type errorAfterReader struct {
+	reader io.Reader
+	err    error
+	failed bool
+}
+
+func (r *errorAfterReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 || (err != nil && !errors.Is(err, io.EOF)) {
+		return n, err
+	}
+	if !r.failed {
+		r.failed = true
+		return 0, r.err
+	}
+	return 0, io.EOF
 }
 
 func TestSendGet(t *testing.T) {
@@ -199,6 +224,13 @@ func TestLargeBodyToBlob(t *testing.T) {
 	if len(data) != len(big) || string(data[:10]) != "yyyyyyyyyy" {
 		t.Errorf("blob len = %d, want %d", len(data), len(big))
 	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != res.Body.BlobRef {
+		t.Fatalf("unexpected blob directory contents: %+v", entries)
+	}
 	// 内联部分应为预览片段
 	if !strings.Contains(res.Body.Text, "预览片段") {
 		t.Errorf("preview marker missing: %q", res.Body.Text[len(res.Body.Text)-60:])
@@ -221,6 +253,49 @@ func TestSmallBodyStaysInline(t *testing.T) {
 	}
 }
 
+func TestSmallBinaryBodyUsesBase64(t *testing.T) {
+	imageBytes := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(imageBytes)
+	}))
+	defer srv.Close()
+	result, err := New().Send(context.Background(), testReq(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Body.Inline || result.Body.Encoding != "base64" {
+		t.Fatalf("body = %+v", result.Body)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(result.Body.Text)
+	if err != nil || !bytes.Equal(decoded, imageBytes) {
+		t.Fatalf("decoded = %v, err = %v", decoded, err)
+	}
+}
+
+func TestSendWithProgressReportsTTFBAndDownloadedBytes(t *testing.T) {
+	body := bytes.Repeat([]byte("progress-data"), 20_000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	var progress []Progress
+	result, err := New().SendWithProgress(context.Background(), testReq(srv.URL), func(item Progress) {
+		progress = append(progress, item)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(progress) < 2 || progress[0].Phase != "ttfb" {
+		t.Fatalf("progress = %+v", progress)
+	}
+	last := progress[len(progress)-1]
+	if last.Phase != "downloading" || last.BytesReceived != int64(len(body)) || last.TotalBytes != int64(len(body)) {
+		t.Fatalf("last progress = %+v, result size = %d", last, result.SizeBytes)
+	}
+}
+
 func TestGraphQLVariablesMustBeValidJSON(t *testing.T) {
 	if _, _, err := buildBody(model.Body{Kind: "graphql", Variables: `{"broken":`}); err == nil {
 		t.Fatal("invalid GraphQL variables should be rejected")
@@ -239,6 +314,93 @@ func TestGraphQLVariablesMustBeValidJSON(t *testing.T) {
 	}
 }
 
+func TestMultipartBodyStreamsAndCanBeReplayed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "payload.bin")
+	if err := os.WriteFile(path, []byte("streamed-file-content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := New().buildRequest(context.Background(), model.HttpRequest{
+		Method: "POST",
+		Url:    "https://example.test/upload",
+		Body: model.Body{Kind: "formdata", Items: []model.FormItem{
+			{Key: "label", Type: "text", Value: "demo", Enabled: true},
+			{Key: "asset", Type: "file", Path: path, Enabled: true},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer req.Body.Close()
+	if _, ok := req.Body.(*io.PipeReader); !ok {
+		t.Fatalf("multipart body type = %T, want streaming pipe", req.Body)
+	}
+	if req.GetBody == nil {
+		t.Fatal("multipart body is not replayable")
+	}
+
+	readReplay := func() []byte {
+		t.Helper()
+		body, err := req.GetBody()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer body.Close()
+		data, err := io.ReadAll(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	first, second := readReplay(), readReplay()
+	if !bytes.Equal(first, second) {
+		t.Fatal("multipart replay changed the encoded body")
+	}
+
+	mediaType, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/form-data" || params["boundary"] == "" {
+		t.Fatalf("content type = %q, params = %v, err = %v", mediaType, params, err)
+	}
+	reader := multipart.NewReader(bytes.NewReader(first), params["boundary"])
+	values := map[string]string{}
+	filenames := map[string]string{}
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(part)
+		part.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		values[part.FormName()] = string(data)
+		filenames[part.FormName()] = part.FileName()
+	}
+	if values["label"] != "demo" || values["asset"] != "streamed-file-content" {
+		t.Fatalf("multipart values = %#v", values)
+	}
+	if filenames["asset"] != "payload.bin" {
+		t.Fatalf("multipart filename = %q", filenames["asset"])
+	}
+}
+
+func TestFileBodiesRejectDirectories(t *testing.T) {
+	dir := t.TempDir()
+	for _, body := range []model.Body{
+		{Kind: "binary", Path: dir},
+		{Kind: "formdata", Items: []model.FormItem{{Key: "asset", Type: "file", Path: dir, Enabled: true}}},
+	} {
+		if _, _, err := buildBody(body); err == nil {
+			t.Fatalf("directory accepted for %s body", body.Kind)
+		}
+	}
+}
+
 func TestLargeBodyBlobFailureStillMarksTruncation(t *testing.T) {
 	big := strings.Repeat("z", inlineBodyLimit+1000)
 	e := New()
@@ -252,6 +414,32 @@ func TestLargeBodyBlobFailureStillMarksTruncation(t *testing.T) {
 	}
 	if !strings.Contains(string(head), "truncated") {
 		t.Fatalf("truncation marker missing from fallback preview")
+	}
+}
+
+func TestLargeBodyReadFailureDoesNotCommitBlob(t *testing.T) {
+	injected := errors.New("injected read failure")
+	reader := &errorAfterReader{
+		reader: strings.NewReader(strings.Repeat("z", inlineBodyLimit+1000)),
+		err:    injected,
+	}
+	dir := t.TempDir()
+	e := New()
+	e.SetBlobsDir(dir)
+
+	_, _, blobRef, err := e.readBodyWithBlob(reader)
+	if !errors.Is(err, injected) {
+		t.Fatalf("read error = %v, want %v", err, injected)
+	}
+	if blobRef != "" {
+		t.Fatalf("blob ref = %q after failed read", blobRef)
+	}
+	entries, readDirErr := os.ReadDir(dir)
+	if readDirErr != nil {
+		t.Fatal(readDirErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("temporary blob was not cleaned up: %+v", entries)
 	}
 }
 
@@ -281,6 +469,56 @@ func TestManualProxy(t *testing.T) {
 	}
 	if err := e.SetProxy("none", ""); err != nil {
 		t.Errorf("none: %v", err)
+	}
+}
+
+func TestSetTLSConcurrentBuildClient(t *testing.T) {
+	e := New()
+	settings := model.DefaultSettings()
+	settings.VerifyTLS = false
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for range 250 {
+				if err := e.SetTLS(TLSSettings{}); err != nil {
+					t.Errorf("set TLS: %v", err)
+					return
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for range 250 {
+				client := e.buildClient(settings)
+				if client.Transport == nil {
+					t.Error("client transport is nil")
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestSetTLSRejectsOversizedMaterial(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized-ca.pem")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxTLSMaterialSize + 1); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = New().SetTLS(TLSSettings{CaCertPath: path})
+	if err == nil || !strings.Contains(err.Error(), "4 MiB") {
+		t.Fatalf("oversized TLS material error = %v", err)
 	}
 }
 

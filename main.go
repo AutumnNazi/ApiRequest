@@ -40,6 +40,7 @@ func main() {
 			app.Grpc,
 			app.Graphql,
 			app.Sync,
+			app.Dialog,
 		},
 	})
 

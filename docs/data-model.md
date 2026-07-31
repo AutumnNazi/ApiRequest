@@ -90,7 +90,8 @@ CREATE TABLE environment (
 -- 全局变量（每工作区一行）
 CREATE TABLE global_var (
   workspace_id  TEXT PRIMARY KEY REFERENCES workspace(id),
-  variables     TEXT NOT NULL DEFAULT '[]'
+  variables     TEXT NOT NULL DEFAULT '[]',
+  updated_at    INTEGER NOT NULL DEFAULT 0
 );
 
 -- 历史记录（发送快照 + 响应摘要；大 body 落文件，见下）
@@ -247,6 +248,6 @@ interface Timing {
 
 ## 4. Schema 迁移与版本兼容
 
-- **数据库迁移**：`PRAGMA user_version` 记录版本，启动时按 `migrations/NNNN_*.sql` 顺序补齐；每次迁移前自动备份 DB 文件。
+- **数据库迁移**：`PRAGMA user_version` 记录版本；迁移 SQL 以内联、只追加的版本列表维护，启动时按版本顺序逐项补齐。每项迁移与版本更新在同一事务内执行，失败时回滚并中止启动。
 - **导出格式版本**：内部模型带 `schemaVersion`；导入旧版本走升级适配器，导出默认最新、可选目标版本。
 - **契约变更**：共享类型（本篇 §3）任何破坏性变更都要 bump 版本并提供前端兼容处理。

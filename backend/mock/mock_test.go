@@ -9,6 +9,8 @@ import (
 	"apirequest/backend/model"
 )
 
+var testHTTPClient = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
 func testNodesAndExamples() ([]model.Node, []model.Example) {
 	nodes := []model.Node{
 		{Id: "col", Kind: "collection", Name: "c"},
@@ -48,7 +50,7 @@ func get(t *testing.T, url string, headers map[string]string) (*http.Response, s
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testHTTPClient.Do(req)
 	if err != nil {
 		t.Fatalf("get %s: %v", url, err)
 	}
@@ -85,7 +87,12 @@ func TestMethodMatch(t *testing.T) {
 
 func postJSON(t *testing.T, url string) (*http.Response, string) {
 	t.Helper()
-	resp, err := http.Post(url, "application/json", nil)
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := testHTTPClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +106,7 @@ func TestExampleSelectionHeaders(t *testing.T) {
 
 	req, _ := http.NewRequest("POST", srv.Addr+"/users", nil)
 	req.Header.Set("x-mock-response-code", "409")
-	resp, _ := http.DefaultClient.Do(req)
+	resp, _ := testHTTPClient.Do(req)
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != 409 || string(body) != `{"error":"dup"}` {
@@ -108,7 +115,7 @@ func TestExampleSelectionHeaders(t *testing.T) {
 
 	req2, _ := http.NewRequest("POST", srv.Addr+"/users", nil)
 	req2.Header.Set("x-mock-response-name", "created")
-	resp2, _ := http.DefaultClient.Do(req2)
+	resp2, _ := testHTTPClient.Do(req2)
 	resp2.Body.Close()
 	if resp2.StatusCode != 201 {
 		t.Errorf("by name = %d", resp2.StatusCode)
@@ -138,7 +145,7 @@ func TestStartStopLifecycle(t *testing.T) {
 		t.Error("should be stopped")
 	}
 	// 停止后连接应失败
-	if _, err := http.Get(srv.Addr + "/users"); err == nil {
+	if _, err := testHTTPClient.Get(srv.Addr + "/users"); err == nil {
 		t.Error("server should be down")
 	}
 }

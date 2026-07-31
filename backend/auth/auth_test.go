@@ -1,7 +1,11 @@
 package auth
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -175,5 +179,53 @@ func TestAWSSigV4(t *testing.T) {
 	}
 	if req.Header.Get("X-Amz-Date") == "" || req.Header.Get("X-Amz-Content-Sha256") == "" {
 		t.Error("missing x-amz headers")
+	}
+}
+
+func TestAWSSigV4HashesBinaryBodyWithoutConsumingIt(t *testing.T) {
+	payload := []byte{0x00, 0xff, 0x01, 'A', '\n'}
+	req, err := http.NewRequest(http.MethodPost, "https://examplebucket.s3.amazonaws.com/object", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(req, model.Auth{Type: "awsv4", Params: map[string]string{
+		"accessKey": "AKIDEXAMPLE", "secretKey": "secret", "region": "us-east-1", "service": "s3",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(payload)
+	if got, want := req.Header.Get("X-Amz-Content-Sha256"), hex.EncodeToString(hash[:]); got != want {
+		t.Fatalf("payload hash = %q, want %q", got, want)
+	}
+	got, err := io.ReadAll(req.Body)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("signed body changed: %x, %v", got, err)
+	}
+}
+
+type endlessSigV4Reader struct{ read int }
+
+func (r *endlessSigV4Reader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 'x'
+	}
+	r.read += len(p)
+	return len(p), nil
+}
+
+func TestAWSSigV4BoundsNonReplayableBodyBuffer(t *testing.T) {
+	reader := &endlessSigV4Reader{}
+	req, err := http.NewRequest(http.MethodPost, "https://examplebucket.s3.amazonaws.com/object", reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = Apply(req, model.Auth{Type: "awsv4", Params: map[string]string{
+		"accessKey": "AKIDEXAMPLE", "secretKey": "secret", "region": "us-east-1", "service": "s3",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "non-replayable") {
+		t.Fatalf("oversized one-shot body error = %v", err)
+	}
+	if reader.read != maxBufferedSigV4Body+1 {
+		t.Fatalf("read %d bytes, want bounded read of %d", reader.read, maxBufferedSigV4Body+1)
 	}
 }

@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    name: Go tests
+    name: Test (Go + frontend)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -19,10 +19,26 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: go.mod
 
       - name: Go tests
-        run: go test ./backend/...
+        run: go test ./...
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+
+      - name: Frontend tests
+        run: npm --prefix frontend test -- --run
+
+      - name: Frontend type-check and build
+        run: npm --prefix frontend run build
 
   build:
     name: Build (${{ matrix.label }})
@@ -33,16 +49,10 @@ jobs:
         include:
           - os: windows-latest
             label: windows-amd64
-            artifact: ApiRequest.exe
-            asset: ApiRequest-windows-amd64.exe
           - os: macos-latest
             label: darwin-universal
-            artifact: ApiRequest.app
-            asset: ApiRequest-darwin-universal.zip
           - os: ubuntu-latest
             label: linux-amd64
-            artifact: ApiRequest
-            asset: ApiRequest-linux-amd64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -51,14 +61,17 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: go.mod
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
 
       - name: Install Linux WebKit dependencies
         if: matrix.label == 'linux-amd64'
@@ -74,16 +87,78 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ matrix.label }}" in
-            darwin-universal)
-              wails build -platform darwin/universal
-              ;;
-            linux-amd64)
-              wails build -tags webkit2_41
-              ;;
-            *)
-              wails build
-              ;;
+            darwin-universal) wails build -platform darwin/universal ;;
+            linux-amd64) wails build -tags webkit2_41 ;;
+            *) wails build ;;
           esac
+
+      - name: Sign Windows executable (when certificate secrets are configured)
+        id: sign_windows
+        if: matrix.label == 'windows-amd64'
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            'signed=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host 'Windows signing secrets are not configured; publishing an unsigned artifact.'
+            exit 0
+          }
+          $certPath = Join-Path $pwd 'signing.pfx'
+          try {
+            [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+            & signtool sign /fd SHA256 /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD /tr http://timestamp.digicert.com /td SHA256 "build/bin/ApiRequest.exe"
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed" }
+            'signed=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } finally {
+            Remove-Item -LiteralPath $certPath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Sign, notarize, and staple macOS app (when credentials are configured)
+        id: sign_macos
+        if: matrix.label == 'darwin-universal'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" || -z "${APPLE_CERTIFICATE_PASSWORD:-}" || -z "${APPLE_SIGNING_IDENTITY:-}" || -z "${APPLE_ID:-}" || -z "${APPLE_APP_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
+            echo 'signed=false' >> "$GITHUB_OUTPUT"
+            echo 'Apple signing secrets are not configured; publishing an unsigned artifact.'
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          cert="$RUNNER_TEMP/signing.p12"
+          notary_archive="$RUNNER_TEMP/ApiRequest-notarization.zip"
+          original_keychain="$(security default-keychain -d user | tr -d '"')"
+          cleanup() {
+            security default-keychain -d user -s "$original_keychain" >/dev/null 2>&1 || true
+            security list-keychains -d user -s "$original_keychain" >/dev/null 2>&1 || true
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            rm -f "$cert" "$notary_archive"
+          }
+          trap cleanup EXIT
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 -D > "$cert"
+          security create-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$keychain"
+          security import "$cert" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$APPLE_CERTIFICATE_PASSWORD" "$keychain"
+          security list-keychains -d user -s "$keychain" "$original_keychain"
+          security default-keychain -d user -s "$keychain"
+          codesign --deep --force --options runtime --sign "$APPLE_SIGNING_IDENTITY" "build/bin/ApiRequest.app"
+          codesign --verify --deep --strict "build/bin/ApiRequest.app"
+          ditto -c -k --keepParent "build/bin/ApiRequest.app" "$notary_archive"
+          xcrun notarytool submit "$notary_archive" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "build/bin/ApiRequest.app"
+          xcrun stapler validate "build/bin/ApiRequest.app"
+          echo 'signed=true' >> "$GITHUB_OUTPUT"
 
       - name: Package artifact
         shell: bash
@@ -92,22 +167,39 @@ jobs:
           mkdir -p dist
           case "${{ matrix.label }}" in
             windows-amd64)
-              cp "build/bin/${{ matrix.artifact }}" "dist/${{ matrix.asset }}"
+              if [[ "${{ steps.sign_windows.outputs.signed }}" == "true" ]]; then
+                asset="ApiRequest-windows-amd64.exe"
+                signing="Authenticode signed"
+              else
+                asset="ApiRequest-windows-amd64-unsigned.exe"
+                signing="UNSIGNED (certificate secrets not configured)"
+              fi
+              cp build/bin/ApiRequest.exe "dist/$asset"
               ;;
             darwin-universal)
-              cd build/bin && zip -r "../../dist/${{ matrix.asset }}" "${{ matrix.artifact }}"
+              if [[ "${{ steps.sign_macos.outputs.signed }}" == "true" ]]; then
+                asset="ApiRequest-darwin-universal.zip"
+                signing="Developer ID signed, notarized, stapled"
+              else
+                asset="ApiRequest-darwin-universal-unsigned.zip"
+                signing="UNSIGNED (Apple signing secrets not configured)"
+              fi
+              ditto -c -k --sequesterRsrc --keepParent build/bin/ApiRequest.app "dist/$asset"
               ;;
             linux-amd64)
-              cp "build/bin/${{ matrix.artifact }}" "dist/${{ matrix.asset }}"
-              chmod +x "dist/${{ matrix.asset }}"
+              asset="ApiRequest-linux-amd64-unsigned"
+              signing="UNSIGNED (Linux artifact)"
+              cp build/bin/ApiRequest "dist/$asset"
+              chmod +x "dist/$asset"
               ;;
           esac
+          printf 'platform=%s\nsigning=%s\n' "${{ matrix.label }}" "$signing" > "dist/SIGNING_STATUS-${{ matrix.label }}.txt"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.label }}
-          path: dist/${{ matrix.asset }}
+          path: dist/
           if-no-files-found: error
 
   publish:
@@ -121,6 +213,31 @@ jobs:
           path: dist
           pattern: release-*
           merge-multiple: true
+
+      - name: Create checksums and update manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ApiRequest-* > SHA256SUMS
+          export VERSION="${GITHUB_REF_NAME#v}"
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const names = fs.readdirSync('.').filter((name) => name.startsWith('ApiRequest-') && name !== 'ApiRequest-dev');
+          const repo = process.env.GITHUB_REPOSITORY;
+          const tag = process.env.GITHUB_REF_NAME;
+          const base = `https://github.com/${repo}/releases/download/${tag}`;
+          const manifest = {
+            schemaVersion: 1,
+            version: process.env.VERSION,
+            channel: 'stable',
+            tag,
+            releaseUrl: `https://github.com/${repo}/releases/tag/${tag}`,
+            assets: names.map((name) => ({ name, url: `${base}/${encodeURIComponent(name)}` })),
+          };
+          fs.writeFileSync('update-manifest.json', `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+          NODE
 
       - name: Create release
         uses: softprops/action-gh-release@v2

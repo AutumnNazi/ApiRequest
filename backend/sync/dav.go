@@ -15,11 +15,15 @@ import (
 	"apirequest/backend/model"
 )
 
+const maxSnapshotSize = 64 << 20
+
 // DavConfig WebDAV 连接配置
 type DavConfig struct {
-	Url      string `json:"url"` // 根地址，如 https://dav.jianguoyun.com/dav/
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Url           string `json:"url"` // 根地址，如 https://dav.jianguoyun.com/dav/
+	Username      string `json:"username"`
+	Password      string `json:"password,omitempty"`
+	PasswordSet   bool   `json:"passwordSet,omitempty"`
+	ClearPassword bool   `json:"clearPassword,omitempty"`
 	// OmitSecrets 上传时剥离密钥变量值（docs/sync.md：同步时可选择不上传密钥）
 	OmitSecrets bool `json:"omitSecrets"`
 }
@@ -79,12 +83,21 @@ func (c *davClient) Get(rel string) ([]byte, bool, error) {
 	if resp.StatusCode >= 300 {
 		return nil, false, davError("GET", rel, resp)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if resp.ContentLength > maxSnapshotSize {
+		return nil, false, model.NewError(model.KindImport, "WebDAV snapshot exceeds 64 MiB limit")
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSnapshotSize+1))
+	if err == nil && len(data) > maxSnapshotSize {
+		return nil, false, model.NewError(model.KindImport, "WebDAV snapshot exceeds 64 MiB limit")
+	}
 	return data, true, err
 }
 
 // Put 写远端文件；自动补建父目录（MKCOL 幂等）
 func (c *davClient) Put(rel string, data []byte) error {
+	if len(data) > maxSnapshotSize {
+		return model.NewError(model.KindValidation, "WebDAV snapshot exceeds 64 MiB limit")
+	}
 	put := func() (*http.Response, error) { return c.do("PUT", rel, bytes.NewReader(data)) }
 	resp, err := put()
 	if err != nil {

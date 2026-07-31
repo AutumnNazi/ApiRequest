@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { codegenTargets, generateCode, type HttpRequest } from '../ipc';
+import { formatMessage, Verbatim } from '../i18n/locale';
 
 interface Props {
   request: HttpRequest;
@@ -23,7 +24,9 @@ export default function CodegenDialog({ request, onClose }: Props) {
     let alive = true;
     generateCode(target, request)
       .then((c) => alive && setCode(c))
-      .catch((e) => alive && setCode(`// 生成失败: ${e.detail ?? e}`));
+      .catch((e) =>
+        alive && setCode(formatMessage('// 生成失败: {detail}', { detail: e.detail ?? String(e) })),
+      );
     return () => {
       alive = false;
     };
@@ -50,7 +53,7 @@ export default function CodegenDialog({ request, onClose }: Props) {
           >
             {targets.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name}
+                <Verbatim value={t.name} />
               </option>
             ))}
           </select>
@@ -65,7 +68,7 @@ export default function CodegenDialog({ request, onClose }: Props) {
           </button>
         </div>
         <pre className="flex-1 overflow-auto p-4 text-xs font-mono bg-gray-50 whitespace-pre-wrap break-all rounded-b-lg">
-          {code}
+          <Verbatim value={code} />
         </pre>
       </div>
     </div>

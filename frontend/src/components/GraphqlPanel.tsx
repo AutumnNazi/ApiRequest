@@ -5,6 +5,7 @@ import {
   toAppError,
   type GraphqlResult,
 } from '../ipc';
+import { formatMessage, Verbatim } from '../i18n/locale';
 
 interface Props {
   onClose(): void;
@@ -39,7 +40,11 @@ export default function GraphqlPanel({ onClose }: Props) {
       const ae = toAppError(e);
       // 后端默认 20s 超时，区分"超时" vs 一般网络错（后端 detail 含 context deadline / timeout 关键字）
       const isTimeout = /deadline exceeded|timeout/i.test(ae.detail);
-      setError(isTimeout ? `请求超时（后端默认 20s）：${ae.detail}` : ae.detail);
+      setError(
+        isTimeout
+          ? formatMessage('请求超时（后端默认 20s）：{detail}', { detail: ae.detail })
+          : ae.detail,
+      );
     } finally {
       setBusy(false);
     }
@@ -78,7 +83,7 @@ export default function GraphqlPanel({ onClose }: Props) {
           </button>
         </div>
 
-        {error && <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600">{error}</div>}
+        {error && <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600"><Verbatim value={error} /></div>}
 
         <div className="flex-1 flex min-h-0">
           {/* 操作列表 */}
@@ -109,7 +114,7 @@ export default function GraphqlPanel({ onClose }: Props) {
               )}
               <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
                 {result
-                  ? result.schemaJson.slice(0, SCHEMA_RENDER_CHAR_LIMIT)
+                  ? <Verbatim value={result.schemaJson.slice(0, SCHEMA_RENDER_CHAR_LIMIT)} />
                   : '内省后将显示 schema JSON'}
               </pre>
             </div>
@@ -127,14 +132,14 @@ function Section({ title, items }: { title: string; items: { name: string; retur
       <div className="px-3 py-1 font-semibold bg-gray-50">{title} ({items.length})</div>
       {items.map((f, i) => (
         <div key={i} className="px-3 py-1.5 border-t border-gray-50 hover:bg-gray-50">
-          <div className="font-mono text-purple-700">{f.name}
-            <span className="text-gray-400"> : {f.returnType}</span>
+          <div className="font-mono text-purple-700"><Verbatim value={f.name} />
+            <span className="text-gray-400"> : <Verbatim value={f.returnType} /></span>
           </div>
           {f.description && (
-            <div className="text-gray-500 text-[11px] mt-0.5">{f.description}</div>
+            <div className="text-gray-500 text-[11px] mt-0.5"><Verbatim value={f.description} /></div>
           )}
           {f.args && f.args !== 'null' && (
-            <div className="text-gray-400 text-[10px] mt-0.5">args: {f.args}</div>
+            <div className="text-gray-400 text-[10px] mt-0.5">args: <Verbatim value={f.args} /></div>
           )}
         </div>
       ))}

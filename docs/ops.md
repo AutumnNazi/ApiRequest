@@ -9,7 +9,8 @@
 
 ## 1. 安全考量
 
-- **凭证保护**：密钥类变量与 OAuth token 默认存入系统 keychain（Windows Credential Manager / macOS Keychain）；系统后端不可用时，使用用户主密码派生密钥加密存储。UI 默认掩码显示。
+- **凭证保护**：密钥类变量与 OAuth token 默认存入系统 keychain（Windows Credential Manager / macOS Keychain）；系统后端不可用时，使用用户主密码经 Argon2id 派生密钥并用 AES-GCM 加密存储。UI 默认掩码显示，历史和脚本日志统一脱敏。
+- **识别边界**：Vault 保护 Auth 模型中的密钥参数、`type=secret` 变量和同步密码。URL、普通 Header、Body 与脚本是用户控制的请求内容，不自动推断其中是否含密钥；凭据应通过结构化认证字段或密钥变量引用。
 - **脚本沙箱**：JS 脚本无法访问宿主文件系统与任意网络，执行有超时上限（见 [请求生命周期](./request-lifecycle.md)）。
 - **证书信任**：允许自定义 CA 与客户端证书，但对"关闭 SSL 校验"给出明确风险提示。
 - **导入内容视为不可信**：解析导入文件时防注入，不因导入内容触发脚本自动执行。
@@ -87,7 +88,8 @@ func (e *AppError) Error() string { return string(e.Kind) + ": " + e.Detail }
 | macOS | `macos-latest` | Apple Silicon + Intel（universal 或分架构） | `wails build` 产出 `.app`/`.dmg` | Developer ID 签名、Hardened Runtime、notarization 与 stapling |
 | Linux | `ubuntu-latest` | x64 | `.AppImage` / `.deb` | best-effort 构建与启动检查 |
 
-- **自动更新**：Wails 无内置 updater，需自建签名更新清单（如 go-update / 自定义方案）；stable / beta 渠道的签名与产物必须一一对应。
+- **更新链路**：Wails 无内置 updater。每个 stable release 发布 `SHA256SUMS` 与 `update-manifest.json`，设置页当前只打开官方 release 下载页；在实现签名校验、回滚和原子替换前，不执行静默自更新。
+- **签名与标识**：Windows/macOS secrets 齐全时由 CI 执行 Authenticode、Developer ID 签名、公证与 stapling；未配置时产物文件名带 `-unsigned`，并附平台级 `SIGNING_STATUS-*.txt`。
 - **崩溃与遥测**：可选、默认关闭、明确告知；本地日志滚动留存便于排障。
 
 ### 4.2 平台实现边界

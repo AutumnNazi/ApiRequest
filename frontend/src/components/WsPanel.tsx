@@ -8,6 +8,7 @@ import {
   toAppError,
   type InboundMsg,
 } from '../ipc';
+import { Verbatim } from '../i18n/locale';
 
 interface Props {
   onClose(): void;
@@ -28,6 +29,9 @@ export default function WsPanel({ onClose }: Props) {
       if (m.sessionId !== sessionIdRef.current) return;
       setMessages((prev) => [...prev, m].slice(-1000));
       if (m.kind === 'close' || m.kind === 'error') setConnected(false);
+      if (m.kind === 'open' || (m.kind === 'reconnect' && m.data === 'reconnected')) {
+        setConnected(true);
+      }
     });
     return unsub;
   }, []);
@@ -116,7 +120,7 @@ export default function WsPanel({ onClose }: Props) {
           </button>
         </div>
 
-        {error && <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600">{error}</div>}
+        {error && <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600"><Verbatim value={error} /></div>}
 
         {/* 消息时间线 */}
         <div className="flex-1 overflow-auto p-3 space-y-1.5 flex flex-col">
@@ -132,12 +136,12 @@ export default function WsPanel({ onClose }: Props) {
             >
               {m.direction === 'system' ? (
                 <span>
-                  ● {m.kind} {m.data && `· ${m.data}`}
+                  ● <Verbatim value={m.kind} /> {m.data && <>· <Verbatim value={m.data} /></>}
                 </span>
               ) : (
                 <>
-                  {m.event && <span className="text-purple-600">[{m.event}] </span>}
-                  {m.data}
+                  {m.event && <span className="text-purple-600">[<Verbatim value={m.event} />] </span>}
+                  <Verbatim value={m.data} />
                 </>
               )}
             </div>

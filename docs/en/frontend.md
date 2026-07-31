@@ -11,9 +11,11 @@ Related: [Documentation Index](./index.md) · [Overview and Architecture](./over
 | State Type | Owner | Notes |
 |------------|-------|-------|
 | Persistent domain data (collections/environments/history) | TanStack Query + Go | Go is the source of truth; Query handles caching and invalidation |
-| UI session state (open tabs, panel sizes, active environment) | Zustand | Frontend-only, partially persisted to `setting` |
-| In-progress drafts (unsaved request changes) | Zustand (per tab) | Separate from saved state; supports dirty markers and discard |
+| UI session state (open tabs and active tab) | Zustand | Isolated by workspace; the recoverable subset is stored in WebView `localStorage` |
+| In-progress drafts (unsaved request changes) | Zustand (per tab) | Separate from saved state; supports dirty markers, close confirmation, and recovery |
 | Real-time streams (progress/WS messages/logs) | Event subscription -> local store | Merge Wails events into the corresponding tab |
+
+`localStorage` is not the Secret Vault. Serialization clears secret parameters for known auth types and clears every parameter for unknown auth types. URLs, ordinary headers, bodies, and scripts remain request content and are not heuristically redacted. Put credentials in the Auth editor or `type=secret` variables instead of hard-coding them in ordinary request fields.
 
 ---
 
@@ -42,7 +44,7 @@ All invocations of Wails-generated binding functions go through domain-specific 
 - **Multiple tabs**: one tab per request or protocol session; a dot marks unsaved state; tabs can be pinned, dragged to reorder, and middle-clicked to close.
 - **Key-value tables**: Headers, Query, and forms share behavior: an empty final row is added automatically; rows have enable toggles; pasted `k: v` or tabular clipboard content is split into columns; users can switch to `Bulk Edit` text mode.
 - **Variable hints**: typing `{{` opens variable completion. Hovering a defined variable shows its source and value, with secrets masked. Undefined variables receive a red underline.
-- **Response area**: Pretty/Raw/Preview modes; collapsible JSON tree, path copy, and search highlighting. Above the large-response threshold, show "Summary only; click to load the full response."
+- **Response area**: Pretty/Raw/Preview modes and search highlighting. Render at most 500,000 body characters, inspect blobs through bounded chunks, and stream full content to a native save destination. Never render an HTML blob's preview fragment as a complete document.
 
 ### Default Shortcuts
 

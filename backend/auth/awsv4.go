@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"time"
 )
+
+const maxBufferedSigV4Body = 8 << 20
 
 // awsSigV4 AWS Signature Version 4（docs/auth.md：规范请求 → 待签串 → 派生密钥 → 签名）。
 // params: accessKey / secretKey / region / service / sessionToken(可选)
@@ -32,15 +35,11 @@ func (awsSigV4) Apply(req *http.Request, p map[string]string) error {
 	amzDate := now.Format("20060102T150405Z")
 	dateStamp := now.Format("20060102")
 
-	// body 哈希（读出后重置；GET 等无 body 用空串哈希）
-	payloadHash := sha256Hex("")
-	if req.Body != nil {
-		data, err := io.ReadAll(req.Body)
-		if err != nil {
-			return err
-		}
-		req.Body = io.NopCloser(strings.NewReader(string(data)))
-		payloadHash = sha256Hex(string(data))
+	// Hash replayable or seekable bodies as a stream. Only opaque one-shot
+	// readers need bounded buffering so signing cannot consume unbounded memory.
+	payloadHash, err := hashRequestPayload(req)
+	if err != nil {
+		return err
 	}
 
 	req.Header.Set("X-Amz-Date", amzDate)
@@ -127,9 +126,74 @@ func (awsSigV4) Apply(req *http.Request, p map[string]string) error {
 	return nil
 }
 
+func hashRequestPayload(req *http.Request) (string, error) {
+	if req.Body == nil {
+		return sha256Hex(""), nil
+	}
+	if req.GetBody != nil {
+		body, err := req.GetBody()
+		if err != nil {
+			return "", fmt.Errorf("reopen AWS SigV4 request body: %w", err)
+		}
+		hash, hashErr := sha256Reader(body)
+		closeErr := body.Close()
+		if hashErr != nil {
+			return "", hashErr
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		return hash, nil
+	}
+	if seeker, ok := req.Body.(io.Seeker); ok {
+		position, err := seeker.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return "", fmt.Errorf("locate AWS SigV4 request body: %w", err)
+		}
+		hash, hashErr := sha256Reader(req.Body)
+		_, seekErr := seeker.Seek(position, io.SeekStart)
+		if hashErr != nil {
+			return "", hashErr
+		}
+		if seekErr != nil {
+			return "", fmt.Errorf("rewind AWS SigV4 request body: %w", seekErr)
+		}
+		return hash, nil
+	}
+
+	data, err := io.ReadAll(io.LimitReader(req.Body, maxBufferedSigV4Body+1))
+	closeErr := req.Body.Close()
+	if err != nil {
+		return "", err
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	if len(data) > maxBufferedSigV4Body {
+		return "", fmt.Errorf("non-replayable AWS SigV4 request body exceeds %d MiB limit", maxBufferedSigV4Body>>20)
+	}
+	req.Body = io.NopCloser(bytes.NewReader(data))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(data)), nil
+	}
+	return sha256Bytes(data), nil
+}
+
+func sha256Reader(reader io.Reader) (string, error) {
+	hash := sha256.New()
+	if _, err := io.Copy(hash, reader); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func sha256Bytes(data []byte) string {
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
+}
+
 func sha256Hex(s string) string {
-	h := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(h[:])
+	return sha256Bytes([]byte(s))
 }
 
 func hmacSHA256(key []byte, data string) []byte {

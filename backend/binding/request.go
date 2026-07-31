@@ -4,6 +4,7 @@ package binding
 
 import (
 	"context"
+	"encoding/base64"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
 	"apirequest/backend/script"
+	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 	"apirequest/backend/template"
 )
@@ -22,7 +24,7 @@ type RequestApi struct {
 	engine *httpengine.Engine
 	store  *storage.Store
 
-	mu      sync.Mutex
+	mu       sync.Mutex
 	inFlight map[string]context.CancelFunc // sendId → cancel
 }
 
@@ -51,6 +53,8 @@ func Startup(ctx context.Context, apis ...any) {
 			a.startup(ctx)
 		case *GraphqlApi:
 			a.startup(ctx)
+		case *DialogApi:
+			a.startup(ctx)
 		}
 	}
 }
@@ -60,13 +64,17 @@ func nowUnixMs() int64 { return time.Now().UnixMilli() }
 
 // progressPayload request:progress 事件负载
 type progressPayload struct {
-	SendId string `json:"sendId"`
-	Phase  string `json:"phase"` // sending | done
+	SendId        string `json:"sendId"`
+	Phase         string `json:"phase"` // sending | ttfb | downloading | done
+	BytesReceived int64  `json:"bytesReceived"`
+	TotalBytes    int64  `json:"totalBytes"`
 }
 
-func (a *RequestApi) emitProgress(sendId, phase string) {
+func (a *RequestApi) emitProgress(sendId, phase string, bytesReceived, totalBytes int64) {
 	if a.ctx != nil {
-		wailsrt.EventsEmit(a.ctx, "request:progress", progressPayload{SendId: sendId, Phase: phase})
+		wailsrt.EventsEmit(a.ctx, "request:progress", progressPayload{
+			SendId: sendId, Phase: phase, BytesReceived: bytesReceived, TotalBytes: totalBytes,
+		})
 	}
 }
 
@@ -74,6 +82,9 @@ func (a *RequestApi) emitProgress(sendId, phase string) {
 // 收集上下文 → 前置脚本 → 变量解析 → 发送 → 测试脚本 → 变量持久化 → 落历史。
 // sendId 由前端生成，用于关联进度事件与取消。
 func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx model.SendContext) (model.ResponseResult, error) {
+	if sendCtx.WorkspaceId == "" {
+		return model.ResponseResult{}, model.NewError(model.KindValidation, "workspaceId is required")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()
 	a.inFlight[sendId] = cancel
@@ -119,14 +130,20 @@ func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx m
 	// 3. 变量解析（含集合级 auth 继承）
 	resolveInheritedAuth(&req, ec.ancestors)
 	resolved := template.ResolveRequest(req, ec.scope)
+	redactor := secrets.NewRedactor(a.store.Vault(), ec.secretValues...)
+	for _, value := range secrets.AuthValues(resolved.Auth) {
+		redactor.Add(value)
+	}
 
 	// 3.5 Cookie Jar：为目标 host 注入存储的 cookie（用户已手写 Cookie 头则不覆盖）
 	attachCookies(a.store, &resolved)
 
 	// 4-5. 发送
-	a.emitProgress(sendId, "sending")
-	res, err := a.engine.Send(ctx, resolved)
-	a.emitProgress(sendId, "done")
+	a.emitProgress(sendId, "sending", 0, 0)
+	res, err := a.engine.SendWithProgress(ctx, resolved, func(progress httpengine.Progress) {
+		a.emitProgress(sendId, progress.Phase, progress.BytesReceived, progress.TotalBytes)
+	})
+	a.emitProgress(sendId, "done", res.SizeBytes, res.SizeBytes)
 	if err != nil {
 		return res, model.WrapError(model.KindNetwork, err)
 	}
@@ -156,11 +173,12 @@ func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx m
 	if perr := persistVariableChanges(a.store, ec, sendCtx.WorkspaceId, r); perr != nil {
 		res.ScriptLogs = append(res.ScriptLogs, "[error] persist variables: "+perr.Error())
 	}
+	res.ScriptLogs = redactor.Strings(res.ScriptLogs)
 
 	// 8. 落历史（存已解析请求快照；大 body 只存 blob 引用；失败不阻断响应返回）
 	histItem := model.HistoryItem{
 		WorkspaceId: sendCtx.WorkspaceId,
-		RequestSnap: resolved,
+		RequestSnap: redactor.Request(resolved),
 		Status:      res.Status,
 		DurationMs:  int64(res.Timing.TotalMs),
 		SizeBytes:   res.SizeBytes,
@@ -180,14 +198,33 @@ func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx m
 	return res, nil
 }
 
-// GetResponseBlob 按引用读取大响应体全文（docs/api-contract.md：大 payload 按需拉取）。
-// 超过 32MiB 的 blob 拒绝整体载入（应导出文件查看，后续提供另存为）。
-func (a *RequestApi) GetResponseBlob(blobRef string) (string, error) {
-	data, err := a.store.ReadBlob(blobRef)
+// GetResponseBlobInfo reads metadata without loading the response body.
+func (a *RequestApi) GetResponseBlobInfo(blobRef string) (model.ResponseBlobInfo, error) {
+	size, err := a.store.BlobInfo(blobRef)
 	if err != nil {
-		return "", model.WrapError(model.KindStorage, err)
+		return model.ResponseBlobInfo{}, model.WrapError(model.KindStorage, err)
 	}
-	return string(data), nil
+	return model.ResponseBlobInfo{Ref: blobRef, SizeBytes: size}, nil
+}
+
+// ReadResponseBlobRange returns a bounded binary-safe chunk.
+func (a *RequestApi) ReadResponseBlobRange(blobRef string, offset, limit int64) (model.ResponseBlobChunk, error) {
+	data, eof, err := a.store.ReadBlobRange(blobRef, offset, limit)
+	if err != nil {
+		return model.ResponseBlobChunk{}, model.WrapError(model.KindStorage, err)
+	}
+	return model.ResponseBlobChunk{
+		Offset: offset, BytesRead: int64(len(data)), DataBase64: base64.StdEncoding.EncodeToString(data), Eof: eof,
+	}, nil
+}
+
+// SaveResponseBlob streams a blob to a path selected through DialogApi.
+func (a *RequestApi) SaveResponseBlob(blobRef, destination string) (int64, error) {
+	written, err := a.store.CopyBlob(blobRef, destination)
+	if err != nil {
+		return 0, model.WrapError(model.KindStorage, err)
+	}
+	return written, nil
 }
 
 // CancelRequest 取消进行中的请求；未知/已完成的 sendId 为 no-op

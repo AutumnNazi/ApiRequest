@@ -1,5 +1,6 @@
 // 主题 store：激活/自定义主题管理，写入 CSS 变量并持久化
 import { create } from 'zustand';
+import { formatMessage, translate } from '../i18n/locale';
 import {
   BUILTIN_THEMES,
   CUSTOM_THEME_MAX,
@@ -47,7 +48,11 @@ export const useTheme = create<ThemeState>((set, get) => ({
     const base = findTheme(state.custom, baseId);
     const theme: ThemeDefinition = {
       id: createCustomId(),
-      name: name ?? `${base.name.replace(/^[^\s]+\s/, '')} 副本`,
+      name:
+        name ??
+        formatMessage('{name} 副本', {
+          name: base.builtin ? translate(base.name) : base.name,
+        }),
       builtin: false,
       palette: { ...base.palette },
     };

@@ -74,7 +74,7 @@
 - **决定**：使用 `zalando/go-keyring` 访问 Windows Credential Manager 与 macOS Keychain，存放密钥变量、OAuth access token 与 refresh token；密钥本体不写入 SQLite、历史记录或集合镜像。系统 keychain 不可用时，要求用户设置主密码，以 `golang.org/x/crypto/argon2`（Argon2id）派生密钥并加密本地密钥数据。
 - **理由**：默认复用 OS 已有的凭证保护与用户解锁机制，确保 Windows/macOS 一致的安全体验；回退机制使无 GUI keychain 的 CI、受限企业环境和 Linux 不阻断核心功能。
 - **取舍**：首次使用回退模式须额外输入主密码；忘记主密码无法恢复密钥数据，只能清除并重新授权。
-- **边界**：keychain 调用、回退存储和错误归一化只能由 `platform` 包的 `secrets` 实现，业务模块不得感知具体平台后端。详见 [ops.md](./ops.md#1-安全考量)。
+- **边界**：keychain 调用、回退存储和错误归一化只能由 `backend/secrets` 实现，业务模块不得感知具体平台后端。密钥更新与 SQLite 写入通过可回滚 Vault 批次协调：数据库失败时恢复旧值或删除新值，但不虚构跨系统的 ACID 事务。详见 [ops.md](./ops.md#1-安全考量)。
 
 ---
 
@@ -117,17 +117,17 @@
 
 ### OPEN-004 集合文件镜像的目录格式规范（已定：2026-07-26 落地）
 
-- **决定**：JSON 格式（与内部 IR 同构）；`collection.json` + 每请求单文件（`*.request.json`）+ 嵌套目录（`_folder.json`），文件名 slug 安全化，schemaVersion 前向兼容。见 `backend/mirror`。
+- **决定**：JSON 格式（与内部 IR 同构）；`collection.json` + 每请求单文件（`*.request.json`）+ 嵌套目录（`_folder.json`），schemaVersion 前向兼容。文件名 slug 按 Windows/macOS/Linux 的共同安全子集处理；同目录发生大小写不敏感碰撞或占用元数据文件名时追加稳定节点标识，并拒绝通过 symlink 读写镜像 JSON。见 `backend/mirror`。
 
 ### OPEN-005 许可协议
 
 - README 中标注"待定"。开源（MIT/Apache-2.0）还是闭源，需产品层面确认。
 
-### OPEN-006 自动更新方案（Wails 无开箱 Updater）
+### OPEN-006 自动更新方案（阶段性决策：仅检查与跳转）
 
 - **背景**：Wails 无内置的签名更新链路，需要自行搭建。
-- **待定**：自建更新服务 + 签名校验，或集成第三方（如基于 GitHub Releases 的更新器）。需明确签名、渠道（stable/beta）、回滚策略。
-- **建议**：Phase 5 打磨阶段处理；MVP 阶段可先手动分发安装包。
+- **当前决定（2026-07-31）**：发布 workflow 生成 `SHA256SUMS` 与 `update-manifest.json`；设置页只检查并打开官方 GitHub release 下载页，不执行静默二进制替换。
+- **仍待定**：启用应用内更新前，必须补齐签名校验、stable/beta 渠道、原子替换与失败回滚策略。
 
 ---
 

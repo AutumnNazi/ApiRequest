@@ -53,25 +53,49 @@ type Environment struct {
 // HistoryQuery 历史列表查询参数
 type HistoryQuery struct {
 	Search string `json:"search,omitempty"` // 按 url/method 模糊过滤
-	Limit  int    `json:"limit,omitempty"`  // 0 = 默认 100
-	Offset int    `json:"offset,omitempty"`
+	Limit  int    `json:"limit,omitempty"`  // 0 = 默认 50，最大 100
+	Cursor string `json:"cursor,omitempty"` // opaque cursor；优先于 Offset
+	Offset int    `json:"offset,omitempty"` // 兼容调用；新代码使用 Cursor
 }
 
-// HistoryItem 历史记录（列表项；response body 按需另拉）
-type HistoryItem struct {
-	Id          string      `json:"id"`
-	WorkspaceId string      `json:"workspaceId"`
-	RequestSnap HttpRequest `json:"requestSnap"` // 实际发送的请求快照（已解析变量后）
-	Status      int         `json:"status"`
-	DurationMs  int64       `json:"durationMs"`
-	SizeBytes   int64       `json:"sizeBytes"`
-	Timing      Timing      `json:"timing"`
-	RespHeaders []KV        `json:"respHeaders"`
-	BodyRef     string      `json:"bodyRef,omitempty"` // 大 body 的 blobs/ 相对路径
-	BodyInline  string      `json:"bodyInline,omitempty"`
-	TestResults []TestResult `json:"testResults,omitempty"`
-	CreatedAt   int64       `json:"createdAt"`
+// HistorySummary 是列表专用投影，不携带 request snapshot、headers 或 body。
+type HistorySummary struct {
+	Id          string `json:"id"`
+	WorkspaceId string `json:"workspaceId"`
+	Method      string `json:"method"`
+	Url         string `json:"url"`
+	Status      int    `json:"status"`
+	DurationMs  int64  `json:"durationMs"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	HasBody     bool   `json:"hasBody"`
+	CreatedAt   int64  `json:"createdAt"`
 }
+
+// HistoryPage 是稳定游标分页结果。
+type HistoryPage struct {
+	Items      []HistorySummary `json:"items"`
+	NextCursor string           `json:"nextCursor,omitempty"`
+	HasMore    bool             `json:"hasMore"`
+}
+
+// HistoryDetail 是单条历史的 replay/detail 投影。
+type HistoryDetail struct {
+	Id          string       `json:"id"`
+	WorkspaceId string       `json:"workspaceId"`
+	RequestSnap HttpRequest  `json:"requestSnap"` // 实际发送快照，凭证已不可逆脱敏
+	Status      int          `json:"status"`
+	DurationMs  int64        `json:"durationMs"`
+	SizeBytes   int64        `json:"sizeBytes"`
+	Timing      Timing       `json:"timing"`
+	RespHeaders []KV         `json:"respHeaders"`
+	BodyRef     string       `json:"bodyRef,omitempty"`
+	BodyInline  string       `json:"bodyInline,omitempty"`
+	TestResults []TestResult `json:"testResults,omitempty"`
+	CreatedAt   int64        `json:"createdAt"`
+}
+
+// HistoryItem keeps internal callers source-compatible; public APIs use Summary/Detail explicitly.
+type HistoryItem = HistoryDetail
 
 // Example 请求的示例响应（"保存为示例"落点，Mock Server 数据源）
 type Example struct {

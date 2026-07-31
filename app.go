@@ -34,6 +34,7 @@ type App struct {
 	Grpc     *binding.GrpcApi
 	Graphql  *binding.GraphqlApi
 	Sync     *binding.SyncApi
+	Dialog   *binding.DialogApi
 }
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
@@ -71,11 +72,12 @@ func NewApp() *App {
 		Grpc:      binding.NewGrpcApi(),
 		Graphql:   binding.NewGraphqlApi(),
 		Sync:      binding.NewSyncApi(store, engine),
+		Dialog:    binding.NewDialogApi(),
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
-	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql)
+	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql, a.Dialog)
 }
 
 func (a *App) shutdown(ctx context.Context) {

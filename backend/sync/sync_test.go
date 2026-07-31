@@ -1,6 +1,8 @@
 package sync
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -101,6 +103,28 @@ func TestFirstSyncInitializesRemote(t *testing.T) {
 	}
 }
 
+func TestBuildLocalSnapshotRejectsMissingWorkspace(t *testing.T) {
+	store, _ := newDevice(t)
+	if _, err := buildLocalSnapshot(store, "missing-workspace"); err == nil {
+		t.Fatal("missing workspace was accepted")
+	}
+}
+
+func TestDavGetRejectsSnapshotAboveLimitFromContentLength(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(maxSnapshotSize+1))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	client, err := newDavClient(DavConfig{Url: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.Get("oversized.json"); err == nil {
+		t.Fatal("oversized WebDAV snapshot was accepted")
+	}
+}
+
 func TestTwoDeviceBidirectionalSync(t *testing.T) {
 	srv := startDav(t, "", "")
 	cfg := DavConfig{Url: srv.URL}
@@ -114,23 +138,11 @@ func TestTwoDeviceBidirectionalSync(t *testing.T) {
 
 	// B：同一远端路径（模拟 B 输入了相同的工作区绑定——现实里 B 首次拉取用 A 的 wsId）
 	storeB, _ := newDevice(t)
-	// B 用与 A 相同的远端键同步：给 B 建同 id 工作区不可行（EnsureDefault 已建），
-	// 直接以 wsA 作为远端键、B 本地默认工作区承接
-	wB, _ := storeB.EnsureDefaultWorkspace()
-	addRequest(t, storeB, wB.Id, "from-B")
-	// 把 B 的数据同步到 A 的远端键：Sync 的 workspaceId 同时决定远端路径与本地读写
-	// —— 测试 B 的本地工作区 id 与远端键一致的场景需要 id 相同；
-	// 为此把 B 的节点搬到 wsA id 下（模拟绑定远端工作区）
+	// B 绑定远端工作区 id 后，直接在该 Workspace 中创建本地数据。
 	if err := storeB.EnsureWorkspace(wsA, "bound"); err != nil {
 		t.Fatal(err)
 	}
-	nodesB, _ := storeB.ListNodesForSync(wB.Id)
-	for _, row := range nodesB {
-		row.Node.WorkspaceId = wsA
-		if err := storeB.ApplySyncNode(row); err != nil {
-			t.Fatal(err)
-		}
-	}
+	addRequest(t, storeB, wsA, "from-B")
 	if _, err := Sync(storeB, wsA, cfg); err != nil {
 		t.Fatalf("B sync: %v", err)
 	}
@@ -197,6 +209,13 @@ func TestOmitSecrets(t *testing.T) {
 	if string(data) == "" {
 		t.Fatal("no remote data")
 	}
+	var remote Snapshot
+	if err := json.Unmarshal(data, &remote); err != nil {
+		t.Fatal(err)
+	}
+	if !remote.SecretsOmitted || remote.SchemaVersion != snapshotSchemaVersion {
+		t.Fatalf("secret omission metadata missing: %+v", remote)
+	}
 	if contains(data, "SECRET-1") {
 		t.Error("secret value leaked to remote")
 	}
@@ -213,6 +232,179 @@ func TestOmitSecrets(t *testing.T) {
 			if v.Key == "token" && v.Value != "SECRET-1" {
 				t.Errorf("local secret lost: %q", v.Value)
 			}
+		}
+	}
+}
+
+func TestOmitSecretsCoversNodeAuthAndRestoresLocalValues(t *testing.T) {
+	local := Snapshot{Nodes: []SyncNode{{Node: model.Node{
+		Id: "n1",
+		Request: &model.HttpRequest{Auth: model.Auth{Type: "bearer", Params: map[string]string{
+			"token": "request-token",
+		}}},
+		Auth: &model.Auth{Type: "basic", Params: map[string]string{
+			"username": "alice",
+			"password": "node-password",
+		}},
+		Variables: []model.Variable{
+			{Key: "secret", Value: "node-variable", Type: "secret", Enabled: true},
+			{Key: "region", Value: "cn-north-1", Type: "default", Enabled: true},
+		},
+	}}}}
+	raw, _ := json.Marshal(local)
+	var upload Snapshot
+	_ = json.Unmarshal(raw, &upload)
+	stripSecrets(&upload)
+	uploadRaw, _ := json.Marshal(upload)
+	for _, value := range []string{"request-token", "node-password", "node-variable"} {
+		if contains(uploadRaw, value) {
+			t.Fatalf("node secret %q leaked: %s", value, uploadRaw)
+		}
+	}
+	if !contains(uploadRaw, "alice") || !contains(uploadRaw, "cn-north-1") {
+		t.Fatalf("non-secret data was removed: %s", uploadRaw)
+	}
+	restoreLocalSecrets(&upload, &local)
+	node := upload.Nodes[0].Node
+	if node.Request.Auth.Params["token"] != "request-token" || node.Auth.Params["password"] != "node-password" || node.Variables[0].Value != "node-variable" {
+		t.Fatalf("node secrets not restored: %+v", node)
+	}
+}
+
+func TestRestoreLocalSecretsUsesEntityIdAndDuplicateOccurrence(t *testing.T) {
+	local := Snapshot{
+		Environments: []model.Environment{
+			{Id: "env-1", Name: "old-name", Variables: []model.Variable{
+				{Key: "token", Value: "first-env-secret", Type: "secret", Enabled: true},
+				{Key: "token", Value: "second-env-secret", Type: "secret", Enabled: true},
+			}},
+			{Id: "env-2", Name: "renamed", Variables: []model.Variable{
+				{Key: "token", Value: "wrong-environment-secret", Type: "secret", Enabled: true},
+			}},
+		},
+		Globals: []model.Variable{
+			{Key: "token", Value: "first-global-secret", Type: "secret", Enabled: true},
+			{Key: "token", Value: "second-global-secret", Type: "secret", Enabled: true},
+		},
+	}
+	merged := Snapshot{
+		Environments: []model.Environment{{Id: "env-1", Name: "renamed", Variables: []model.Variable{
+			{Key: "token", Type: "secret", Enabled: true},
+			{Key: "token", Type: "secret", Enabled: true},
+		}}},
+		Globals: []model.Variable{
+			{Key: "token", Type: "secret", Enabled: true},
+			{Key: "token", Type: "secret", Enabled: true},
+		},
+	}
+
+	restoreLocalSecrets(&merged, &local)
+	envVariables := merged.Environments[0].Variables
+	if envVariables[0].Value != "first-env-secret" || envVariables[1].Value != "second-env-secret" {
+		t.Fatalf("environment secrets restored by unstable identity: %+v", envVariables)
+	}
+	if merged.Globals[0].Value != "first-global-secret" || merged.Globals[1].Value != "second-global-secret" {
+		t.Fatalf("global duplicate secrets restored incorrectly: %+v", merged.Globals)
+	}
+}
+
+func TestRestoreRemoteOmittedSecretsDoesNotReviveExplicitClear(t *testing.T) {
+	local := Snapshot{Environments: []model.Environment{{
+		Id: "env-1", UpdatedAt: 1,
+		Variables: []model.Variable{{Key: "token", Value: "local-secret", Type: "secret", Enabled: true}},
+	}}}
+	remote := Snapshot{
+		SchemaVersion: snapshotSchemaVersion,
+		Environments: []model.Environment{{
+			Id: "env-1", UpdatedAt: 2,
+			Variables: []model.Variable{{Key: "token", Value: "", Type: "secret", Enabled: true}},
+		}},
+	}
+	merged, _ := merge(&local, &remote)
+	restoreRemoteOmittedSecrets(merged, &local, &remote)
+	if got := merged.Environments[0].Variables[0].Value; got != "" {
+		t.Fatalf("explicitly cleared remote secret was revived: %q", got)
+	}
+
+	remote.SecretsOmitted = true
+	merged, _ = merge(&local, &remote)
+	restoreRemoteOmittedSecrets(merged, &local, &remote)
+	if got := merged.Environments[0].Variables[0].Value; got != "local-secret" {
+		t.Fatalf("omitted remote secret was not restored: %q", got)
+	}
+}
+
+func TestValidateAndOrderSyncNodes(t *testing.T) {
+	nodes := []SyncNode{
+		{Node: model.Node{Id: "request", ParentId: "folder", Kind: "request"}},
+		{Node: model.Node{Id: "folder", ParentId: "collection", Kind: "folder"}},
+		{Node: model.Node{Id: "collection", Kind: "collection"}},
+	}
+	ordered, err := validateAndOrderSyncNodes(nodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ordered[0].Id != "collection" || ordered[1].Id != "folder" || ordered[2].Id != "request" {
+		t.Fatalf("unexpected node order: %+v", ordered)
+	}
+
+	invalid := map[string][]SyncNode{
+		"duplicate id": {
+			{Node: model.Node{Id: "same", Kind: "collection"}},
+			{Node: model.Node{Id: "same", Kind: "collection"}},
+		},
+		"missing parent": {
+			{Node: model.Node{Id: "request", ParentId: "missing", Kind: "request"}},
+		},
+		"parent cycle": {
+			{Node: model.Node{Id: "one", ParentId: "two", Kind: "folder"}},
+			{Node: model.Node{Id: "two", ParentId: "one", Kind: "folder"}},
+		},
+		"live child under tombstone": {
+			{Node: model.Node{Id: "collection", Kind: "collection"}, DeletedAt: 10},
+			{Node: model.Node{Id: "request", ParentId: "collection", Kind: "request"}},
+		},
+	}
+	for name, snapshot := range invalid {
+		t.Run(name, func(t *testing.T) {
+			if _, err := validateAndOrderSyncNodes(snapshot); err == nil {
+				t.Fatal("invalid sync graph was accepted")
+			}
+		})
+	}
+}
+
+func TestApplyToLocalPreflightsOwnershipBeforeWriting(t *testing.T) {
+	store, workspaceId := newDevice(t)
+	foreignWorkspace, err := store.CreateWorkspace("foreign")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignNode, err := store.UpsertNode(model.Node{
+		WorkspaceId: foreignWorkspace.Id,
+		Kind:        "collection",
+		Name:        "foreign",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := &Snapshot{
+		SchemaVersion: snapshotSchemaVersion,
+		Nodes: []SyncNode{
+			{Node: model.Node{Id: "would-be-partial", Kind: "collection", Name: "new"}},
+			{Node: model.Node{Id: foreignNode.Id, Kind: "collection", Name: "collision"}},
+		},
+	}
+	if err := applyToLocal(store, workspaceId, merged); err == nil {
+		t.Fatal("cross-workspace ID collision was accepted")
+	}
+	nodes, err := store.ListNodes(workspaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range nodes {
+		if node.Id == "would-be-partial" {
+			t.Fatal("snapshot wrote nodes before ownership preflight completed")
 		}
 	}
 }

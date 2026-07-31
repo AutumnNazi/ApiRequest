@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { getOAuth2Token, clearOAuth2Token, toAppError } from '../ipc';
 import type { Auth } from '../ipc';
+import { formatMessage, Verbatim } from '../i18n/locale';
 
 const AUTH_TYPES: [string, string][] = [
   ['inherit', '继承父级'],
@@ -71,14 +72,22 @@ export default function AuthEditor({ auth, onChange }: Props) {
 
   const fetchToken = async () => {
     setTokenState('fetching');
-    setTokenMsg(params.grantType === 'authorization_code' || !params.grantType
-      ? '已拉起浏览器，请完成授权（本地回调）…'
-      : '');
+    setTokenMsg(
+      params.grantType === 'authorization_code' || !params.grantType
+        ? formatMessage('已拉起浏览器，请完成授权（本地回调）…')
+        : '',
+    );
     try {
       const tok = await getOAuth2Token(params);
       onChange({ type, params: { ...params, accessToken: tok.accessToken } } as Auth);
       setTokenState('ok');
-      setTokenMsg(`Token 已获取${tok.expiresAt ? '，' + new Date(tok.expiresAt).toLocaleTimeString() + ' 过期' : ''}`);
+      setTokenMsg(
+        tok.expiresAt
+          ? formatMessage('Token 已获取，{time} 过期', {
+              time: new Date(tok.expiresAt).toLocaleTimeString(),
+            })
+          : formatMessage('Token 已获取'),
+      );
     } catch (e) {
       setTokenState('error');
       setTokenMsg(toAppError(e).detail);
@@ -142,7 +151,7 @@ export default function AuthEditor({ auth, onChange }: Props) {
             {params.accessToken && (
               <>
                 <span className="text-xs text-green-600 font-mono">
-                  {params.accessToken.slice(0, 24)}…
+                  <Verbatim value={params.accessToken.slice(0, 24)} />…
                 </span>
                 <button className="text-xs text-red-500 hover:underline" onClick={clearToken}>
                   清除
@@ -152,13 +161,13 @@ export default function AuthEditor({ auth, onChange }: Props) {
           </div>
           {tokenMsg && (
             <p className={`text-xs ${tokenState === 'error' ? 'text-red-600' : 'text-gray-500'}`}>
-              {tokenMsg}
+              <Verbatim value={tokenMsg} />
             </p>
           )}
         </div>
       )}
       {fields.length > 0 && (
-        <p className="text-xs text-gray-400">支持 {'{{变量}}'} 占位，发送时解析。</p>
+        <p className="text-xs text-gray-400">{'支持 {{变量}} 占位，发送时解析。'}</p>
       )}
     </div>
   );

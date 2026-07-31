@@ -1,4 +1,5 @@
 import React from 'react';
+import { Verbatim } from '../i18n/locale';
 
 interface State { err: Error | null }
 
@@ -26,7 +27,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
             <div className="text-3xl mb-3">⚠️</div>
             <div className="text-lg font-semibold mb-2">界面渲染出现未捕获错误</div>
             <pre className="mt-3 px-4 py-3 bg-slate-100 dark:bg-slate-800 rounded text-xs text-left overflow-auto max-h-48 whitespace-pre-wrap break-words">
-              {this.state.err.message}
+              <Verbatim value={this.state.err.message} />
             </pre>
             <div className="mt-5 flex gap-3 justify-center">
               <button

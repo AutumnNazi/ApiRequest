@@ -11,12 +11,15 @@ import {
   type Variable,
 } from '../ipc';
 import { useStableRowIds } from '../hooks/useStableRowIds';
+import { formatMessage, Verbatim } from '../i18n/locale';
+import { useDialog } from './DialogProvider';
 
 interface Props {
   workspaceId: string;
 }
 
 export default function EnvSwitcher({ workspaceId }: Props) {
+  const dialog = useDialog();
   const qc = useQueryClient();
   const [managing, setManaging] = useState(false);
   const { data: envs = [] } = useQuery({
@@ -30,7 +33,11 @@ export default function EnvSwitcher({ workspaceId }: Props) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['envs', workspaceId] }),
     // 切换失败时：select.value 仍然绑 envs.isActive，不主动回滚也能保持 UI 一致
     // （mutation 失败不会改变后端 isActive），此处仅弹错给用户反馈
-    onError: (e) => alert('切换环境失败: ' + toAppError(e).detail),
+    onError: (e) =>
+      void dialog.alert(
+        formatMessage('切换环境失败: {detail}', { detail: toAppError(e).detail }),
+        { title: '切换环境失败' },
+      ),
   });
 
   return (
@@ -44,7 +51,7 @@ export default function EnvSwitcher({ workspaceId }: Props) {
         <option value="">No Environment</option>
         {envs.map((e) => (
           <option key={e.id} value={e.id}>
-            {e.name}
+            <Verbatim value={e.name} />
           </option>
         ))}
       </select>
@@ -72,6 +79,7 @@ function EnvManager({
   envs: Environment[];
   onClose(): void;
 }) {
+  const dialog = useDialog();
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(envs[0]?.id ?? null);
   const selected = envs.find((e) => e.id === selectedId) ?? null;
@@ -81,7 +89,7 @@ function EnvManager({
     mutationFn: () =>
       upsertEnvironment({
         workspaceId,
-        name: `环境 ${envs.length + 1}`,
+        name: formatMessage('环境 {index}', { index: envs.length + 1 }),
         variables: [],
       } as unknown as Environment),
     onSuccess: (created) => {
@@ -93,7 +101,11 @@ function EnvManager({
   const save = useMutation({
     mutationFn: (env: Environment) => upsertEnvironment(env),
     onSuccess: invalidate,
-    onError: (e) => alert('保存环境失败: ' + toAppError(e).detail),
+    onError: (e) =>
+      void dialog.alert(
+        formatMessage('保存环境失败: {detail}', { detail: toAppError(e).detail }),
+        { title: '保存环境失败' },
+      ),
   });
 
   const del = useMutation({
@@ -131,7 +143,7 @@ function EnvManager({
                   }`}
                   onClick={() => setSelectedId(e.id)}
                 >
-                  <span className="truncate flex-1">{e.name}</span>
+                  <span className="truncate flex-1"><Verbatim value={e.name} /></span>
                   {e.isActive && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
                 </div>
               ))}
@@ -150,7 +162,9 @@ function EnvManager({
               env={selected}
               onSave={(env) => save.mutate(env)}
               onDelete={() => {
-                if (confirm(`删除环境「${selected.name}」？`)) del.mutate(selected.id);
+                void dialog.confirm(formatMessage('删除环境「{name}」？', { name: selected.name })).then((ok) => {
+                  if (ok) del.mutate(selected.id);
+                });
               }}
             />
           ) : (

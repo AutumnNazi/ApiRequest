@@ -14,16 +14,22 @@ import * as SettingsApi from '../../wailsjs/go/binding/SettingsApi';
 import * as GrpcApi from '../../wailsjs/go/binding/GrpcApi';
 import * as GraphqlApi from '../../wailsjs/go/binding/GraphqlApi';
 import * as SyncApi from '../../wailsjs/go/binding/SyncApi';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient, graphql, sync } from '../../wailsjs/go/models';
+import * as DialogApi from '../../wailsjs/go/binding/DialogApi';
+import { BrowserOpenURL, EventsOn } from '../../wailsjs/runtime/runtime';
+import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient, graphql, secrets, sync } from '../../wailsjs/go/models';
+import { translate } from '../i18n/locale';
 import { call } from './error';
 
 export type HttpRequest = model.HttpRequest;
 export type SendContext = model.SendContext;
 export type ResponseResult = model.ResponseResult;
+export type ResponseBlobInfo = model.ResponseBlobInfo;
+export type ResponseBlobChunk = model.ResponseBlobChunk;
 export type Node = model.Node;
 export type Workspace = model.Workspace;
-export type HistoryItem = model.HistoryItem;
+export type HistorySummary = model.HistorySummary;
+export type HistoryDetail = model.HistoryDetail;
+export type HistoryPage = model.HistoryPage;
 export type HistoryQuery = model.HistoryQuery;
 export type KV = model.KV;
 export type Body = model.Body;
@@ -48,9 +54,10 @@ export interface InboundMsg {
   sessionId: string;
   protocol: string;
   direction: 'in' | 'out' | 'system';
-  kind: 'text' | 'binary' | 'open' | 'close' | 'error' | 'event';
+  kind: 'text' | 'binary' | 'open' | 'close' | 'error' | 'event' | 'reconnect';
   data: string;
   event?: string;
+  eventId?: string;
   ts: number;
 }
 
@@ -64,9 +71,19 @@ export const sendRequest = (sendId: string, req: HttpRequest, ctx: SendContext) 
 
 export const cancelRequest = (sendId: string) => call(() => RequestApi.CancelRequest(sendId));
 
-/** 按引用拉取大响应体全文 */
-export const getResponseBlob = (blobRef: string) =>
-  call(() => RequestApi.GetResponseBlob(blobRef));
+export const getResponseBlobInfo = (blobRef: string) =>
+  call(() => RequestApi.GetResponseBlobInfo(blobRef));
+export const readResponseBlobRange = (blobRef: string, offset: number, limit: number) =>
+  call(() => RequestApi.ReadResponseBlobRange(blobRef, offset, limit));
+export const saveResponseBlob = (blobRef: string, destination: string) =>
+  call(() => RequestApi.SaveResponseBlob(blobRef, destination));
+
+export const openNativeFile = (title: string) => call(() => DialogApi.OpenFile(translate(title)));
+export const openNativeDirectory = (title: string) =>
+  call(() => DialogApi.OpenDirectory(translate(title)));
+export const saveNativeFile = (title: string, defaultFilename: string) =>
+  call(() => DialogApi.SaveFile(translate(title), defaultFilename));
+export const readNativeTextFile = (path: string) => call(() => DialogApi.ReadTextFile(path));
 
 // ── 集合树 ──
 
@@ -86,6 +103,8 @@ export const moveNode = (nodeId: string, newParentId: string, sortOrder: number)
 
 export const listHistory = (workspaceId: string, q: Partial<HistoryQuery> = {}) =>
   call(() => HistoryApi.ListHistory(workspaceId, model.HistoryQuery.createFrom(q)));
+export const getHistory = (workspaceId: string, id: string) =>
+  call(() => HistoryApi.GetHistory(workspaceId, id));
 export const clearHistory = (workspaceId: string) => call(() => HistoryApi.ClearHistory(workspaceId));
 
 // ── 环境与全局变量 ──
@@ -185,6 +204,15 @@ export const getTLSSettings = () =>
 export const setTLSSettings = (s: TLSSettings) =>
   call(() => SettingsApi.SetTLSSettings(httpengine.TLSSettings.createFrom(s)));
 
+export type VaultStatus = secrets.Status;
+export const getVaultStatus = () => call(() => SettingsApi.GetVaultStatus());
+export const unlockVault = (password: string) => call(() => SettingsApi.UnlockVault(password));
+export const lockVault = () => call(() => SettingsApi.LockVault());
+
+export function openReleasePage(): void {
+  BrowserOpenURL('https://github.com/AutumnNazi/ApiRequest/releases/latest');
+}
+
 // ── gRPC ──
 
 export type GrpcConnectConfig = grpcclient.ConnectConfig;
@@ -245,7 +273,9 @@ export const graphqlIntrospect = (cfg: Partial<GraphqlIntrospectConfig>) =>
 
 export interface RequestProgress {
   sendId: string;
-  phase: 'sending' | 'done';
+  phase: 'sending' | 'ttfb' | 'downloading' | 'done';
+  bytesReceived: number;
+  totalBytes: number;
 }
 
 /** 订阅请求进度事件；返回取消订阅函数 */

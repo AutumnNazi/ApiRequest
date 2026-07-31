@@ -132,10 +132,10 @@ Go's standard `net/http/httptrace` package directly exposes DNS/connect/TLS/TTFB
 - **Compression**: automatically decode gzip/br/deflate while retaining the original `Content-Encoding` for display.
 - **Proxy**: system/manual/PAC (later)/bypass list, supporting HTTP, HTTPS, and SOCKS5.
 - **TLS**: use Go's `crypto/tls`; support custom CAs, client certificates (mTLS), and optional verification disablement with a strong warning.
-- **Streaming and cancellation**: read bodies in chunks and avoid inlining above the threshold. Cancel through `context.Context` and `CancelRequest`; see the [API contract](./api-contract.md#3-phase-1-method-signatures-final).
+- **Streaming and cancellation**: read bodies in chunks and avoid inlining above the threshold. Cancel through `context.Context` and `CancelRequest`; see the [API contract](./api-contract.md#3-current-method-signatures-generated-bindings-are-authoritative).
 - **Connection reuse**: use a global `http.Client` with a pooled `http.Transport`; allow per-host configuration.
 
 ### 4.4 Large Request and Response Bodies
 
-- Upload binary bodies and large files as streams from their file paths rather than loading them into memory.
+- Stream binary and multipart files from their file paths instead of loading them into memory. Replayable bodies can be reopened for redirects, Digest retries, and streaming AWS SigV4 hashing.
 - Stream large responses into `blobs/`; return a summary and ref first, then let the frontend load segments on demand.

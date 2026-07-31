@@ -4,6 +4,10 @@ import {model} from '../models';
 
 export function CancelRequest(arg1:string):Promise<void>;
 
-export function GetResponseBlob(arg1:string):Promise<string>;
+export function GetResponseBlobInfo(arg1:string):Promise<model.ResponseBlobInfo>;
+
+export function ReadResponseBlobRange(arg1:string,arg2:number,arg3:number):Promise<model.ResponseBlobChunk>;
+
+export function SaveResponseBlob(arg1:string,arg2:string):Promise<number>;
 
 export function SendRequest(arg1:string,arg2:model.HttpRequest,arg3:model.SendContext):Promise<model.ResponseResult>;

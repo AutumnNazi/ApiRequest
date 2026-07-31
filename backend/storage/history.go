@@ -2,26 +2,33 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 )
 
-// responseMeta history.response_meta 列的 JSON 结构
 type responseMeta struct {
 	Headers []model.KV   `json:"headers"`
 	Timing  model.Timing `json:"timing"`
 }
 
-// InsertHistory 落一条历史；返回生成的 id
-func (s *Store) InsertHistory(item model.HistoryItem) (string, error) {
+// InsertHistory writes one redacted detail record and returns its generated id.
+func (s *Store) InsertHistory(item model.HistoryDetail) (string, error) {
 	if item.Id == "" {
 		item.Id = newId()
 	}
 	if item.CreatedAt == 0 {
 		item.CreatedAt = nowMs()
 	}
-	snap, err := json.Marshal(item.RequestSnap)
+	historyRedactor := secrets.NewRedactor(s.vault, secrets.AuthValues(item.RequestSnap.Auth)...)
+	item.RequestSnap = historyRedactor.Request(item.RequestSnap)
+	snapshot, err := json.Marshal(item.RequestSnap)
 	if err != nil {
 		return "", err
 	}
@@ -31,90 +38,149 @@ func (s *Store) InsertHistory(item model.HistoryItem) (string, error) {
 	}
 	var tests sql.NullString
 	if len(item.TestResults) > 0 {
-		b, err := json.Marshal(item.TestResults)
+		data, err := json.Marshal(item.TestResults)
 		if err != nil {
 			return "", err
 		}
-		tests = sql.NullString{String: string(b), Valid: true}
+		tests = sql.NullString{String: string(data), Valid: true}
 	}
 	_, err = s.db.Exec(`
-		INSERT INTO history (id, workspace_id, request_snap, status, duration_ms,
+		INSERT INTO history (id, workspace_id, request_snap, method, url, status, duration_ms,
 		                     size_bytes, response_meta, body_ref, body_inline, test_results, created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		item.Id, item.WorkspaceId, string(snap), item.Status, item.DurationMs,
-		item.SizeBytes, string(meta),
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		item.Id, item.WorkspaceId, string(snapshot), item.RequestSnap.Method, item.RequestSnap.Url,
+		item.Status, item.DurationMs, item.SizeBytes, string(meta),
 		sql.NullString{String: item.BodyRef, Valid: item.BodyRef != ""},
 		sql.NullString{String: item.BodyInline, Valid: item.BodyInline != ""},
 		tests, item.CreatedAt)
 	return item.Id, err
 }
 
-// ListHistory 按时间倒序返回历史（列表不含 body 内容以外的大字段）
-func (s *Store) ListHistory(workspaceId string, q model.HistoryQuery) ([]model.HistoryItem, error) {
-	limit := q.Limit
+// ListHistory returns only bounded summary projections.
+func (s *Store) ListHistory(workspaceId string, query model.HistoryQuery) (model.HistoryPage, error) {
+	limit := query.Limit
 	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
 		limit = 100
 	}
-	// request_snap 是 JSON 文本，模糊搜索直接 LIKE（低频路径，够用）
+	where := []string{"workspace_id = ?"}
 	args := []any{workspaceId}
-	where := "workspace_id = ?"
-	if q.Search != "" {
-		where += " AND request_snap LIKE ?"
-		args = append(args, "%"+q.Search+"%")
+	if query.Search != "" {
+		where = append(where, "(method LIKE ? OR url LIKE ?)")
+		search := "%" + query.Search + "%"
+		args = append(args, search, search)
 	}
-	args = append(args, limit, q.Offset)
-
-	rows, err := s.db.Query(`
-		SELECT id, workspace_id, request_snap, status, duration_ms, size_bytes,
-		       response_meta, body_ref, body_inline, test_results, created_at
-		FROM history WHERE `+where+`
-		ORDER BY created_at DESC LIMIT ? OFFSET ?`, args...)
+	if query.Cursor != "" {
+		createdAt, id, err := decodeHistoryCursor(query.Cursor)
+		if err != nil {
+			return model.HistoryPage{}, err
+		}
+		where = append(where, "(created_at < ? OR (created_at = ? AND id < ?))")
+		args = append(args, createdAt, createdAt, id)
+	}
+	args = append(args, limit+1)
+	sqlQuery := `SELECT id, workspace_id, method, url, status, duration_ms, size_bytes,
+	                    (COALESCE(body_ref, '') != '' OR COALESCE(body_inline, '') != '') AS has_body,
+	                    created_at
+	             FROM history WHERE ` + strings.Join(where, " AND ") + `
+	             ORDER BY created_at DESC, id DESC LIMIT ?`
+	if query.Cursor == "" && query.Offset > 0 {
+		sqlQuery += " OFFSET ?"
+		args = append(args, query.Offset)
+	}
+	rows, err := s.db.Query(sqlQuery, args...)
 	if err != nil {
-		return nil, err
+		return model.HistoryPage{}, err
 	}
 	defer rows.Close()
-
-	out := []model.HistoryItem{}
+	items := make([]model.HistorySummary, 0, limit+1)
 	for rows.Next() {
-		var it model.HistoryItem
-		var snap, meta string
-		var bodyRef, bodyInline, tests sql.NullString
-		if err := rows.Scan(&it.Id, &it.WorkspaceId, &snap, &it.Status, &it.DurationMs,
-			&it.SizeBytes, &meta, &bodyRef, &bodyInline, &tests, &it.CreatedAt); err != nil {
-			return nil, err
+		var item model.HistorySummary
+		if err := rows.Scan(&item.Id, &item.WorkspaceId, &item.Method, &item.Url, &item.Status,
+			&item.DurationMs, &item.SizeBytes, &item.HasBody, &item.CreatedAt); err != nil {
+			return model.HistoryPage{}, err
 		}
-		if err := json.Unmarshal([]byte(snap), &it.RequestSnap); err != nil {
-			return nil, err
-		}
-		var m responseMeta
-		if err := json.Unmarshal([]byte(meta), &m); err != nil {
-			return nil, err
-		}
-		it.RespHeaders = m.Headers
-		it.Timing = m.Timing
-		it.BodyRef = bodyRef.String
-		it.BodyInline = bodyInline.String
-		if tests.Valid && tests.String != "" {
-			if err := json.Unmarshal([]byte(tests.String), &it.TestResults); err != nil {
-				return nil, err
-			}
-		}
-		out = append(out, it)
+		items = append(items, item)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return model.HistoryPage{}, err
+	}
+	page := model.HistoryPage{Items: items}
+	if len(items) > limit {
+		page.HasMore = true
+		page.Items = items[:limit]
+		last := page.Items[len(page.Items)-1]
+		page.NextCursor = encodeHistoryCursor(last.CreatedAt, last.Id)
+	}
+	return page, nil
 }
 
-// ClearHistory 清空工作区历史，并清理关联的大响应体 blob 文件，避免磁盘泄漏。
+// GetHistory loads one detail record and enforces workspace ownership.
+func (s *Store) GetHistory(workspaceId, id string) (model.HistoryDetail, error) {
+	row := s.db.QueryRow(`
+		SELECT id, workspace_id, request_snap, status, duration_ms, size_bytes,
+		       response_meta, body_ref, body_inline, test_results, created_at
+		FROM history WHERE id = ? AND workspace_id = ?`, id, workspaceId)
+	var item model.HistoryDetail
+	var snapshot, meta string
+	var bodyRef, bodyInline, tests sql.NullString
+	if err := row.Scan(&item.Id, &item.WorkspaceId, &snapshot, &item.Status, &item.DurationMs,
+		&item.SizeBytes, &meta, &bodyRef, &bodyInline, &tests, &item.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return item, errors.New("history item not found in workspace")
+		}
+		return item, err
+	}
+	if err := json.Unmarshal([]byte(snapshot), &item.RequestSnap); err != nil {
+		return item, err
+	}
+	var response responseMeta
+	if err := json.Unmarshal([]byte(meta), &response); err != nil {
+		return item, err
+	}
+	item.RespHeaders = response.Headers
+	item.Timing = response.Timing
+	item.BodyRef = bodyRef.String
+	item.BodyInline = bodyInline.String
+	if tests.Valid && tests.String != "" {
+		if err := json.Unmarshal([]byte(tests.String), &item.TestResults); err != nil {
+			return item, err
+		}
+	}
+	return item, nil
+}
+
+func encodeHistoryCursor(createdAt int64, id string) string {
+	raw := strconv.FormatInt(createdAt, 10) + ":" + id
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+func decodeHistoryCursor(cursor string) (int64, string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid history cursor: %w", err)
+	}
+	parts := strings.SplitN(string(raw), ":", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return 0, "", errors.New("invalid history cursor")
+	}
+	createdAt, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, "", errors.New("invalid history cursor")
+	}
+	return createdAt, parts[1], nil
+}
+
+// ClearHistory deletes workspace history and associated response blobs.
 func (s *Store) ClearHistory(workspaceId string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-
-	// 1. 先收集将删除的 blob 引用（DB 行删除后无法回查）
-	rows, err := tx.Query(
-		"SELECT body_ref FROM history WHERE workspace_id = ? AND body_ref != ''", workspaceId)
+	rows, err := tx.Query("SELECT body_ref FROM history WHERE workspace_id = ? AND body_ref != ''", workspaceId)
 	if err != nil {
 		return err
 	}
@@ -134,16 +200,12 @@ func (s *Store) ClearHistory(workspaceId string) error {
 		return err
 	}
 	rows.Close()
-
-	// 2. 删除 DB 行
 	if _, err := tx.Exec("DELETE FROM history WHERE workspace_id = ?", workspaceId); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-
-	// 3. 清理孤儿 blob 文件（单个失败不阻断，记录继续）
 	for _, ref := range refs {
 		s.removeBlobFile(ref)
 	}

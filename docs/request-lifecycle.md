@@ -128,10 +128,10 @@ Go 标准库 `net/http/httptrace` 直接暴露分阶段 hook（DNS/connect/TLS/T
 - **压缩**：自动 gzip/br/deflate 解码，同时保留原始 `Content-Encoding` 展示。
 - **代理**：系统代理 / 手动 / PAC（后期）/ 绕过列表；支持 http/https/socks5。
 - **TLS**：Go 标准库 `crypto/tls` 为主；自定义 CA、客户端证书(mTLS)、可选关闭校验(强警告)。
-- **流式与取消**：body 分块读取，超阈值不内联；用 `context.Context` 取消支持 `CancelRequest`（取消语义见[接口约定](./api-contract.md#3-phase-1-方法签名定稿)）。
+- **流式与取消**：body 分块读取，超阈值不内联；用 `context.Context` 取消支持 `CancelRequest`（取消语义见[接口约定](./api-contract.md#3-当前方法签名以生成-binding-为准)）。
 - **连接复用**：`http.Client` 全局单例（含 `http.Transport` 连接池）；per-host 可配置。
 
 ### 4.4 请求超大 body 处理
 
-- 上行 binary/大文件：走文件路径流式上传，不读进内存。
+- 上行 binary 与 multipart 文件：从文件路径流式上传，不整块读进内存；可重放 body 提供重新打开能力，用于重定向、Digest 重试与 AWS SigV4 流式哈希。
 - 下行大响应：边收边写 `blobs/`，前端先拿摘要 + ref，按需分段拉取渲染。

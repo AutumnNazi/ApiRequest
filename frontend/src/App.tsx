@@ -6,6 +6,8 @@ import RequestEditor from './components/RequestEditor';
 import ResponseViewer from './components/ResponseViewer';
 import EnvSwitcher from './components/EnvSwitcher';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
+import { useDialog } from './components/DialogProvider';
+import { formatMessage, useLocale, Verbatim } from './i18n/locale';
 
 // 仅在打开时加载，降低初始渲染的脚本体积。
 const CookieManager = lazy(() => import('./components/CookieManager'));
@@ -14,7 +16,7 @@ const SettingsDialog = lazy(() => import('./components/SettingsDialog'));
 const GrpcPanel = lazy(() => import('./components/GrpcPanel'));
 const GraphqlPanel = lazy(() => import('./components/GraphqlPanel'));
 const ThemeDialog = lazy(() => import('./components/ThemeDialog'));
-import { useTabs } from './stores/tabs';
+import { useTabs, type Tab } from './stores/tabs';
 import {
   getDefaultWorkspace,
   sendRequest,
@@ -22,6 +24,7 @@ import {
   upsertNode,
   listNodes,
   syncNow,
+  onRequestProgress,
   toAppError,
   type Node,
   type SendContext,
@@ -29,11 +32,17 @@ import {
 
 export default function App() {
   const qc = useQueryClient();
-  const { tabs, activeId, openBlank, close, setActive } = useTabs();
+  const dialog = useDialog();
+  const locale = useLocale((state) => state.locale);
+  const sessions = useTabs((s) => s.sessions);
+  const openBlank = useTabs((s) => s.openBlank);
+  const close = useTabs((s) => s.close);
+  const setActive = useTabs((s) => s.setActive);
   const setSending = useTabs((s) => s.setSending);
   const setResponse = useTabs((s) => s.setResponse);
   const setError = useTabs((s) => s.setError);
   const markSaved = useTabs((s) => s.markSaved);
+  const setProgress = useTabs((s) => s.setProgress);
 
   const { data: defaultWorkspace } = useQuery({
     queryKey: ['workspace'],
@@ -44,6 +53,9 @@ export default function App() {
     null,
   );
   const workspace = workspaceOverride ?? defaultWorkspace;
+  const session = workspace ? sessions[workspace.id] : undefined;
+  const tabs = session?.tabs ?? [];
+  const activeId = session?.activeId ?? null;
   const [showCookies, setShowCookies] = useState(false);
   const [showWs, setShowWs] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -52,38 +64,72 @@ export default function App() {
   const [showTheme, setShowTheme] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
+  const [syncFailed, setSyncFailed] = useState(false);
+
+  useEffect(() => onRequestProgress(setProgress), [setProgress]);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   const handleSync = async () => {
     if (!workspace || syncing) return;
     setSyncing(true);
     setSyncMsg('');
+    setSyncFailed(false);
     try {
       const r = await syncNow(workspace.id);
       setSyncMsg(
         r.remoteFresh
-          ? `已初始化远端（上传 ${r.pushed} 项）`
-          : `↑${r.pushed} ↓${r.pulled}${r.deleted ? ` 删${r.deleted}` : ''}`,
+          ? formatMessage('已初始化远端（上传 {count} 项）', { count: r.pushed })
+          : formatMessage('↑{pushed} ↓{pulled}{deleted}', {
+              pushed: r.pushed,
+              pulled: r.pulled,
+              deleted: r.deleted ? formatMessage(' 删除 {count}', { count: r.deleted }) : '',
+            }),
       );
       qc.invalidateQueries({ queryKey: ['nodes', workspace.id] });
       qc.invalidateQueries({ queryKey: ['envs', workspace.id] });
       qc.invalidateQueries({ queryKey: ['globals', workspace.id] });
     } catch (e) {
-      setSyncMsg('同步失败：' + toAppError(e).detail);
+      setSyncFailed(true);
+      setSyncMsg(formatMessage('同步失败：{detail}', { detail: toAppError(e).detail }));
     } finally {
       setSyncing(false);
       setTimeout(() => setSyncMsg(''), 5000);
     }
   };
 
-  // 首次进入自动开一个空标签
+  // 每个 Workspace Session 首次进入时各自创建一个空标签；已恢复的草稿保持原样。
   useEffect(() => {
-    if (useTabs.getState().tabs.length === 0) openBlank();
-  }, [openBlank]);
+    if (!workspace) return;
+    const restored = useTabs.getState().sessions[workspace.id];
+    if (!restored || restored.tabs.length === 0) openBlank(workspace.id);
+  }, [openBlank, workspace?.id]);
 
   const active = tabs.find((t) => t.id === activeId);
 
+  const closeTab = async (tab: Tab) => {
+    if (
+      tab.dirty &&
+      !(await dialog.confirm(formatMessage('关闭「{name}」并放弃未保存的修改？', { name: tab.name })))
+    ) return;
+    close(tab.id);
+  };
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      const hasDirtyDraft = Object.values(useTabs.getState().sessions).some((item) =>
+        item.tabs.some((tab) => tab.dirty),
+      );
+      if (hasDirtyDraft) event.preventDefault();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
   const handleSend = async () => {
-    if (!active || !workspace || active.sending) return;
+    if (!active || !workspace || active.workspaceId !== workspace.id || active.sending) return;
     // 空 URL 直接前端拦截（与 RequestEditor 发送按钮 disabled 条件一致）
     if (!active.draft.url.trim()) return;
     const tabId = active.id;
@@ -91,14 +137,14 @@ export default function App() {
     setSending(tabId, true, sendId);
     try {
       const res = await sendRequest(sendId, active.draft, {
-        workspaceId: workspace.id,
+        workspaceId: active.workspaceId,
         requestId: active.nodeId ?? '',
       } as SendContext);
       setResponse(tabId, res);
-      qc.invalidateQueries({ queryKey: ['history', workspace.id] });
+      qc.invalidateQueries({ queryKey: ['history', active.workspaceId] });
       // 脚本可能改了环境/全局变量，刷新 EnvSwitcher 缓存
-      qc.invalidateQueries({ queryKey: ['envs', workspace.id] });
-      qc.invalidateQueries({ queryKey: ['globals', workspace.id] });
+      qc.invalidateQueries({ queryKey: ['envs', active.workspaceId] });
+      qc.invalidateQueries({ queryKey: ['globals', active.workspaceId] });
     } catch (e) {
       setError(tabId, toAppError(e));
     }
@@ -110,12 +156,15 @@ export default function App() {
       await cancelRequest(active.sendId);
     } catch (e) {
       // 取消失败时仍保留发送状态，等待原请求自然结束。
-      alert('取消请求失败: ' + toAppError(e).detail);
+      void dialog.alert(
+        formatMessage('取消请求失败: {detail}', { detail: toAppError(e).detail }),
+        { title: '请求取消失败' },
+      );
     }
   };
 
   const handleSave = async () => {
-    if (!active || !workspace) return;
+    if (!active || !workspace || active.workspaceId !== workspace.id) return;
     try {
       // 已关联节点 → 更新；未关联 → 存入第一个集合（无集合则先建默认集合）
       let parentId = '';
@@ -123,11 +172,11 @@ export default function App() {
       if (active.nodeId) {
         existing = { id: active.nodeId };
       } else {
-        const nodes = await listNodes(workspace.id);
+        const nodes = await listNodes(active.workspaceId);
         let col = nodes.find((n) => n.kind === 'collection');
         if (!col) {
           col = await upsertNode({
-            workspaceId: workspace.id,
+            workspaceId: active.workspaceId,
             kind: 'collection',
             name: '默认集合',
           } as Node);
@@ -140,17 +189,19 @@ export default function App() {
           : active.name;
       const saved = await upsertNode({
         ...existing,
-        workspaceId: workspace.id,
+        workspaceId: active.workspaceId,
         ...(parentId ? { parentId } : {}),
         kind: 'request',
         name,
         request: active.draft,
       } as unknown as Node);
       markSaved(active.id, saved.id, saved.name);
-      qc.invalidateQueries({ queryKey: ['nodes', workspace.id] });
+      qc.invalidateQueries({ queryKey: ['nodes', active.workspaceId] });
     } catch (e) {
-      // 保存失败不应污染响应面板（与发送错误语义不同），用 alert 显式提示
-      alert('保存失败: ' + toAppError(e).detail);
+      // 保存失败不应污染响应面板（与发送错误语义不同），单独提示。
+      void dialog.alert(formatMessage('保存失败: {detail}', { detail: toAppError(e).detail }), {
+        title: '保存失败',
+      });
     }
   };
 
@@ -167,10 +218,10 @@ export default function App() {
         handleSave();
       } else if (e.key === 't') {
         e.preventDefault();
-        openBlank();
+        if (workspace) openBlank(workspace.id);
       } else if (e.key === 'w') {
         e.preventDefault();
-        if (activeId) close(activeId);
+        if (active) void closeTab(active);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -229,9 +280,9 @@ export default function App() {
         </button>
         {syncMsg && (
           <span
-            className={`ml-2 text-xs ${syncMsg.startsWith('同步失败') ? 'text-red-500' : 'text-green-600'}`}
+            className={`ml-2 text-xs ${syncFailed ? 'text-red-500' : 'text-green-600'}`}
           >
-            {syncMsg}
+            <Verbatim value={syncMsg} />
           </span>
         )}
         <button
@@ -277,18 +328,18 @@ export default function App() {
                 }`}
                 onClick={() => setActive(t.id)}
                 onAuxClick={(e) => {
-                  if (e.button === 1) close(t.id); // 中键关闭
+                  if (e.button === 1) closeTab(t); // 中键关闭
                 }}
               >
                 <span className="truncate max-w-40">
                   {t.dirty && <span className="text-blue-500 mr-0.5">•</span>}
-                  {t.name}
+                  <Verbatim value={t.name} />
                 </span>
                 <button
                   className="text-gray-400 hover:text-gray-700 ml-1"
                   onClick={(e) => {
                     e.stopPropagation();
-                    close(t.id);
+                    closeTab(t);
                   }}
                 >
                   ×
@@ -297,7 +348,7 @@ export default function App() {
             ))}
             <button
               className="px-3 text-gray-400 hover:text-gray-700"
-              onClick={openBlank}
+              onClick={() => openBlank(workspace.id)}
               title="新建标签 (Ctrl+T)"
             >
               +
@@ -320,6 +371,7 @@ export default function App() {
                   response={active.response}
                   error={active.error}
                   sending={active.sending}
+                  progress={active.progress}
                   nodeId={active.nodeId}
                 />
               </div>

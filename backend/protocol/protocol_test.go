@@ -147,6 +147,76 @@ func TestSSEStream(t *testing.T) {
 	}
 }
 
+func TestSSEReconnectUsesLastEventIDAndCloseStopsRetries(t *testing.T) {
+	var mu sync.Mutex
+	connections := 0
+	lastEventHeaders := []string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		connections++
+		connection := connections
+		lastEventHeaders = append(lastEventHeaders, r.Header.Get("Last-Event-ID"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		if connection == 1 {
+			_, _ = w.Write([]byte("id: 42\nretry: 100\nevent: update\ndata: first\n\n"))
+			flusher.Flush()
+			return
+		}
+		_, _ = w.Write([]byte("id: 43\nevent: update\ndata: second\n\n"))
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	manager := NewManager()
+	collector := &collector{}
+	if err := manager.Open("sse-reconnect", SessionConfig{Protocol: "sse", Url: srv.URL}, collector.emit); err != nil {
+		t.Fatal(err)
+	}
+	messages := collector.waitFor(t, func(messages []InboundMsg) bool {
+		events := 0
+		reconnected := false
+		for _, message := range messages {
+			if message.Kind == "event" {
+				events++
+			}
+			if message.Kind == "reconnect" && message.Data == "reconnected" {
+				reconnected = true
+			}
+		}
+		return events >= 2 && reconnected
+	})
+	var eventIDs []string
+	for _, message := range messages {
+		if message.Kind == "event" {
+			eventIDs = append(eventIDs, message.EventId)
+		}
+	}
+	if len(eventIDs) < 2 || eventIDs[0] != "42" || eventIDs[1] != "43" {
+		t.Fatalf("event ids = %v", eventIDs)
+	}
+	mu.Lock()
+	headers := append([]string(nil), lastEventHeaders...)
+	mu.Unlock()
+	if len(headers) < 2 || headers[0] != "" || headers[1] != "42" {
+		t.Fatalf("Last-Event-ID headers = %v", headers)
+	}
+	if err := manager.Close("sse-reconnect"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	closedAt := connections
+	mu.Unlock()
+	time.Sleep(250 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if connections != closedAt {
+		t.Fatalf("connections after close = %d, want %d", connections, closedAt)
+	}
+}
+
 func TestUnsupportedProtocol(t *testing.T) {
 	m := NewManager()
 	if err := m.Open("s3", SessionConfig{Protocol: "grpc", Url: "x"}, func(InboundMsg) {}); err == nil {

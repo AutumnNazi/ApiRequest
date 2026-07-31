@@ -90,7 +90,8 @@ CREATE TABLE environment (
 -- One global-variable row per workspace.
 CREATE TABLE global_var (
   workspace_id  TEXT PRIMARY KEY REFERENCES workspace(id),
-  variables     TEXT NOT NULL DEFAULT '[]'
+  variables     TEXT NOT NULL DEFAULT '[]',
+  updated_at    INTEGER NOT NULL DEFAULT 0
 );
 
 -- History stores the sent snapshot and response summary; large bodies live in files below.
@@ -250,6 +251,6 @@ interface Timing {
 
 ## 4. Schema Migrations and Version Compatibility
 
-- **Database migrations**: record the version in `PRAGMA user_version`. At startup, apply `migrations/NNNN_*.sql` in order and back up the database file before every migration.
+- **Database migrations**: record the version in `PRAGMA user_version`. Migration SQL lives in an inline, append-only version list and is applied sequentially at startup. Each migration and version update run in one transaction; failures roll back and abort startup.
 - **Export format versions**: include `schemaVersion` in the internal model. Upgrade older imports through adapters. Export the latest version by default and optionally target an older supported version.
 - **Contract changes**: any breaking change to the shared types in section 3 must bump the version and include frontend compatibility handling.

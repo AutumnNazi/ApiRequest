@@ -15,6 +15,7 @@ import {
   type GrpcCallResult,
   type GrpcStreamMessage,
 } from '../ipc';
+import { translate, Verbatim } from '../i18n/locale';
 
 interface Props {
   onClose(): void;
@@ -252,7 +253,7 @@ export default function GrpcPanel({ onClose }: Props) {
           </button>
         </div>
 
-        {error && <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600">{error}</div>}
+        {error && <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600"><Verbatim value={error} /></div>}
 
         <div className="flex-1 flex min-h-0">
           {/* 方法列表 */}
@@ -270,8 +271,8 @@ export default function GrpcPanel({ onClose }: Props) {
                   }`}
                   onClick={() => pick(m)}
                 >
-                  <div className="font-mono truncate">{m.method}</div>
-                  <div className="text-gray-400 truncate">{m.service}</div>
+                  <div className="font-mono truncate"><Verbatim value={m.method} /></div>
+                  <div className="text-gray-400 truncate"><Verbatim value={m.service} /></div>
                   {(m.clientStream || m.serverStream) && (
                     <span className="text-purple-600">
                       {m.clientStream && m.serverStream ? 'bidi 流'
@@ -290,7 +291,7 @@ export default function GrpcPanel({ onClose }: Props) {
               <>
                 <div className="flex items-center gap-2 px-3 py-2 border-b">
                   <span className="font-mono text-xs text-gray-600 truncate flex-1">
-                    {selected.fullName}
+                    <Verbatim value={selected.fullName} />
                   </span>
                   {streaming && streamId ? (
                     <>
@@ -348,9 +349,11 @@ export default function GrpcPanel({ onClose }: Props) {
                         streamLog.map((it, i) => (
                           <div key={i} className={`mb-2 ${colorByKind(it.kind)}`}>
                             <div className="text-gray-400 text-[10px]">
-                              {new Date(it.ts).toLocaleTimeString()} · {it.kind}
+                              {new Date(it.ts).toLocaleTimeString()} · <Verbatim value={it.kind} />
                             </div>
-                            <pre className="whitespace-pre-wrap break-all">{it.data}</pre>
+                            <pre className="whitespace-pre-wrap break-all">
+                              {it.kind === 'system' ? translate(it.data) : <Verbatim value={it.data} />}
+                            </pre>
                           </div>
                         ))
                       )}
@@ -398,7 +401,7 @@ export default function GrpcPanel({ onClose }: Props) {
                         {result && <span className="text-gray-400">{result.durationMs} ms</span>}
                       </div>
                       <pre className="flex-1 overflow-auto p-3 text-xs font-mono whitespace-pre-wrap break-all">
-                        {result?.response ?? '调用后在此显示响应'}
+                        {result ? <Verbatim value={result.response} /> : '调用后在此显示响应'}
                       </pre>
                     </div>
                   </>

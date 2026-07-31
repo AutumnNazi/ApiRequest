@@ -13,7 +13,7 @@ type KV struct {
 // Body 请求体。Kind 为判别字段，其余字段按 Kind 生效
 // （可辨识联合在 Go 侧摊平为单 struct，前端按 kind 窄化，见 ADR-007）。
 type Body struct {
-	Kind     string `json:"kind"` // none | raw | formdata | urlencoded | binary | graphql
+	Kind     string `json:"kind"`               // none | raw | formdata | urlencoded | binary | graphql
 	Language string `json:"language,omitempty"` // raw: json | xml | html | text
 	Text     string `json:"text,omitempty"`     // raw 的内容
 
@@ -42,7 +42,7 @@ type Auth struct {
 
 // RequestSettings 请求级设置覆盖项
 type RequestSettings struct {
-	TimeoutMs       int  `json:"timeoutMs,omitempty"`       // 0 = 默认
+	TimeoutMs       int  `json:"timeoutMs,omitempty"` // 0 = 默认
 	FollowRedirects bool `json:"followRedirects"`
 	MaxRedirects    int  `json:"maxRedirects,omitempty"`
 	VerifyTLS       bool `json:"verifyTls"`
@@ -74,7 +74,7 @@ type HttpRequest struct {
 
 // SendContext 发送上下文（前端组装后传给 SendRequest）
 type SendContext struct {
-	RequestId         string            `json:"requestId,omitempty"`     // 关联的 node id（可空：未保存的草稿）
+	RequestId         string            `json:"requestId,omitempty"` // 关联的 node id（可空：未保存的草稿）
 	WorkspaceId       string            `json:"workspaceId"`
 	EnvironmentId     string            `json:"environmentId,omitempty"`
 	VariableOverrides map[string]string `json:"variableOverrides,omitempty"`
@@ -103,9 +103,24 @@ type Timing struct {
 
 // ResponseBody 响应体：小 body 内联，大 body 给 blob 引用
 type ResponseBody struct {
-	Inline  bool   `json:"inline"`
-	Text    string `json:"text,omitempty"`    // inline=true 时有效
-	BlobRef string `json:"blobRef,omitempty"` // inline=false 时的 blobs/ 相对路径
+	Inline   bool   `json:"inline"`
+	Text     string `json:"text,omitempty"`     // inline=true 时有效
+	BlobRef  string `json:"blobRef,omitempty"`  // inline=false 时的 blobs/ 相对路径
+	Encoding string `json:"encoding,omitempty"` // 空/utf8 | base64 | binary(blob)
+}
+
+// ResponseBlobInfo describes a response body stored outside SQLite.
+type ResponseBlobInfo struct {
+	Ref       string `json:"ref"`
+	SizeBytes int64  `json:"sizeBytes"`
+}
+
+// ResponseBlobChunk is a bounded, binary-safe range response.
+type ResponseBlobChunk struct {
+	Offset     int64  `json:"offset"`
+	BytesRead  int64  `json:"bytesRead"`
+	DataBase64 string `json:"dataBase64"`
+	Eof        bool   `json:"eof"`
 }
 
 // TestResult 单条测试断言结果

@@ -1,17 +1,19 @@
 // Cookie 管理弹窗
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { listCookies, deleteCookie, clearCookies, upsertCookie, toAppError, type Cookie } from '../ipc';
+import { listCookies, deleteCookie, clearCookies, upsertCookie, openNativeFile, readNativeTextFile, toAppError, type Cookie } from '../ipc';
+import { formatMessage, Verbatim } from '../i18n/locale';
+import { useDialog } from './DialogProvider';
 
 interface Props {
   onClose(): void;
 }
 
 export default function CookieManager({ onClose }: Props) {
+  const dialog = useDialog();
   const qc = useQueryClient();
   const { data: cookies = [] } = useQuery({ queryKey: ['cookies'], queryFn: () => listCookies() });
   const invalidate = () => qc.invalidateQueries({ queryKey: ['cookies'] });
-  const importRef = useRef<HTMLInputElement>(null);
 
   const exportCookies = () => {
     const blob = new Blob([JSON.stringify(cookies, null, 2)], { type: 'application/json' });
@@ -20,13 +22,12 @@ export default function CookieManager({ onClose }: Props) {
     link.href = url;
     link.download = 'apirequest-cookies.json';
     link.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
-  const importCookies = async (file?: File) => {
-    if (!file) return;
+  const importCookies = async (content: string) => {
     try {
-      const parsed: unknown = JSON.parse(await file.text());
+      const parsed: unknown = JSON.parse(content);
       const cookiesToImport = normalizeImportedCookies(parsed);
       // 先完整校验数组，再开始写入，避免后续坏项导致前半批静默落库。
       for (const cookie of cookiesToImport) {
@@ -34,9 +35,22 @@ export default function CookieManager({ onClose }: Props) {
       }
       invalidate();
     } catch (error) {
-      alert('导入 Cookie 失败: ' + toAppError(error).detail);
-    } finally {
-      if (importRef.current) importRef.current.value = '';
+      void dialog.alert(
+        formatMessage('导入 Cookie 失败: {detail}', { detail: toAppError(error).detail }),
+        { title: '导入失败' },
+      );
+    }
+  };
+
+  const chooseImportFile = async () => {
+    try {
+      const path = await openNativeFile('选择 Cookie JSON 文件');
+      if (path) await importCookies(await readNativeTextFile(path));
+    } catch (cause) {
+      void dialog.alert(
+        formatMessage('导入 Cookie 失败: {detail}', { detail: toAppError(cause).detail }),
+        { title: '导入失败' },
+      );
     }
   };
 
@@ -59,16 +73,9 @@ export default function CookieManager({ onClose }: Props) {
         <div className="flex items-center px-4 py-3 border-b">
           <h2 className="font-semibold text-sm">Cookie 管理</h2>
           <span className="ml-2 text-xs text-gray-400">{cookies.length} 条</span>
-          <input
-            ref={importRef}
-            className="hidden"
-            type="file"
-            accept="application/json,.json"
-            onChange={(e) => importCookies(e.target.files?.[0])}
-          />
           <button
             className="ml-auto text-xs border rounded px-2 py-1 hover:bg-gray-50"
-            onClick={() => importRef.current?.click()}
+            onClick={() => void chooseImportFile()}
           >
             导入
           </button>
@@ -82,7 +89,9 @@ export default function CookieManager({ onClose }: Props) {
           <button
             className="ml-2 text-xs border border-red-200 text-red-500 rounded px-2 py-1 hover:bg-red-50"
             onClick={() => {
-              if (confirm('清空全部 Cookie？')) clearAll.mutate();
+              void dialog.confirm('清空全部 Cookie？').then((ok) => {
+                if (ok) clearAll.mutate();
+              });
             }}
           >
             全部清空
@@ -142,7 +151,7 @@ function CookieTable({
             onClick={() => toggle(domain)}
           >
             <span className="text-gray-500">{collapsed.has(domain) ? '▶' : '▼'}</span>
-            <span className="font-mono font-medium text-gray-700">{domain}</span>
+            <span className="font-mono font-medium text-gray-700"><Verbatim value={domain} /></span>
             <span className="text-gray-400">({items.length})</span>
           </div>
           {!collapsed.has(domain) && (
@@ -155,21 +164,32 @@ function CookieTable({
                   const expired = exp && exp.getTime() < Date.now();
                   return (
                     <tr key={cookieKey(c)} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="p-2 font-mono">{c.path || '/'}</td>
-                      <td className="p-2 font-mono font-medium">{c.name}</td>
-                      <td className="p-2 font-mono max-w-40 truncate" title={c.value}>
-                        {c.value}
+                      <td className="p-2 font-mono"><Verbatim value={c.path || '/'} /></td>
+                      <td className="p-2 font-mono font-medium"><Verbatim value={c.name} /></td>
+                      <td className="p-2 font-mono max-w-40 truncate" title={c.value} data-i18n-verbatim>
+                        <Verbatim value={c.value} />
                       </td>
                       <td className={`p-2 ${expired ? 'text-red-500' : 'text-gray-400'}`}>
-                        {exp
-                          ? `${exp.toLocaleString()}${
+                        {exp ? (
+                          <Verbatim
+                            value={
                               expired
-                                ? '（已过期）'
+                                ? formatMessage('{date}（已过期）', { date: exp.toLocaleString() })
                                 : exp.getTime() - Date.now() < 86400000
-                                  ? `（剩 ${Math.max(0, Math.round((exp.getTime() - Date.now()) / 3600000))} 小时）`
-                                  : `（剩 ${Math.round((exp.getTime() - Date.now()) / 86400000)} 天）`
-                            }`
-                          : '会话'}
+                                  ? formatMessage('{date}（剩 {count} 小时）', {
+                                      date: exp.toLocaleString(),
+                                      count: Math.max(
+                                        0,
+                                        Math.round((exp.getTime() - Date.now()) / 3600000),
+                                      ),
+                                    })
+                                  : formatMessage('{date}（剩 {count} 天）', {
+                                      date: exp.toLocaleString(),
+                                      count: Math.round((exp.getTime() - Date.now()) / 86400000),
+                                    })
+                            }
+                          />
+                        ) : '会话'}
                       </td>
                       <td className="p-2">
                         <button
@@ -200,32 +220,32 @@ function cookieKey(cookie: Cookie): string {
 function normalizeImportedCookies(parsed: unknown): Cookie[] {
   if (!Array.isArray(parsed)) throw new Error('文件根节点必须是 Cookie 数组');
   return parsed.map((value, index) => {
-    const label = '第 ' + (index + 1) + ' 个 Cookie';
+    const label = formatMessage('第 {index} 个 Cookie', { index: index + 1 });
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new Error(label + ' 必须是对象');
+      throw new Error(formatMessage('{label} 必须是对象', { label }));
     }
     const raw = value as Record<string, unknown>;
     if (typeof raw.name !== 'string' || !raw.name.trim()) {
-      throw new Error(label + ' 的 name 必须是非空字符串');
+      throw new Error(formatMessage('{label} 的 name 必须是非空字符串', { label }));
     }
     if (typeof raw.domain !== 'string' || !raw.domain.trim()) {
-      throw new Error(label + ' 的 domain 必须是非空字符串');
+      throw new Error(formatMessage('{label} 的 domain 必须是非空字符串', { label }));
     }
     if (raw.value !== undefined && typeof raw.value !== 'string') {
-      throw new Error(label + ' 的 value 必须是字符串');
+      throw new Error(formatMessage('{label} 的 value 必须是字符串', { label }));
     }
     if (raw.path !== undefined && typeof raw.path !== 'string') {
-      throw new Error(label + ' 的 path 必须是字符串');
+      throw new Error(formatMessage('{label} 的 path 必须是字符串', { label }));
     }
     if (raw.expires !== undefined &&
         (typeof raw.expires !== 'number' || !Number.isFinite(raw.expires))) {
-      throw new Error(label + ' 的 expires 必须是有限数字');
+      throw new Error(formatMessage('{label} 的 expires 必须是有限数字', { label }));
     }
     if (raw.httpOnly !== undefined && typeof raw.httpOnly !== 'boolean') {
-      throw new Error(label + ' 的 httpOnly 必须是布尔值');
+      throw new Error(formatMessage('{label} 的 httpOnly 必须是布尔值', { label }));
     }
     if (raw.secure !== undefined && typeof raw.secure !== 'boolean') {
-      throw new Error(label + ' 的 secure 必须是布尔值');
+      throw new Error(formatMessage('{label} 的 secure 必须是布尔值', { label }));
     }
     return {
       name: raw.name.trim(),

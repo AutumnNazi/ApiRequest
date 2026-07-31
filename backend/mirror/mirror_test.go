@@ -1,9 +1,12 @@
 package mirror
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"apirequest/backend/model"
 )
@@ -110,6 +113,51 @@ func TestExportPrunesStale(t *testing.T) {
 	}
 }
 
+func TestExportRejectsInvalidTreesBeforeCreatingTarget(t *testing.T) {
+	collection, _ := sampleTree()
+	tests := []struct {
+		name       string
+		collection model.Node
+		children   []model.Node
+	}{
+		{name: "missing collection id", collection: model.Node{Kind: "collection"}},
+		{name: "wrong root kind", collection: model.Node{Id: "root", Kind: "folder"}},
+		{
+			name:       "missing parent",
+			collection: collection,
+			children: []model.Node{{
+				Id: "orphan", ParentId: "missing", Kind: "folder", Name: "orphan",
+			}},
+		},
+		{
+			name:       "request without data",
+			collection: collection,
+			children: []model.Node{{
+				Id: "request", ParentId: collection.Id, Kind: "request", Name: "request",
+			}},
+		},
+		{
+			name:       "folder cycle",
+			collection: collection,
+			children: []model.Node{
+				{Id: "first", ParentId: "second", Kind: "folder", Name: "first"},
+				{Id: "second", ParentId: "first", Kind: "folder", Name: "second"},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			target := filepath.Join(t.TempDir(), "mirror")
+			if err := Export(target, test.collection, test.children); err == nil {
+				t.Fatal("invalid mirror tree was accepted")
+			}
+			if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("invalid export created target directory: %v", err)
+			}
+		})
+	}
+}
+
 func TestSlugSanitizes(t *testing.T) {
 	dir := t.TempDir()
 	col := model.Node{Id: "col", Kind: "collection", Name: "c"}
@@ -130,8 +178,121 @@ func TestSlugSanitizes(t *testing.T) {
 	}
 }
 
+func TestExportPreservesCollidingAndPathLikeNames(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "mirror")
+	collection := model.Node{Id: "col", Kind: "collection", Name: "c"}
+	request := func(id, name, url string) model.Node {
+		return model.Node{
+			Id: id, ParentId: collection.Id, Kind: "request", Name: name,
+			Request: &model.HttpRequest{Method: "GET", Url: url, Settings: model.DefaultSettings()},
+		}
+	}
+	children := []model.Node{
+		{Id: "folder-dot", ParentId: collection.Id, Kind: "folder", Name: "."},
+		{Id: "folder-dotdot", ParentId: collection.Id, Kind: "folder", Name: ".."},
+		{Id: "folder-meta", ParentId: collection.Id, Kind: "folder", Name: "collection.json"},
+		request("request-upper", "Status", "https://upper.test"),
+		request("request-lower", "status", "https://lower.test"),
+	}
+	if err := Export(dir, collection, children); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(parent, "_folder.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("path-like folder escaped mirror root: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	folders, requests := 0, 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			folders++
+		} else if strings.HasSuffix(entry.Name(), ".request.json") {
+			requests++
+		}
+	}
+	if folders != 3 || requests != 2 {
+		t.Fatalf("exported folders=%d requests=%d entries=%v", folders, requests, entries)
+	}
+
+	_, imported, err := Import(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]int{}
+	urls := map[string]bool{}
+	for _, node := range imported {
+		names[node.Name]++
+		if node.Request != nil {
+			urls[node.Request.Url] = true
+		}
+	}
+	for _, name := range []string{".", "..", "collection.json", "Status", "status"} {
+		if names[name] != 1 {
+			t.Fatalf("name %q count = %d, imported = %+v", name, names[name], imported)
+		}
+	}
+	if !urls["https://upper.test"] || !urls["https://lower.test"] {
+		t.Fatalf("colliding request contents were lost: %v", urls)
+	}
+}
+
+func TestSlugHandlesWindowsNamesAndUTF8Length(t *testing.T) {
+	for _, name := range []string{"CON", "nul.txt", "COM1", "LPT9.log"} {
+		if got := slug(name); !strings.HasPrefix(got, "_") {
+			t.Fatalf("reserved name %q became %q", name, got)
+		}
+	}
+	got := slug(strings.Repeat("界", 100))
+	if len(got) > 160 || !utf8.ValidString(got) {
+		t.Fatalf("long UTF-8 slug has %d bytes and valid=%v", len(got), utf8.ValidString(got))
+	}
+}
+
 func TestImportMissingMeta(t *testing.T) {
 	if _, _, err := Import(t.TempDir()); err == nil {
 		t.Error("import from empty dir should fail")
+	}
+}
+
+func TestImportKeepsParentsBeforeDescendants(t *testing.T) {
+	dir := t.TempDir()
+	col, children := sampleTree()
+	if err := Export(dir, col, children); err != nil {
+		t.Fatal(err)
+	}
+	_, imported, err := Import(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	positions := make(map[string]int, len(imported))
+	for i, node := range imported {
+		positions[node.Id] = i
+	}
+	for i, node := range imported {
+		if parentPosition, ok := positions[node.ParentId]; ok && parentPosition >= i {
+			t.Fatalf("parent %q appears after child %q: %+v", node.ParentId, node.Id, imported)
+		}
+	}
+}
+
+func TestImportRejectsOversizedJSON(t *testing.T) {
+	dir := t.TempDir()
+	file, err := os.Create(filepath.Join(dir, "collection.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxMirrorJSONSize + 1); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Import(dir); err == nil {
+		t.Fatal("oversized mirror JSON was accepted")
 	}
 }

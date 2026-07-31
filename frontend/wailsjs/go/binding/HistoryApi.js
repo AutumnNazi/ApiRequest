@@ -6,6 +6,10 @@ export function ClearHistory(arg1) {
   return window['go']['binding']['HistoryApi']['ClearHistory'](arg1);
 }
 
+export function GetHistory(arg1, arg2) {
+  return window['go']['binding']['HistoryApi']['GetHistory'](arg1, arg2);
+}
+
 export function ListHistory(arg1, arg2) {
   return window['go']['binding']['HistoryApi']['ListHistory'](arg1, arg2);
 }

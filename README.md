@@ -30,7 +30,7 @@
   ·
   <a href="#-key-features"><b>✨ Features</b></a>
   ·
-  <a href="docs/index.md"><b>📚 Design Docs</b></a>
+  <a href="docs/en/index.md"><b>📚 Design Docs</b></a>
 </p>
 
 ---
@@ -172,7 +172,8 @@ wails build      # artifacts → build/bin
 ### Test
 
 ```bash
-go test ./backend/...          # Go core: engine, scripts, storage, converters
+go test ./...                  # Go core and Wails bindings
+cd frontend && npm test -- --run
 cd frontend && npm run build   # type-check + bundle
 ```
 
@@ -182,9 +183,9 @@ Platform notes: Windows needs the **WebView2 Runtime** (preinstalled on Win 11 /
 
 ## 🗺 Status & Roadmap
 
-Core loop (build → send → inspect → save → replay), variables & scripts, all auth types, import/export, Runner, Mock, WS/SSE are **implemented and tested**. Upcoming: gRPC, Git-friendly collection mirror, response preview polish, optional team sync, CLI runner.
+Core loop (build → send → inspect → save → replay), variables & scripts, all auth types, import/export, Runner, Mock, WS/SSE, gRPC, Git-friendly collection mirror, WebDAV sync, and the headless CLI runner are **implemented and tested**. Recent hardening includes Secret Vault credential storage, workspace-isolated sessions, bounded large-response rendering, resumable SSE, and native file dialogs.
 
-Full checklist and phase plan: [docs/en/roadmap.md](docs/en/roadmap.md) · Architecture decisions: [docs/en/decisions.md](docs/en/decisions.md)
+Full checklist and current backlog: [docs/en/roadmap.md](docs/en/roadmap.md) · Architecture decisions: [docs/en/decisions.md](docs/en/decisions.md)
 
 ---
 

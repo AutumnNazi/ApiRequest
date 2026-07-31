@@ -22,7 +22,8 @@ type InboundMsg struct {
 	Direction string `json:"direction"` // in | out | system
 	Kind      string `json:"kind"`      // text | binary | open | close | error | event
 	Data      string `json:"data"`
-	Event     string `json:"event,omitempty"` // SSE 的 event 字段
+	Event     string `json:"event,omitempty"`   // SSE 的 event 字段
+	EventId   string `json:"eventId,omitempty"` // SSE id，用于 Last-Event-ID 续订
 	Ts        int64  `json:"ts"`
 }
 

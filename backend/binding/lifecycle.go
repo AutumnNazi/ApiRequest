@@ -17,6 +17,7 @@ type executionContext struct {
 	scope *template.Scope // 合并作用域（优先级已叠加）
 
 	envVars, colVars, globalVars map[string]string // 各作用域独立视图
+	secretValues                 []string
 
 	env       *model.Environment // 激活环境（nil = 无）
 	ancestors []model.Node       // 请求节点 → 集合根（脚本继承用；请求未保存时为空）
@@ -45,11 +46,14 @@ func collectContext(store *storage.Store, req model.HttpRequest, sendCtx model.S
 		if v.Enabled {
 			ec.globalVars[v.Key] = v.Value
 		}
+		if v.Type == "secret" && v.Value != "" {
+			ec.secretValues = append(ec.secretValues, v.Value)
+		}
 	}
 
 	// 2. 集合链变量 + 脚本继承（根在前）
 	if sendCtx.RequestId != "" {
-		chain, err := store.NodeAncestors(sendCtx.RequestId)
+		chain, err := store.NodeAncestorsInWorkspace(sendCtx.RequestId, sendCtx.WorkspaceId)
 		if err != nil {
 			return nil, model.WrapError(model.KindStorage, err)
 		}
@@ -61,6 +65,9 @@ func collectContext(store *storage.Store, req model.HttpRequest, sendCtx model.S
 			for _, v := range n.Variables {
 				if v.Enabled {
 					ec.colVars[v.Key] = v.Value
+				}
+				if v.Type == "secret" && v.Value != "" {
+					ec.secretValues = append(ec.secretValues, v.Value)
 				}
 			}
 			if n.PreScript != "" {
@@ -77,7 +84,13 @@ func collectContext(store *storage.Store, req model.HttpRequest, sendCtx model.S
 	var haveEnv bool
 	if sendCtx.EnvironmentId != "" {
 		env, err = store.GetEnvironment(sendCtx.EnvironmentId)
-		haveEnv = err == nil
+		if err != nil {
+			return nil, model.WrapError(model.KindStorage, err)
+		}
+		haveEnv = true
+		if env.WorkspaceId != sendCtx.WorkspaceId {
+			return nil, model.NewError(model.KindValidation, "environment belongs to a different workspace")
+		}
 	} else {
 		env, haveEnv, err = store.ActiveEnvironment(sendCtx.WorkspaceId)
 		if err != nil {
@@ -90,6 +103,9 @@ func collectContext(store *storage.Store, req model.HttpRequest, sendCtx model.S
 		for _, v := range env.Variables {
 			if v.Enabled {
 				ec.envVars[v.Key] = v.Value
+			}
+			if v.Type == "secret" && v.Value != "" {
+				ec.secretValues = append(ec.secretValues, v.Value)
 			}
 		}
 	}

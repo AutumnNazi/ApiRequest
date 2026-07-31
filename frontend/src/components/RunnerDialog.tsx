@@ -4,11 +4,15 @@ import {
   runCollection,
   cancelRun,
   exportReport,
+  openNativeFile,
+  readNativeTextFile,
   onRunnerProgress,
   toAppError,
   type RunnerReport,
   type RunnerProgress,
 } from '../ipc';
+import { formatMessage, Verbatim } from '../i18n/locale';
+import { useDialog } from './DialogProvider';
 
 interface Props {
   workspaceId: string;
@@ -18,8 +22,10 @@ interface Props {
 }
 
 export default function RunnerDialog({ workspaceId, collectionId, collectionName, onClose }: Props) {
+  const dialog = useDialog();
   const [iterations, setIterations] = useState(1);
   const [dataFile, setDataFile] = useState('');
+  const [dataFilePath, setDataFilePath] = useState('');
   const [dataFormat, setDataFormat] = useState<'csv' | 'json'>('csv');
   const [stopOnError, setStopOnError] = useState(false);
   const [running, setRunning] = useState(false);
@@ -56,9 +62,17 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
     }
   };
 
-  const pickFile = async (file: File) => {
-    setDataFile(await file.text());
-    setDataFormat(file.name.endsWith('.json') ? 'json' : 'csv');
+  const pickFile = async () => {
+    setError('');
+    try {
+      const path = await openNativeFile('选择 Runner 数据文件');
+      if (!path) return;
+      setDataFile(await readNativeTextFile(path));
+      setDataFilePath(path);
+      setDataFormat(path.toLowerCase().endsWith('.json') ? 'json' : 'csv');
+    } catch (cause) {
+      setError(toAppError(cause).detail);
+    }
   };
 
   return (
@@ -68,7 +82,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">Runner · {collectionName}</h2>
+          <h2 className="font-semibold text-sm">Runner · <Verbatim value={collectionName} /></h2>
           <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={onClose}>
             ×
           </button>
@@ -93,14 +107,12 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
               </div>
               <div className="flex items-center gap-3">
                 <label className="text-gray-600 w-24">数据文件</label>
-                <input
-                  type="file"
-                  accept=".csv,.json"
-                  className="text-xs"
-                  onChange={(e) => e.target.files?.[0] && pickFile(e.target.files[0])}
-                />
+                <button className="border rounded px-2 py-1 text-xs hover:bg-gray-50" onClick={() => void pickFile()}>
+                  选择 CSV / JSON…
+                </button>
+                {dataFilePath && <span className="min-w-0 truncate text-xs text-gray-400" title={dataFilePath} data-i18n-verbatim><Verbatim value={dataFilePath} /></span>}
                 {dataFile && (
-                  <button className="text-xs text-red-500" onClick={() => setDataFile('')}>
+                  <button className="text-xs text-red-500" onClick={() => { setDataFile(''); setDataFilePath(''); }}>
                     清除
                   </button>
                 )}
@@ -127,7 +139,12 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
               </div>
               <div className="text-sm text-gray-600">
                 {progress
-                  ? `${progress.done}/${progress.total} · 第 ${progress.iteration} 轮 · ${progress.requestName}`
+                  ? <Verbatim value={formatMessage('{done}/{total} · 第 {iteration} 轮 · {requestName}', {
+                      done: progress.done,
+                      total: progress.total,
+                      iteration: progress.iteration,
+                      requestName: progress.requestName,
+                    })} />
                   : '启动中…'}
               </div>
             </div>
@@ -135,7 +152,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
 
           {error && (
             <div className="border border-red-200 bg-red-50 rounded p-2 text-xs text-red-600">
-              {error}
+              <Verbatim value={error} />
             </div>
           )}
 
@@ -166,20 +183,21 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                   {report.results.map((r, i) => (
                     <tr key={i} className={`border-t ${r.failed ? 'bg-red-50' : ''}`}>
                       <td className="p-2 text-gray-400">{r.iteration}</td>
-                      <td className="p-2">{r.requestName}</td>
+                      <td className="p-2"><Verbatim value={r.requestName} /></td>
                       <td className="p-2">{r.status || '—'}</td>
                       <td className="p-2 text-gray-500">{r.durationMs}ms</td>
                       <td className="p-2">
                         {r.error ? (
-                          <span className="text-red-600">{r.error}</span>
+                          <span className="text-red-600"><Verbatim value={r.error} /></span>
                         ) : (
                           (r.testResults ?? []).map((t, ti) => (
                             <span
                               key={ti}
                               className={`mr-2 ${t.pass ? 'text-green-600' : 'text-red-600'}`}
                               title={t.error}
+                              data-i18n-verbatim
                             >
-                              {t.pass ? '✓' : '✗'} {t.name}
+                              {t.pass ? '✓' : '✗'} <Verbatim value={t.name} />
                             </span>
                           ))
                         )}
@@ -196,7 +214,11 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
           {running ? (
             <button
               className="border border-red-200 text-red-500 rounded px-4 py-1.5 text-sm hover:bg-red-50"
-              onClick={() => cancelRun(runIdRef.current)}
+              onClick={() => {
+                void cancelRun(runIdRef.current).catch((cause) => {
+                  setError(toAppError(cause).detail);
+                });
+              }}
             >
               取消
             </button>
@@ -208,7 +230,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                   onClick={async () => {
                     const text = await exportReport(report.runId);
                     await navigator.clipboard.writeText(text);
-                    alert('报告 JSON 已复制到剪贴板');
+                    void dialog.alert('报告 JSON 已复制到剪贴板');
                   }}
                 >
                   导出报告

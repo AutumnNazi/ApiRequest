@@ -9,8 +9,10 @@ import CodegenDialog from './CodegenDialog';
 import VarPreview, { useActiveVariables } from './VarPreview';
 import type { Tab } from '../stores/tabs';
 import { useTabs } from '../stores/tabs';
-import type { Body, FormItem, KV } from '../ipc';
+import { openNativeFile, toAppError, type Body, type FormItem, type KV } from '../ipc';
 import { useStableRowIds } from '../hooks/useStableRowIds';
+import { formatMessage, Verbatim } from '../i18n/locale';
+import { useDialog } from './DialogProvider';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
@@ -31,6 +33,7 @@ interface Props {
 }
 
 export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSave }: Props) {
+  const dialog = useDialog();
   const patchDraft = useTabs((s) => s.patchDraft);
   const [pane, setPane] = useState<'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings'>('params');
   const [scriptPhase, setScriptPhase] = useState<'pre' | 'test'>('pre');
@@ -112,7 +115,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
             ['headers', `Headers${countEnabled(d.headers)}`],
             ['body', 'Body'],
             ['auth', `Auth${d.auth?.type && d.auth.type !== 'inherit' && d.auth.type !== 'none' ? ' •' : ''}`],
-            ['scripts', `脚本${d.preScript || d.testScript ? ' •' : ''}`],
+            ['scripts', formatMessage('脚本{marker}', { marker: d.preScript || d.testScript ? ' •' : '' })],
             ['settings', '设置'],
           ] as const
         ).map(([key, label]) => (
@@ -133,10 +136,18 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
       {/* 页签内容 */}
       <div className="flex-1 overflow-auto p-3">
         {pane === 'params' && (
-          <KVTable items={d.params ?? []} onChange={(items) => patchDraft(tab.id, { params: items })} />
+          <KVTable
+            key={`${tab.id}:params`}
+            items={d.params ?? []}
+            onChange={(items) => patchDraft(tab.id, { params: items })}
+          />
         )}
         {pane === 'headers' && (
-          <KVTable items={d.headers ?? []} onChange={(items) => patchDraft(tab.id, { headers: items })} />
+          <KVTable
+            key={`${tab.id}:headers`}
+            items={d.headers ?? []}
+            onChange={(items) => patchDraft(tab.id, { headers: items })}
+          />
         )}
         {pane === 'body' && (
           <div className="flex flex-col gap-2 h-full">
@@ -186,6 +197,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
             )}
             {d.body?.kind === 'urlencoded' && (
               <KVTable
+                key={`${tab.id}:urlencoded`}
                 items={(d.body.items ?? []).map(
                   (it) => ({ key: it.key, value: it.value ?? '', enabled: it.enabled }) as KV,
                 )}
@@ -203,6 +215,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
             )}
             {d.body?.kind === 'formdata' && (
               <FormDataTable
+                key={`${tab.id}:formdata`}
                 items={d.body.items ?? []}
                 onChange={(items) => patchBody({ items })}
               />
@@ -235,7 +248,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
                     try { JSON.parse(d.body.variables ?? ''); return null; } catch (e) {
                       return (
                         <div className="px-2 py-1 text-xs text-red-600 bg-red-50 border-t">
-                          JSON 语法错误：{(e as Error).message}
+                          JSON 语法错误：<Verbatim value={(e as Error).message} />
                         </div>
                       );
                     }
@@ -248,15 +261,30 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
                 <div className="flex items-center gap-2">
                   <label className="text-gray-600">文件路径</label>
                   <input
-                    className="flex-1 border rounded px-2 py-1 font-mono text-xs"
+                    className="min-w-0 flex-1 border rounded px-2 py-1 font-mono text-xs"
                     placeholder="C:\path\to\file.bin"
                     value={d.body.path ?? ''}
                     onChange={(e) => patchBody({ path: e.target.value })}
                   />
+                  <button
+                    className="border rounded px-2 py-1 text-xs hover:bg-gray-50"
+                    onClick={async () => {
+                      try {
+                        const path = await openNativeFile('选择二进制请求文件');
+                        if (path) patchBody({ path });
+                      } catch (cause) {
+                        void dialog.alert(
+                          formatMessage('选择文件失败: {detail}', { detail: toAppError(cause).detail }),
+                          { title: '选择文件失败' },
+                        );
+                      }
+                    }}
+                  >
+                    浏览…
+                  </button>
                 </div>
                 <p className="text-xs text-gray-400">
-                  文件以流式方式上传，不会整体读入内存；Content-Type 默认
-                  application/octet-stream，可在 Headers 覆盖。
+                  {'文件以流式方式上传，不会整体读入内存；Content-Type 默认 application/octet-stream，可在 Headers 覆盖。'}
                 </p>
               </div>
             )}
@@ -334,8 +362,8 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
             <div className="flex gap-3 text-sm">
               {(
                 [
-                  ['pre', `前置脚本${d.preScript ? ' •' : ''}`],
-                  ['test', `测试脚本${d.testScript ? ' •' : ''}`],
+                  ['pre', formatMessage('前置脚本{marker}', { marker: d.preScript ? ' •' : '' })],
+                  ['test', formatMessage('测试脚本{marker}', { marker: d.testScript ? ' •' : '' })],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-1">
@@ -387,6 +415,7 @@ function FormDataTable({
   items: FormItem[];
   onChange(items: FormItem[]): void;
 }) {
+  const dialog = useDialog();
   const rows: FormItem[] = [
     ...items,
     { key: '', type: 'text', value: '', path: '', enabled: true },
@@ -464,14 +493,34 @@ function FormDataTable({
                 />
               </td>
               <td className="p-1">
-                <input
-                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded font-mono text-xs"
-                  placeholder={isFile ? 'C:\\path\\to\\file' : 'Value'}
-                  value={isFile ? (r.path ?? '') : (r.value ?? '')}
-                  onChange={(e) =>
-                    update(i, isFile ? { path: e.target.value, type: 'file' } : { value: e.target.value, type: 'text' })
-                  }
-                />
+                <div className="flex gap-1">
+                  <input
+                    className="min-w-0 flex-1 px-1 py-0.5 outline-none focus:bg-blue-50 rounded font-mono text-xs"
+                    placeholder={isFile ? 'C:\\path\\to\\file' : 'Value'}
+                    value={isFile ? (r.path ?? '') : (r.value ?? '')}
+                    onChange={(e) =>
+                      update(i, isFile ? { path: e.target.value, type: 'file' } : { value: e.target.value, type: 'text' })
+                    }
+                  />
+                  {isFile && !isGhost && (
+                    <button
+                      className="shrink-0 border rounded px-1.5 text-xs hover:bg-gray-50"
+                      onClick={async () => {
+                        try {
+                          const path = await openNativeFile('选择 multipart 文件');
+                          if (path) update(i, { path, type: 'file', value: '' });
+                        } catch (cause) {
+                          void dialog.alert(
+                            formatMessage('选择文件失败: {detail}', { detail: toAppError(cause).detail }),
+                            { title: '选择文件失败' },
+                          );
+                        }
+                      }}
+                    >
+                      浏览…
+                    </button>
+                  )}
+                </div>
               </td>
               <td className="p-1 text-center">
                 {!isGhost && (

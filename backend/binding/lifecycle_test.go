@@ -98,12 +98,16 @@ func TestFullLifecycle(t *testing.T) {
 	}
 
 	// 历史快照应为已解析请求
-	items, _ := store.ListHistory(w.Id, model.HistoryQuery{})
-	if len(items) != 1 || items[0].RequestSnap.Url != srv.URL+"/users/42" {
-		t.Errorf("history snap url = %q", items[0].RequestSnap.Url)
+	page, _ := store.ListHistory(w.Id, model.HistoryQuery{})
+	if len(page.Items) != 1 {
+		t.Fatalf("history count = %d", len(page.Items))
 	}
-	if len(items[0].TestResults) != 2 {
-		t.Errorf("history testResults = %+v", items[0].TestResults)
+	detail, err := store.GetHistory(w.Id, page.Items[0].Id)
+	if err != nil || detail.RequestSnap.Url != srv.URL+"/users/42" {
+		t.Errorf("history snap url = %q, err = %v", detail.RequestSnap.Url, err)
+	}
+	if len(detail.TestResults) != 2 {
+		t.Errorf("history testResults = %+v", detail.TestResults)
 	}
 }
 

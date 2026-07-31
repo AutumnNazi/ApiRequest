@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listEnvironments, getGlobalVariables } from '../ipc';
+import { Verbatim } from '../i18n/locale';
 
 /** 当前生效变量表（激活环境 > 全局）。
  *  注：不含集合级变量——集合变量由脚本运行时通过 pm.collectionVariables 写入，
@@ -62,14 +63,14 @@ export default function VarPreview({ text, vars }: Props) {
         <span key={r.name} className="font-mono">
           {r.dynamic ? (
             <span className="text-purple-600" title="动态变量，发送时生成">
-              {'{{'}{r.name}{'}}'}
+              {'{{'}<Verbatim value={r.name} />{'}}'}
             </span>
           ) : r.value !== undefined ? (
             <>
-              <span className="text-green-700">{'{{'}{r.name}{'}}'}</span>
+              <span className="text-green-700">{'{{'}<Verbatim value={r.name} />{'}}'}</span>
               <span className="text-gray-400"> = </span>
-              <span className="text-gray-600" title={r.value}>
-                {r.value.length > 30 ? r.value.slice(0, 30) + '…' : r.value || '(空)'}
+              <span className="text-gray-600" title={r.value} data-i18n-verbatim>
+                {r.value ? <Verbatim value={r.value.length > 30 ? r.value.slice(0, 30) + '…' : r.value} /> : '(空)'}
               </span>
             </>
           ) : (
@@ -77,7 +78,7 @@ export default function VarPreview({ text, vars }: Props) {
               className="text-red-500 underline decoration-wavy decoration-red-300"
               title="未在激活环境/全局变量中定义（集合级变量发送时仍会解析）"
             >
-              {'{{'}{r.name}{'}}'}
+              {'{{'}<Verbatim value={r.name} />{'}}'}
             </span>
           )}
         </span>

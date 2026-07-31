@@ -4,4 +4,6 @@ import {model} from '../models';
 
 export function ClearHistory(arg1:string):Promise<void>;
 
-export function ListHistory(arg1:string,arg2:model.HistoryQuery):Promise<Array<model.HistoryItem>>;
+export function GetHistory(arg1:string,arg2:string):Promise<model.HistoryDetail>;
+
+export function ListHistory(arg1:string,arg2:model.HistoryQuery):Promise<model.HistoryPage>;

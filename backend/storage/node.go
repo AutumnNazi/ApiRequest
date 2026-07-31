@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 )
 
 // nodeRow 与 node 表列一一对应的中间结构
@@ -41,7 +42,7 @@ func (s *Store) ListNodes(workspaceId string) ([]model.Node, error) {
 			&n.CreatedAt, &n.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if err := hydrateNode(&n, &r); err != nil {
+		if err := s.hydrateNode(&n, &r); err != nil {
 			return nil, err
 		}
 		out = append(out, n)
@@ -49,7 +50,7 @@ func (s *Store) ListNodes(workspaceId string) ([]model.Node, error) {
 	return out, rows.Err()
 }
 
-func hydrateNode(n *model.Node, r *nodeRow) error {
+func (s *Store) hydrateNode(n *model.Node, r *nodeRow) error {
 	n.ParentId = r.parentId.String
 	n.PreScript = r.preScript.String
 	n.TestScript = r.testScript.String
@@ -58,6 +59,11 @@ func hydrateNode(n *model.Node, r *nodeRow) error {
 		if err := json.Unmarshal([]byte(r.requestData.String), &req); err != nil {
 			return err
 		}
+		resolved, err := secrets.ResolveRequest(s.vault, req)
+		if err != nil {
+			return err
+		}
+		req = resolved
 		n.Request = &req
 	}
 	if r.auth.Valid && r.auth.String != "" {
@@ -65,12 +71,22 @@ func hydrateNode(n *model.Node, r *nodeRow) error {
 		if err := json.Unmarshal([]byte(r.auth.String), &a); err != nil {
 			return err
 		}
+		resolved, err := secrets.ResolveAuth(s.vault, a)
+		if err != nil {
+			return err
+		}
+		a = resolved
 		n.Auth = &a
 	}
 	if r.variables.Valid && r.variables.String != "" {
 		if err := json.Unmarshal([]byte(r.variables.String), &n.Variables); err != nil {
 			return err
 		}
+		resolved, err := secrets.ResolveVariables(s.vault, n.Variables)
+		if err != nil {
+			return err
+		}
+		n.Variables = resolved
 	}
 	return nil
 }
@@ -83,52 +99,126 @@ func (s *Store) UpsertNode(n model.Node) (model.Node, error) {
 		n.CreatedAt = now
 	}
 	n.UpdatedAt = now
-
-	var reqJSON, authJSON, varsJSON sql.NullString
-	if n.Request != nil {
-		b, err := json.Marshal(n.Request)
-		if err != nil {
-			return n, err
-		}
-		reqJSON = sql.NullString{String: string(b), Valid: true}
+	if err := s.validateNodeOwnership(n); err != nil {
+		return n, err
 	}
-	if n.Auth != nil {
-		b, err := json.Marshal(n.Auth)
+	err := s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		oldRefs, err := s.storedNodeSecretReferences(n.Id)
 		if err != nil {
-			return n, err
+			return err
 		}
-		authJSON = sql.NullString{String: string(b), Valid: true}
-	}
-	if len(n.Variables) > 0 {
-		b, err := json.Marshal(n.Variables)
+		stored, err := protectNode(writer, n)
 		if err != nil {
-			return n, err
+			return err
 		}
-		varsJSON = sql.NullString{String: string(b), Valid: true}
-	}
-	parentId := sql.NullString{String: n.ParentId, Valid: n.ParentId != ""}
-
-	_, err := s.db.Exec(`
-		INSERT INTO node (id, workspace_id, parent_id, kind, name, sort_order,
-		                  request_data, auth, variables, pre_script, test_script,
-		                  created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET
-		  parent_id = excluded.parent_id,
-		  name = excluded.name,
-		  sort_order = excluded.sort_order,
-		  request_data = excluded.request_data,
-		  auth = excluded.auth,
-		  variables = excluded.variables,
-		  pre_script = excluded.pre_script,
-		  test_script = excluded.test_script,
-		  updated_at = excluded.updated_at`,
-		n.Id, n.WorkspaceId, parentId, n.Kind, n.Name, n.SortOrder,
-		reqJSON, authJSON, varsJSON,
-		sql.NullString{String: n.PreScript, Valid: n.PreScript != ""},
-		sql.NullString{String: n.TestScript, Valid: n.TestScript != ""},
-		n.CreatedAt, n.UpdatedAt)
+		var reqJSON, authJSON, varsJSON sql.NullString
+		if stored.Request != nil {
+			b, err := json.Marshal(stored.Request)
+			if err != nil {
+				return err
+			}
+			reqJSON = sql.NullString{String: string(b), Valid: true}
+		}
+		if stored.Auth != nil {
+			b, err := json.Marshal(stored.Auth)
+			if err != nil {
+				return err
+			}
+			authJSON = sql.NullString{String: string(b), Valid: true}
+		}
+		if len(stored.Variables) > 0 {
+			b, err := json.Marshal(stored.Variables)
+			if err != nil {
+				return err
+			}
+			varsJSON = sql.NullString{String: string(b), Valid: true}
+		}
+		parentId := sql.NullString{String: n.ParentId, Valid: n.ParentId != ""}
+		if err := deleteRemovedSecretReferences(writer, oldRefs, secrets.NodeReferences(stored)); err != nil {
+			return err
+		}
+		_, err = s.db.Exec(`
+			INSERT INTO node (id, workspace_id, parent_id, kind, name, sort_order,
+			                  request_data, auth, variables, pre_script, test_script,
+			                  created_at, updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+			ON CONFLICT(id) DO UPDATE SET
+			  parent_id = excluded.parent_id,
+			  name = excluded.name,
+			  sort_order = excluded.sort_order,
+			  request_data = excluded.request_data,
+			  auth = excluded.auth,
+			  variables = excluded.variables,
+			  pre_script = excluded.pre_script,
+			  test_script = excluded.test_script,
+			  updated_at = excluded.updated_at`,
+			n.Id, n.WorkspaceId, parentId, n.Kind, n.Name, n.SortOrder,
+			reqJSON, authJSON, varsJSON,
+			sql.NullString{String: n.PreScript, Valid: n.PreScript != ""},
+			sql.NullString{String: n.TestScript, Valid: n.TestScript != ""},
+			n.CreatedAt, n.UpdatedAt)
+		return err
+	})
 	return n, err
+}
+
+func (s *Store) validateNodeOwnership(n model.Node) error {
+	var workspaceExists bool
+	if err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = ?)", n.WorkspaceId).Scan(&workspaceExists); err != nil {
+		return err
+	}
+	if !workspaceExists {
+		return errors.New("workspace not found")
+	}
+	var existingWorkspace, existingKind string
+	err := s.db.QueryRow("SELECT workspace_id, kind FROM node WHERE id = ?", n.Id).Scan(&existingWorkspace, &existingKind)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil {
+		if existingWorkspace != n.WorkspaceId {
+			return errors.New("node belongs to a different workspace")
+		}
+		if existingKind != n.Kind {
+			return errors.New("node kind cannot be changed")
+		}
+	}
+	if n.Kind == "collection" {
+		if n.ParentId != "" {
+			return errors.New("collection must stay at root")
+		}
+		return nil
+	}
+	if n.ParentId == "" {
+		return errors.New("folder and request nodes require a parent")
+	}
+	if n.ParentId == n.Id {
+		return errors.New("node cannot be its own parent")
+	}
+	var parentWorkspace, parentKind string
+	if err := s.db.QueryRow("SELECT workspace_id, kind FROM node WHERE id = ? AND deleted_at IS NULL", n.ParentId).Scan(&parentWorkspace, &parentKind); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("parent node not found")
+		}
+		return err
+	}
+	if parentWorkspace != n.WorkspaceId {
+		return errors.New("parent must belong to the same workspace")
+	}
+	if parentKind != "collection" && parentKind != "folder" {
+		return errors.New("parent must be a collection or folder")
+	}
+	return nil
+}
+
+// NodeBelongsToWorkspace verifies ownership without hydrating credential fields.
+func (s *Store) NodeBelongsToWorkspace(nodeId, workspaceId string) (bool, error) {
+	var belongs bool
+	err := s.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM node WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL)",
+		nodeId, workspaceId,
+	).Scan(&belongs)
+	return belongs, err
 }
 
 // DeleteNode 软删除节点及其全部后代

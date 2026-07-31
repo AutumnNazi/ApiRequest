@@ -171,7 +171,8 @@ wails build      # 产物 → build/bin
 ### 测试
 
 ```bash
-go test ./backend/...          # Go 核心：引擎、脚本、存储、转换器
+go test ./...                  # Go 核心与 Wails binding
+cd frontend && npm test -- --run
 cd frontend && npm run build   # 类型检查 + 打包
 ```
 
@@ -181,9 +182,9 @@ cd frontend && npm run build   # 类型检查 + 打包
 
 ## 🗺 项目状态与路线图
 
-核心闭环（构造 → 发送 → 查看 → 保存 → 重放）、变量与脚本、全部认证类型、导入导出、Runner、Mock、WS/SSE 均**已实现并有测试覆盖**。后续计划：gRPC、Git 友好的集合文件镜像、响应区打磨、可选团队同步、CLI 运行器。
+核心闭环（构造 → 发送 → 查看 → 保存 → 重放）、变量与脚本、全部认证类型、导入导出、Runner、Mock、WS/SSE、gRPC、Git 友好集合镜像、WebDAV 同步和无头 CLI 运行器均**已实现并有测试覆盖**。近期还完成了 Secret Vault 凭据保护、工作区隔离会话、大响应有界渲染、SSE 断线续连和原生文件对话框。
 
-完整功能清单与阶段规划：[docs/roadmap.md](docs/roadmap.md) · 架构决策记录：[docs/decisions.md](docs/decisions.md)
+完整功能清单与当前待办：[docs/roadmap.md](docs/roadmap.md) · 架构决策记录：[docs/decisions.md](docs/decisions.md)
 
 ---
 

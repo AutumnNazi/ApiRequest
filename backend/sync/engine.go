@@ -2,6 +2,9 @@ package sync
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"apirequest/backend/model"
@@ -24,29 +27,41 @@ func remotePath(workspaceId string) string {
 }
 
 // buildLocalSnapshot 从本地库构建快照
-func buildLocalSnapshot(store *storage.Store, workspaceId string) (*Snapshot, []model.Environment, []model.Variable, error) {
+func buildLocalSnapshot(store *storage.Store, workspaceId string) (*Snapshot, error) {
 	workspaces, err := store.ListWorkspaces()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	wsName := ""
+	workspaceFound := false
 	for _, w := range workspaces {
 		if w.Id == workspaceId {
 			wsName = w.Name
+			workspaceFound = true
 			break
 		}
 	}
+	if !workspaceFound {
+		return nil, errors.New("workspace not found")
+	}
 	rows, err := store.ListNodesForSync(workspaceId)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	envs, err := store.ListEnvironments(workspaceId)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
+	}
+	for i := range envs {
+		envs[i].IsActive = false
 	}
 	globals, err := store.GetGlobalVariables(workspaceId)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
+	}
+	globalsRev, err := store.GlobalVariablesRevision(workspaceId)
+	if err != nil {
+		return nil, err
 	}
 
 	snap := &Snapshot{
@@ -55,24 +70,12 @@ func buildLocalSnapshot(store *storage.Store, workspaceId string) (*Snapshot, []
 		SyncedAt:      time.Now().UnixMilli(),
 		Environments:  envs,
 		Globals:       globals,
+		GlobalsRev:    globalsRev,
 	}
-	var globalsRev int64
 	for _, row := range rows {
 		snap.Nodes = append(snap.Nodes, SyncNode{Node: row.Node, DeletedAt: row.DeletedAt})
 	}
-	// globals 无独立时间戳：用工作区内最近一次节点/环境修改近似
-	for _, n := range snap.Nodes {
-		if n.rev() > globalsRev {
-			globalsRev = n.rev()
-		}
-	}
-	for _, e := range envs {
-		if e.UpdatedAt > globalsRev {
-			globalsRev = e.UpdatedAt
-		}
-	}
-	snap.GlobalsRev = globalsRev
-	return snap, envs, globals, nil
+	return snap, nil
 }
 
 // merge 实体级 LWW：同 id 取 rev 大者；对方独有的保留。
@@ -160,14 +163,25 @@ func merge(local, remote *Snapshot) (*Snapshot, *Report) {
 	return out, report
 }
 
-// applyToLocal 把合并结果写回本地库（工作区不存在则先建，支持拉取远端新工作区）
+// applyToLocal 把合并结果写回本地库，并确保目标工作区存在。
 func applyToLocal(store *storage.Store, workspaceId string, merged *Snapshot) error {
+	orderedNodes, err := validateAndOrderSyncNodes(merged.Nodes)
+	if err != nil {
+		return err
+	}
+	rows := make([]storage.SyncNodeRow, len(orderedNodes))
+	for i, node := range orderedNodes {
+		node.WorkspaceId = workspaceId
+		rows[i] = storage.SyncNodeRow{Node: node.Node, DeletedAt: node.DeletedAt}
+	}
+	if err := store.ValidateSyncOwnership(workspaceId, rows, merged.Environments); err != nil {
+		return err
+	}
 	if err := store.EnsureWorkspace(workspaceId, merged.WorkspaceName); err != nil {
 		return err
 	}
-	for _, n := range merged.Nodes {
-		n.WorkspaceId = workspaceId
-		if err := store.ApplySyncNode(storage.SyncNodeRow{Node: n.Node, DeletedAt: n.DeletedAt}); err != nil {
+	for _, row := range rows {
+		if err := store.ApplySyncNode(row); err != nil {
 			return err
 		}
 	}
@@ -177,7 +191,104 @@ func applyToLocal(store *storage.Store, workspaceId string, merged *Snapshot) er
 			return err
 		}
 	}
-	return store.SetGlobalVariables(workspaceId, merged.Globals)
+	return store.ApplySyncGlobalVariables(workspaceId, merged.Globals, merged.GlobalsRev)
+}
+
+const maxSnapshotEntities = 100_000
+
+func validateSnapshot(snapshot *Snapshot) error {
+	if snapshot.SchemaVersion < 1 {
+		return errors.New("sync snapshot schemaVersion is required")
+	}
+	if len(snapshot.Nodes) > maxSnapshotEntities || len(snapshot.Environments) > maxSnapshotEntities-len(snapshot.Nodes) {
+		return fmt.Errorf("sync snapshot exceeds %d entity limit", maxSnapshotEntities)
+	}
+	if _, err := validateAndOrderSyncNodes(snapshot.Nodes); err != nil {
+		return err
+	}
+	environmentIds := make(map[string]struct{}, len(snapshot.Environments))
+	for _, environment := range snapshot.Environments {
+		if strings.TrimSpace(environment.Id) == "" {
+			return errors.New("sync environment id is required")
+		}
+		if _, duplicate := environmentIds[environment.Id]; duplicate {
+			return fmt.Errorf("sync snapshot contains duplicate environment id %q", environment.Id)
+		}
+		environmentIds[environment.Id] = struct{}{}
+	}
+	return nil
+}
+
+func validateAndOrderSyncNodes(nodes []SyncNode) ([]SyncNode, error) {
+	if len(nodes) > maxSnapshotEntities {
+		return nil, fmt.Errorf("sync snapshot exceeds %d node limit", maxSnapshotEntities)
+	}
+	byId := make(map[string]SyncNode, len(nodes))
+	indegree := make(map[string]int, len(nodes))
+	children := make(map[string][]string, len(nodes))
+	for _, node := range nodes {
+		if strings.TrimSpace(node.Id) == "" {
+			return nil, errors.New("sync node id is required")
+		}
+		if _, duplicate := byId[node.Id]; duplicate {
+			return nil, fmt.Errorf("sync snapshot contains duplicate node id %q", node.Id)
+		}
+		if node.DeletedAt < 0 || node.CreatedAt < 0 || node.UpdatedAt < 0 {
+			return nil, fmt.Errorf("sync node %q contains a negative timestamp", node.Id)
+		}
+		switch node.Kind {
+		case "collection":
+			if node.ParentId != "" {
+				return nil, fmt.Errorf("sync collection %q must stay at root", node.Id)
+			}
+		case "folder", "request":
+			if node.ParentId == "" {
+				return nil, fmt.Errorf("sync node %q requires a parent", node.Id)
+			}
+		default:
+			return nil, fmt.Errorf("sync node %q has invalid kind %q", node.Id, node.Kind)
+		}
+		byId[node.Id] = node
+		indegree[node.Id] = 0
+	}
+	for _, node := range nodes {
+		if node.ParentId == "" {
+			continue
+		}
+		parent, exists := byId[node.ParentId]
+		if !exists {
+			return nil, fmt.Errorf("sync node %q references missing parent %q", node.Id, node.ParentId)
+		}
+		if parent.Kind != "collection" && parent.Kind != "folder" {
+			return nil, fmt.Errorf("sync node %q has invalid parent kind %q", node.Id, parent.Kind)
+		}
+		if parent.DeletedAt > 0 && node.DeletedAt == 0 {
+			return nil, fmt.Errorf("live sync node %q has deleted parent %q", node.Id, parent.Id)
+		}
+		indegree[node.Id] = 1
+		children[node.ParentId] = append(children[node.ParentId], node.Id)
+	}
+	queue := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		if indegree[node.Id] == 0 {
+			queue = append(queue, node.Id)
+		}
+	}
+	ordered := make([]SyncNode, 0, len(nodes))
+	for cursor := 0; cursor < len(queue); cursor++ {
+		id := queue[cursor]
+		ordered = append(ordered, byId[id])
+		for _, childId := range children[id] {
+			indegree[childId]--
+			if indegree[childId] == 0 {
+				queue = append(queue, childId)
+			}
+		}
+	}
+	if len(ordered) != len(nodes) {
+		return nil, errors.New("sync snapshot contains a parent cycle")
+	}
+	return ordered, nil
 }
 
 // Sync 执行一次双向同步：拉远端 → 合并 → 写回本地 → 推合并结果。
@@ -187,7 +298,7 @@ func Sync(store *storage.Store, workspaceId string, cfg DavConfig) (*Report, err
 	if err != nil {
 		return nil, err
 	}
-	local, localEnvs, localGlobals, err := buildLocalSnapshot(store, workspaceId)
+	local, err := buildLocalSnapshot(store, workspaceId)
 	if err != nil {
 		return nil, model.WrapError(model.KindStorage, err)
 	}
@@ -213,9 +324,12 @@ func Sync(store *storage.Store, workspaceId string, cfg DavConfig) (*Report, err
 			return nil, model.NewError(model.KindValidation,
 				"remote snapshot from newer app version; please upgrade")
 		}
+		if err := validateSnapshot(&remote); err != nil {
+			return nil, model.NewError(model.KindImport, "remote snapshot invalid: "+err.Error())
+		}
 		merged, report = merge(local, &remote)
-		// 密钥补回本地值（远端可能是剥离过的）
-		restoreLocalSecrets(merged, localEnvs, localGlobals)
+		// Only snapshots explicitly stripped by their writer may borrow local values.
+		restoreRemoteOmittedSecrets(merged, local, &remote)
 		if err := applyToLocal(store, workspaceId, merged); err != nil {
 			return nil, model.WrapError(model.KindStorage, err)
 		}
@@ -226,9 +340,14 @@ func Sync(store *storage.Store, workspaceId string, cfg DavConfig) (*Report, err
 	upload.SyncedAt = time.Now().UnixMilli()
 	if cfg.OmitSecrets {
 		// 深拷贝受影响切片再剥离，避免污染已写回本地的数据
-		b, _ := json.Marshal(upload)
+		b, err := json.Marshal(upload)
+		if err != nil {
+			return nil, model.WrapError(model.KindValidation, err)
+		}
 		var clone Snapshot
-		json.Unmarshal(b, &clone)
+		if err := json.Unmarshal(b, &clone); err != nil {
+			return nil, model.WrapError(model.KindValidation, err)
+		}
 		stripSecrets(&clone)
 		upload = clone
 	}

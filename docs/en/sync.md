@@ -19,17 +19,18 @@ One synchronization cycle = pull remote -> merge -> write local -> push merged r
 1. **Nodes** (collections/folders/requests): for the same ID, compare `rev = max(updatedAt, deletedAt)` and keep the larger revision; preserve entities that exist on only one side.
 2. **Deletion propagation**: a soft deletion is a tombstone in LWW. If the deletion is newer than an update, deletion wins and the entity is not resurrected.
 3. **Environments**: apply LWW by ID using `updatedAt`; do not synchronize `is_active`, which is local UI state.
-4. **Global variables**: use one revision for the complete set, approximated by the latest workspace modification time, and apply LWW to the entire set.
+4. **Global variables**: use an independent `updated_at` value as the revision and apply LWW to the complete variable set.
 5. **Conflict granularity**: entity-level. If two devices change different fields on the same request, the later writer replaces the entire entity. Field-level merge or CRDTs may be evaluated later.
 
 ## Sensitive Data
 
-- Users can enable **Omit secret variable values** (`OmitSecrets`). Before upload, remove the `value` of each `type=secret` variable while retaining its key placeholder. After pulling and merging, restore any locally available value. Each device maintains its own secrets.
-- The WebDAV password is currently stored in the local `setting` table. Moving it to the system keychain through the ADR-013 secrets backend is future work.
+- Users can enable **Omit secret variable values** (`OmitSecrets`). Before upload, remove request/collection auth credentials and each `type=secret` variable value while retaining placeholders, and write `secretsOmitted: true` in v2 snapshots. Only empty placeholders carrying that snapshot marker are restored from local values by entity ID, variable key, and duplicate-key occurrence; an unmarked empty value is an explicit user clear. Each device maintains its own secrets.
+- WebDAV passwords and request credentials use the system keychain when available. If it is unavailable, an Argon2id + AES-GCM encrypted file is used; SQLite stores only `secret://...` references.
 
 ## Versions and Failure Handling
 
-- Snapshots carry `schemaVersion`. If the remote version is newer, refuse to merge and prompt the user to upgrade the client.
+- The current snapshot `schemaVersion` is 2. If the remote version is newer, refuse to merge and prompt the user to upgrade the client. Version 1 had no `secretsOmitted` metadata, so empty secret fields are conservatively treated as stripped placeholders to preserve compatibility with older omit-secret snapshots.
+- WebDAV snapshot GET and PUT operations enforce a 64 MiB limit and reject oversized data instead of silently truncating it before merge.
 - Report remote 401/403 responses as explicit authentication failures. Treat 404 as first-time initialization and upload directly.
 - Report counts of pushed, pulled, and deleted entities together with the remote path; display the result in the frontend top bar.
 
@@ -37,4 +38,4 @@ One synchronization cycle = pull remote -> merge -> write local -> push merged r
 
 - There is no automatic scheduled sync and no pre-sync mutual-exclusion lock. Simultaneous PUTs use last-writer-wins; in an extreme race, one peer's snapshot may be lost for one cycle and recovered on the next sync.
 - Cookies and history do not synchronize because they are local runtime data.
-- Binding multiple devices to the same remote workspace requires the same workspace ID. Pulling a remote workspace for the first time automatically creates a local workspace with that ID.
+- The remote snapshot path is derived from the local `workspaceId`. The desktop app currently synchronizes existing local workspaces only; it does not discover or import remote workspaces. Reusing one snapshot across devices therefore requires preserving the same workspace ID, for example by migrating the local data directory.

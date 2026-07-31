@@ -2,6 +2,8 @@
 import { useState } from 'react';
 import { useTheme } from '../theme/store';
 import type { ThemeDefinition, ThemePalette } from '../theme/themes';
+import { formatMessage, Verbatim } from '../i18n/locale';
+import { useDialog } from './DialogProvider';
 
 interface Props {
   onClose(): void;
@@ -23,6 +25,7 @@ const EDITABLE_COLORS: [keyof ThemePalette, string][] = [
 ];
 
 export default function ThemeDialog({ onClose }: Props) {
+  const dialog = useDialog();
   const { activeId, custom, themes, select, duplicate, updateCustom, removeCustom } = useTheme();
   const [editingId, setEditingId] = useState<string | null>(null);
   const editing = custom.find((t) => t.id === editingId) ?? null;
@@ -30,7 +33,7 @@ export default function ThemeDialog({ onClose }: Props) {
   const startCustomize = (base: ThemeDefinition) => {
     const id = duplicate(base.id);
     if (!id) {
-      alert('自定义主题已达上限（12 个）');
+      void dialog.alert('自定义主题已达上限（12 个）');
       return;
     }
     select(id);
@@ -68,10 +71,12 @@ export default function ThemeDialog({ onClose }: Props) {
                   t.builtin
                     ? undefined
                     : () => {
-                        if (confirm(`删除自定义主题「${t.name}」？`)) {
+                        void dialog.confirm(formatMessage('删除自定义主题「{name}」？', { name: t.name })).then((ok) => {
+                          if (ok) {
                           if (editingId === t.id) setEditingId(null);
                           removeCustom(t.id);
-                        }
+                          }
+                        });
                       }
                 }
               />
@@ -171,7 +176,7 @@ function ThemeCard({
         </div>
       </div>
       <div className="flex items-center px-2 py-1.5 text-xs bg-white">
-        <span className="truncate flex-1">{theme.name}</span>
+        <span className="truncate flex-1">{theme.builtin ? theme.name : <Verbatim value={theme.name} />}</span>
         {active && <span className="text-blue-600 mr-1">✓</span>}
         <button
           className="text-gray-400 hover:text-gray-700 px-1"

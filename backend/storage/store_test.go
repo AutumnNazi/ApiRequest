@@ -1,6 +1,9 @@
 package storage
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,6 +34,59 @@ func TestMigrateAndReopen(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	s2.Close()
+}
+
+func TestOpenCreatesBlobDirectory(t *testing.T) {
+	store := openTestStore(t)
+	info, err := os.Stat(store.BlobsDir())
+	if err != nil {
+		t.Fatalf("stat blobs directory: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("blob path is not a directory: %s", store.BlobsDir())
+	}
+}
+
+func TestHistoryProjectionMigrationToleratesInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "apirequest.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		if _, err := db.Exec(migrations[i]); err != nil {
+			db.Close()
+			t.Fatalf("apply migration %d: %v", i+1, err)
+		}
+	}
+	if _, err := db.Exec("PRAGMA user_version = 4"); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO workspace (id, name, type, created_at, updated_at) VALUES ('w1', 'test', 'local', 1, 1)"); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO history (id, workspace_id, request_snap, created_at) VALUES ('h1', 'w1', 'not-json', 1)"); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatalf("open with malformed legacy history: %v", err)
+	}
+	defer store.Close()
+	var method, url string
+	if err := store.db.QueryRow("SELECT method, url FROM history WHERE id = 'h1'").Scan(&method, &url); err != nil {
+		t.Fatal(err)
+	}
+	if method != "" || url != "" {
+		t.Fatalf("invalid snapshot projection = method %q, url %q", method, url)
+	}
 }
 
 func TestWorkspaceAndNodeCrud(t *testing.T) {
@@ -123,6 +179,92 @@ func TestMoveNodeRejectsInvalidTrees(t *testing.T) {
 	}
 }
 
+func TestWorkspaceOwnershipIsImmutable(t *testing.T) {
+	s := openTestStore(t)
+	w1, _ := s.EnsureDefaultWorkspace()
+	w2, _ := s.CreateWorkspace("second")
+	col1, _ := s.UpsertNode(model.Node{WorkspaceId: w1.Id, Kind: "collection", Name: "one"})
+	col2, _ := s.UpsertNode(model.Node{WorkspaceId: w2.Id, Kind: "collection", Name: "two"})
+
+	changedWorkspace := col1
+	changedWorkspace.WorkspaceId = w2.Id
+	if _, err := s.UpsertNode(changedWorkspace); err == nil {
+		t.Fatal("cross-workspace node update succeeded")
+	}
+	if _, err := s.UpsertNode(model.Node{
+		WorkspaceId: w1.Id, ParentId: col2.Id, Kind: "request", Name: "cross-parent",
+	}); err == nil {
+		t.Fatal("cross-workspace parent succeeded")
+	}
+	if _, err := s.NodeAncestorsInWorkspace(col1.Id, w2.Id); err == nil {
+		t.Fatal("cross-workspace ancestor lookup succeeded")
+	}
+
+	env, _ := s.UpsertEnvironment(model.Environment{WorkspaceId: w1.Id, Name: "dev"})
+	env.WorkspaceId = w2.Id
+	if _, err := s.UpsertEnvironment(env); err == nil {
+		t.Fatal("cross-workspace environment update succeeded")
+	}
+}
+
+func TestApplySyncNodeRejectsCrossWorkspaceParent(t *testing.T) {
+	s := openTestStore(t)
+	w1, _ := s.EnsureDefaultWorkspace()
+	w2, _ := s.CreateWorkspace("second")
+	foreignParent, _ := s.UpsertNode(model.Node{WorkspaceId: w2.Id, Kind: "collection", Name: "foreign"})
+
+	err := s.ApplySyncNode(SyncNodeRow{Node: model.Node{
+		Id: "synced-child", WorkspaceId: w1.Id, ParentId: foreignParent.Id,
+		Kind: "request", Name: "malicious",
+	}})
+	if err == nil {
+		t.Fatal("sync node with a cross-workspace parent was accepted")
+	}
+}
+
+func TestApplySyncEnvironmentDoesNotImportActiveState(t *testing.T) {
+	s := openTestStore(t)
+	workspace, _ := s.EnsureDefaultWorkspace()
+	environment := model.Environment{
+		Id: "synced-environment", WorkspaceId: workspace.Id, Name: "remote", IsActive: true,
+		CreatedAt: 1, UpdatedAt: 1,
+	}
+	if err := s.ApplySyncEnvironment(environment); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := s.GetEnvironment(environment.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.IsActive {
+		t.Fatal("remote environment activation leaked into local UI state")
+	}
+}
+
+func TestGlobalVariablesUseIndependentSyncRevision(t *testing.T) {
+	s := openTestStore(t)
+	workspace, _ := s.EnsureDefaultWorkspace()
+	if err := s.SetGlobalVariables(workspace.Id, []model.Variable{{Key: "region", Value: "local", Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	localRevision, err := s.GlobalVariablesRevision(workspace.Id)
+	if err != nil || localRevision <= 0 {
+		t.Fatalf("local revision = %d, err = %v", localRevision, err)
+	}
+	const remoteRevision = int64(42)
+	if err := s.ApplySyncGlobalVariables(workspace.Id, []model.Variable{{Key: "region", Value: "remote", Enabled: true}}, remoteRevision); err != nil {
+		t.Fatal(err)
+	}
+	revision, err := s.GlobalVariablesRevision(workspace.Id)
+	if err != nil || revision != remoteRevision {
+		t.Fatalf("applied revision = %d, err = %v", revision, err)
+	}
+	variables, err := s.GetGlobalVariables(workspace.Id)
+	if err != nil || len(variables) != 1 || variables[0].Value != "remote" {
+		t.Fatalf("applied globals = %+v, err = %v", variables, err)
+	}
+}
+
 func TestHistory(t *testing.T) {
 	s := openTestStore(t)
 	w, _ := s.EnsureDefaultWorkspace()
@@ -143,35 +285,78 @@ func TestHistory(t *testing.T) {
 		t.Fatal("empty history id")
 	}
 
-	items, err := s.ListHistory(w.Id, model.HistoryQuery{})
+	page, err := s.ListHistory(w.Id, model.HistoryQuery{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(items) != 1 {
-		t.Fatalf("len = %d, want 1", len(items))
+	if len(page.Items) != 1 {
+		t.Fatalf("len = %d, want 1", len(page.Items))
 	}
-	it := items[0]
-	if it.RequestSnap.Url != "https://example.com/a" || it.Status != 200 ||
-		it.BodyInline != `{"ok":true}` || len(it.TestResults) != 1 || it.Timing.TotalMs != 12.5 {
-		t.Errorf("roundtrip mismatch: %+v", it)
+	summary := page.Items[0]
+	if summary.Url != "https://example.com/a" || summary.Method != "GET" || summary.Status != 200 || !summary.HasBody {
+		t.Errorf("summary mismatch: %+v", summary)
+	}
+	detail, err := s.GetHistory(w.Id, id)
+	if err != nil || detail.RequestSnap.Url != "https://example.com/a" ||
+		detail.BodyInline != `{"ok":true}` || len(detail.TestResults) != 1 || detail.Timing.TotalMs != 12.5 {
+		t.Errorf("detail mismatch: %+v, err = %v", detail, err)
 	}
 
 	// 搜索过滤
-	items, _ = s.ListHistory(w.Id, model.HistoryQuery{Search: "example.com"})
-	if len(items) != 1 {
-		t.Errorf("search hit = %d, want 1", len(items))
+	page, _ = s.ListHistory(w.Id, model.HistoryQuery{Search: "example.com"})
+	if len(page.Items) != 1 {
+		t.Errorf("search hit = %d, want 1", len(page.Items))
 	}
-	items, _ = s.ListHistory(w.Id, model.HistoryQuery{Search: "nomatch-xyz"})
-	if len(items) != 0 {
-		t.Errorf("search miss = %d, want 0", len(items))
+	page, _ = s.ListHistory(w.Id, model.HistoryQuery{Search: "nomatch-xyz"})
+	if len(page.Items) != 0 {
+		t.Errorf("search miss = %d, want 0", len(page.Items))
 	}
 
 	if err := s.ClearHistory(w.Id); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
-	items, _ = s.ListHistory(w.Id, model.HistoryQuery{})
-	if len(items) != 0 {
-		t.Errorf("after clear len = %d, want 0", len(items))
+	page, _ = s.ListHistory(w.Id, model.HistoryQuery{})
+	if len(page.Items) != 0 {
+		t.Errorf("after clear len = %d, want 0", len(page.Items))
+	}
+}
+
+func TestHistoryCursorPaginationIsStable(t *testing.T) {
+	s := openTestStore(t)
+	w, _ := s.EnsureDefaultWorkspace()
+	const createdAt = int64(123456789)
+	for i := 0; i < 5; i++ {
+		if _, err := s.InsertHistory(model.HistoryDetail{
+			WorkspaceId: w.Id,
+			RequestSnap: model.HttpRequest{Method: "GET", Url: fmt.Sprintf("https://example.com/%d", i)},
+			CreatedAt:   createdAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := s.ListHistory(w.Id, model.HistoryQuery{Limit: 2})
+	if err != nil || len(first.Items) != 2 || !first.HasMore || first.NextCursor == "" {
+		t.Fatalf("first page = %+v, err = %v", first, err)
+	}
+	second, err := s.ListHistory(w.Id, model.HistoryQuery{Limit: 2, Cursor: first.NextCursor})
+	if err != nil || len(second.Items) != 2 || !second.HasMore {
+		t.Fatalf("second page = %+v, err = %v", second, err)
+	}
+	third, err := s.ListHistory(w.Id, model.HistoryQuery{Limit: 2, Cursor: second.NextCursor})
+	if err != nil || len(third.Items) != 1 || third.HasMore {
+		t.Fatalf("third page = %+v, err = %v", third, err)
+	}
+	seen := map[string]bool{}
+	for _, historyPage := range []model.HistoryPage{first, second, third} {
+		for _, item := range historyPage.Items {
+			if seen[item.Id] {
+				t.Fatalf("duplicate history id %s", item.Id)
+			}
+			seen[item.Id] = true
+		}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("seen = %d, want 5", len(seen))
 	}
 }
 
@@ -199,5 +384,98 @@ func TestClearHistoryRemovesBlob(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("blob still exists, stat error = %v", err)
+	}
+}
+
+func TestBlobMetadataRangeAndStreamingCopy(t *testing.T) {
+	s := openTestStore(t)
+	if err := os.MkdirAll(s.BlobsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const ref = "range-test.bin"
+	source := []byte("0123456789abcdefghijklmnopqrstuvwxyz")
+	if err := os.WriteFile(filepath.Join(s.BlobsDir(), ref), source, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	size, err := s.BlobInfo(ref)
+	if err != nil || size != int64(len(source)) {
+		t.Fatalf("size = %d, err = %v", size, err)
+	}
+	first, eof, err := s.ReadBlobRange(ref, 0, 10)
+	if err != nil || eof || string(first) != "0123456789" {
+		t.Fatalf("first = %q, eof=%v, err=%v", first, eof, err)
+	}
+	second, eof, err := s.ReadBlobRange(ref, 10, int64(len(source)))
+	if err != nil || !eof || string(append(first, second...)) != string(source) {
+		t.Fatalf("combined = %q, eof=%v, err=%v", append(first, second...), eof, err)
+	}
+	if _, _, err := s.ReadBlobRange(ref, -1, 1); err == nil {
+		t.Fatal("negative offset was accepted")
+	}
+	if _, _, err := s.ReadBlobRange(ref, 0, (1<<20)+1); err == nil {
+		t.Fatal("oversized range was accepted")
+	}
+	if _, err := s.BlobInfo("../escape"); err == nil {
+		t.Fatal("path traversal ref was accepted")
+	}
+
+	destination := filepath.Join(t.TempDir(), "saved.bin")
+	if err := os.WriteFile(destination, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	written, err := s.CopyBlob(ref, destination)
+	if err != nil || written != int64(len(source)) {
+		t.Fatalf("written = %d, err = %v", written, err)
+	}
+	saved, err := os.ReadFile(destination)
+	if err != nil || string(saved) != string(source) {
+		t.Fatalf("saved = %q, err = %v", saved, err)
+	}
+}
+
+func TestReadBlobRejectsOversizedFiles(t *testing.T) {
+	s := openTestStore(t)
+	const ref = "oversized.bin"
+	file, err := os.Create(filepath.Join(s.BlobsDir(), ref))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate((32 << 20) + 1); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReadBlob(ref); err == nil {
+		t.Fatal("oversized blob was loaded")
+	}
+}
+
+func TestReplaceFileRestoresOriginalWhenCommitFails(t *testing.T) {
+	dir := t.TempDir()
+	destination := filepath.Join(dir, "destination.bin")
+	tempPath := filepath.Join(dir, "new.tmp")
+	if err := os.WriteFile(destination, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tempPath, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	injected := errors.New("injected rename failure")
+	err := replaceFile(tempPath, destination, func(oldPath, newPath string) error {
+		calls++
+		if calls == 2 {
+			return injected
+		}
+		return os.Rename(oldPath, newPath)
+	})
+	if !errors.Is(err, injected) {
+		t.Fatalf("replace error = %v", err)
+	}
+	data, readErr := os.ReadFile(destination)
+	if readErr != nil || string(data) != "original" {
+		t.Fatalf("original destination was not restored: data=%q err=%v", data, readErr)
 	}
 }

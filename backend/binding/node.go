@@ -117,13 +117,22 @@ type HistoryApi struct {
 // NewHistoryApi 构造
 func NewHistoryApi(store *storage.Store) *HistoryApi { return &HistoryApi{store: store} }
 
-// ListHistory 查询历史
-func (a *HistoryApi) ListHistory(workspaceId string, q model.HistoryQuery) ([]model.HistoryItem, error) {
-	items, err := a.store.ListHistory(workspaceId, q)
+// ListHistory 查询轻量历史摘要页。
+func (a *HistoryApi) ListHistory(workspaceId string, q model.HistoryQuery) (model.HistoryPage, error) {
+	page, err := a.store.ListHistory(workspaceId, q)
 	if err != nil {
-		return nil, model.WrapError(model.KindStorage, err)
+		return model.HistoryPage{}, model.WrapError(model.KindStorage, err)
 	}
-	return items, nil
+	return page, nil
+}
+
+// GetHistory 按需加载单条历史详情。
+func (a *HistoryApi) GetHistory(workspaceId, id string) (model.HistoryDetail, error) {
+	detail, err := a.store.GetHistory(workspaceId, id)
+	if err != nil {
+		return detail, model.WrapError(model.KindStorage, err)
+	}
+	return detail, nil
 }
 
 // ClearHistory 清空历史

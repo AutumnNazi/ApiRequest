@@ -3,6 +3,7 @@ package binding
 import (
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 )
 
@@ -25,6 +26,28 @@ func NewSettingsApi(store *storage.Store, engine *httpengine.Engine) *SettingsAp
 		engine.SetTLS(tlsSettings) // 失败静默：文件可能已被移动，用户可在设置里重新配置
 	}
 	return a
+}
+
+// GetVaultStatus reports which Secret Vault Adapter is available.
+func (a *SettingsApi) GetVaultStatus() secrets.Status {
+	return a.store.Vault().Status()
+}
+
+// UnlockVault unlocks the encrypted-file fallback and migrates legacy plaintext values.
+func (a *SettingsApi) UnlockVault(password string) (secrets.Status, error) {
+	if err := a.store.Vault().Unlock(password); err != nil {
+		return a.store.Vault().Status(), model.WrapError(model.KindValidation, err)
+	}
+	if err := a.store.MigrateSecrets(); err != nil {
+		return a.store.Vault().Status(), model.WrapError(model.KindStorage, err)
+	}
+	return a.store.Vault().Status(), nil
+}
+
+// LockVault clears the encrypted-file key and decrypted cache from memory.
+func (a *SettingsApi) LockVault() secrets.Status {
+	a.store.Vault().Lock()
+	return a.store.Vault().Status()
 }
 
 func (a *SettingsApi) loadTLS() httpengine.TLSSettings {

@@ -3,8 +3,10 @@ package storage
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 )
 
 // ListEnvironments 列出工作区全部环境
@@ -29,6 +31,11 @@ func (s *Store) ListEnvironments(workspaceId string) ([]model.Environment, error
 		if err := json.Unmarshal([]byte(vars), &e.Variables); err != nil {
 			return nil, err
 		}
+		resolved, err := secrets.ResolveVariables(s.vault, e.Variables)
+		if err != nil {
+			return nil, err
+		}
+		e.Variables = resolved
 		out = append(out, e)
 	}
 	return out, rows.Err()
@@ -48,6 +55,9 @@ func (s *Store) GetEnvironment(envId string) (model.Environment, error) {
 	}
 	e.IsActive = active != 0
 	err = json.Unmarshal([]byte(vars), &e.Variables)
+	if err == nil {
+		e.Variables, err = secrets.ResolveVariables(s.vault, e.Variables)
+	}
 	return e, err
 }
 
@@ -59,33 +69,81 @@ func (s *Store) UpsertEnvironment(e model.Environment) (model.Environment, error
 		e.CreatedAt = now
 	}
 	e.UpdatedAt = now
+	if err := s.validateEnvironmentOwnership(e); err != nil {
+		return e, err
+	}
 	if e.Variables == nil {
 		e.Variables = []model.Variable{}
-	}
-	vars, err := json.Marshal(e.Variables)
-	if err != nil {
-		return e, err
 	}
 	active := 0
 	if e.IsActive {
 		active = 1
 	}
-	_, err = s.db.Exec(`
-		INSERT INTO environment (id, workspace_id, name, variables, is_active, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET
-		  name = excluded.name,
-		  variables = excluded.variables,
-		  is_active = excluded.is_active,
-		  updated_at = excluded.updated_at`,
-		e.Id, e.WorkspaceId, e.Name, string(vars), active, e.CreatedAt, e.UpdatedAt)
+	err := s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		oldRefs, err := s.storedEnvironmentSecretReferences(e.Id)
+		if err != nil {
+			return err
+		}
+		protected, err := protectVariables(writer, e.Variables, "environment/"+e.Id)
+		if err != nil {
+			return err
+		}
+		vars, err := json.Marshal(protected)
+		if err != nil {
+			return err
+		}
+		if err := deleteRemovedSecretReferences(writer, oldRefs, secrets.VariableReferences(protected)); err != nil {
+			return err
+		}
+		_, err = s.db.Exec(`
+			INSERT INTO environment (id, workspace_id, name, variables, is_active, created_at, updated_at)
+			VALUES (?,?,?,?,?,?,?)
+			ON CONFLICT(id) DO UPDATE SET
+			  name = excluded.name,
+			  variables = excluded.variables,
+			  is_active = excluded.is_active,
+			  updated_at = excluded.updated_at`,
+			e.Id, e.WorkspaceId, e.Name, string(vars), active, e.CreatedAt, e.UpdatedAt)
+		return err
+	})
 	return e, err
+}
+
+func (s *Store) validateEnvironmentOwnership(e model.Environment) error {
+	var workspaceExists bool
+	if err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = ?)", e.WorkspaceId).Scan(&workspaceExists); err != nil {
+		return err
+	}
+	if !workspaceExists {
+		return errors.New("workspace not found")
+	}
+	var existingWorkspace string
+	err := s.db.QueryRow("SELECT workspace_id FROM environment WHERE id = ?", e.Id).Scan(&existingWorkspace)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if existingWorkspace != e.WorkspaceId {
+		return errors.New("environment belongs to a different workspace")
+	}
+	return nil
 }
 
 // DeleteEnvironment 删除环境
 func (s *Store) DeleteEnvironment(envId string) error {
-	_, err := s.db.Exec("DELETE FROM environment WHERE id = ?", envId)
-	return err
+	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		oldRefs, err := s.storedEnvironmentSecretReferences(envId)
+		if err != nil {
+			return err
+		}
+		if err := deleteRemovedSecretReferences(writer, oldRefs, nil); err != nil {
+			return err
+		}
+		_, err = s.db.Exec("DELETE FROM environment WHERE id = ?", envId)
+		return err
+	})
 }
 
 // SetActiveEnvironment 激活指定环境（envId 为空 = 全部取消激活，即 No Environment）
@@ -142,23 +200,60 @@ func (s *Store) GetGlobalVariables(workspaceId string) ([]model.Variable, error)
 	}
 	out := []model.Variable{}
 	err = json.Unmarshal([]byte(vars), &out)
+	if err == nil {
+		out, err = secrets.ResolveVariables(s.vault, out)
+	}
 	return out, err
 }
 
 // SetGlobalVariables 写全局变量
 func (s *Store) SetGlobalVariables(workspaceId string, vars []model.Variable) error {
+	return s.writeGlobalVariables(workspaceId, vars, nowMs())
+}
+
+// ApplySyncGlobalVariables writes an exact remote revision instead of creating a local timestamp.
+func (s *Store) ApplySyncGlobalVariables(workspaceId string, vars []model.Variable, updatedAt int64) error {
+	return s.writeGlobalVariables(workspaceId, vars, updatedAt)
+}
+
+func (s *Store) writeGlobalVariables(workspaceId string, vars []model.Variable, updatedAt int64) error {
 	if vars == nil {
 		vars = []model.Variable{}
 	}
-	b, err := json.Marshal(vars)
-	if err != nil {
+	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		oldRefs, err := s.storedGlobalSecretReferences(workspaceId)
+		if err != nil {
+			return err
+		}
+		protected, err := protectVariables(writer, vars, "workspace/"+workspaceId+"/globals")
+		if err != nil {
+			return err
+		}
+		b, err := json.Marshal(protected)
+		if err != nil {
+			return err
+		}
+		if err := deleteRemovedSecretReferences(writer, oldRefs, secrets.VariableReferences(protected)); err != nil {
+			return err
+		}
+		_, err = s.db.Exec(`
+			INSERT INTO global_var (workspace_id, variables, updated_at) VALUES (?,?,?)
+			ON CONFLICT(workspace_id) DO UPDATE SET
+			  variables = excluded.variables,
+			  updated_at = excluded.updated_at`,
+			workspaceId, string(b), updatedAt)
 		return err
+	})
+}
+
+// GlobalVariablesRevision returns zero when a workspace has no globals row.
+func (s *Store) GlobalVariablesRevision(workspaceId string) (int64, error) {
+	var updatedAt int64
+	err := s.db.QueryRow("SELECT updated_at FROM global_var WHERE workspace_id = ?", workspaceId).Scan(&updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
 	}
-	_, err = s.db.Exec(`
-		INSERT INTO global_var (workspace_id, variables) VALUES (?,?)
-		ON CONFLICT(workspace_id) DO UPDATE SET variables = excluded.variables`,
-		workspaceId, string(b))
-	return err
+	return updatedAt, err
 }
 
 // NodeAncestors 返回节点自身到集合根的链（自身在前，根在后）。
@@ -197,10 +292,31 @@ func (s *Store) NodeAncestors(nodeId string) ([]model.Node, error) {
 			&n.CreatedAt, &n.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if err := hydrateNode(&n, &r); err != nil {
+		if err := s.hydrateNode(&n, &r); err != nil {
 			return nil, err
 		}
 		out = append(out, n)
 	}
 	return out, rows.Err()
+}
+
+// NodeAncestorsInWorkspace returns the inheritance chain only when the leaf belongs to workspaceId.
+func (s *Store) NodeAncestorsInWorkspace(nodeId, workspaceId string) ([]model.Node, error) {
+	belongs, err := s.NodeBelongsToWorkspace(nodeId, workspaceId)
+	if err != nil {
+		return nil, err
+	}
+	if !belongs {
+		return nil, errors.New("request node belongs to a different workspace or does not exist")
+	}
+	chain, err := s.NodeAncestors(nodeId)
+	if err != nil {
+		return nil, err
+	}
+	for _, node := range chain {
+		if node.WorkspaceId != workspaceId {
+			return nil, errors.New("node ancestry crosses workspace boundary")
+		}
+	}
+	return chain, nil
 }

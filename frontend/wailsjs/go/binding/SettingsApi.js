@@ -10,10 +10,22 @@ export function GetTLSSettings() {
   return window['go']['binding']['SettingsApi']['GetTLSSettings']();
 }
 
+export function GetVaultStatus() {
+  return window['go']['binding']['SettingsApi']['GetVaultStatus']();
+}
+
+export function LockVault() {
+  return window['go']['binding']['SettingsApi']['LockVault']();
+}
+
 export function SetProxySettings(arg1) {
   return window['go']['binding']['SettingsApi']['SetProxySettings'](arg1);
 }
 
 export function SetTLSSettings(arg1) {
   return window['go']['binding']['SettingsApi']['SetTLSSettings'](arg1);
+}
+
+export function UnlockVault(arg1) {
+  return window['go']['binding']['SettingsApi']['UnlockVault'](arg1);
 }

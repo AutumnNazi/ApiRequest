@@ -8,6 +8,7 @@ import {
   toAppError,
   type MockLogEntry,
 } from '../ipc';
+import { Verbatim } from '../i18n/locale';
 
 interface Props {
   collectionId: string;
@@ -59,7 +60,7 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">Mock · {collectionName}</h2>
+          <h2 className="font-semibold text-sm">Mock · <Verbatim value={collectionName} /></h2>
           <span
             className={`w-2 h-2 rounded-full ${addr ? 'bg-green-500' : 'bg-gray-300'}`}
             title={addr ? '运行中' : '已停止'}
@@ -82,7 +83,7 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
 
         {addr && (
           <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border-b text-sm">
-            <span className="font-mono text-green-800">{addr}</span>
+            <span className="font-mono text-green-800"><Verbatim value={addr} /></span>
             <button
               className="text-xs text-green-700 hover:underline"
               onClick={() => navigator.clipboard.writeText(addr)}
@@ -92,7 +93,7 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
           </div>
         )}
         {error && (
-          <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600">{error}</div>
+          <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600"><Verbatim value={error} /></div>
         )}
 
         <div className="flex-1 overflow-auto">
@@ -107,9 +108,9 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
               <tbody>
                 {logs.map((l, i) => (
                   <tr key={i} className="border-b border-gray-100">
-                    <td className="p-2 font-semibold w-16">{l.method}</td>
-                    <td className="p-2 font-mono">{l.path}</td>
-                    <td className="p-2 text-gray-400">{l.matched || '—'}</td>
+                    <td className="p-2 font-semibold w-16"><Verbatim value={l.method} /></td>
+                    <td className="p-2 font-mono"><Verbatim value={l.path} /></td>
+                    <td className="p-2 text-gray-400"><Verbatim value={l.matched || '—'} /></td>
                     <td
                       className={`p-2 w-12 text-right ${
                         l.status < 400 ? 'text-green-600' : 'text-red-500'

@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,91 +15,223 @@ import (
 
 func base64Encode(data []byte) string { return base64.StdEncoding.EncodeToString(data) }
 
-// sseSession SSE 会话（docs/protocols.md §3）：GET 长连接，
-// text/event-stream 增量解析 event:/data:/id:/retry: 字段
+const (
+	defaultSSERetry = 3 * time.Second
+	maxSSERetry     = 30 * time.Second
+)
+
 type sseSession struct {
 	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 func openSSE(id string, cfg SessionConfig, emit EmitFunc) (Session, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(ctx, "GET", cfg.Url, nil)
+	response, err := connectSSE(ctx, cfg, "")
 	if err != nil {
 		cancel()
-		return nil, model.WrapError(model.KindValidation, err)
+		return nil, err
 	}
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Cache-Control", "no-cache")
-	for _, h := range cfg.Headers {
-		if h.Enabled && h.Key != "" {
-			req.Header.Set(h.Key, h.Value)
-		}
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		cancel()
-		return nil, model.WrapError(model.KindNetwork, err)
-	}
-	if resp.StatusCode != 200 {
-		resp.Body.Close()
-		cancel()
-		return nil, model.NewError(model.KindNetwork, "SSE endpoint returned "+resp.Status)
-	}
-
-	emit(InboundMsg{
-		SessionId: id, Protocol: "sse", Direction: "system",
-		Kind: "open", Data: cfg.Url, Ts: time.Now().UnixMilli(),
-	})
-
-	// 读循环：按 SSE 规范逐行解析，空行 = 事件结束
-	go func() {
-		defer resp.Body.Close()
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 64*1024), 4<<20)
-		var event string
-		var dataLines []string
-		flush := func() {
-			if len(dataLines) == 0 {
-				return
-			}
-			emit(InboundMsg{
-				SessionId: id, Protocol: "sse", Direction: "in",
-				Kind: "event", Event: event, Data: strings.Join(dataLines, "\n"),
-				Ts: time.Now().UnixMilli(),
-			})
-			event = ""
-			dataLines = nil
-		}
-		for scanner.Scan() {
-			line := scanner.Text()
-			switch {
-			case line == "":
-				flush()
-			case strings.HasPrefix(line, "event:"):
-				event = strings.TrimSpace(line[6:])
-			case strings.HasPrefix(line, "data:"):
-				dataLines = append(dataLines, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
-			case strings.HasPrefix(line, ":"):
-				// 注释行，忽略
-			}
-			// id:/retry: 暂不处理（自动续订留待后续）
-		}
-		flush()
-		detail := "stream ended"
-		if err := scanner.Err(); err != nil && ctx.Err() == nil {
-			detail = err.Error()
-		}
-		emit(InboundMsg{
-			SessionId: id, Protocol: "sse", Direction: "system",
-			Kind: "close", Data: detail, Ts: time.Now().UnixMilli(),
-		})
-	}()
-
-	return &sseSession{cancel: cancel}, nil
+	session := &sseSession{cancel: cancel, done: make(chan struct{})}
+	emit(systemSSEMessage(id, "open", cfg.Url))
+	go session.run(ctx, id, cfg, emit, response)
+	return session, nil
 }
 
-// Send SSE 是单向流，不支持发送
+func connectSSE(ctx context.Context, cfg SessionConfig, lastEventID string) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.Url, nil)
+	if err != nil {
+		return nil, model.WrapError(model.KindValidation, err)
+	}
+	request.Header.Set("Accept", "text/event-stream")
+	request.Header.Set("Cache-Control", "no-cache")
+	for _, header := range cfg.Headers {
+		if header.Enabled && header.Key != "" {
+			request.Header.Set(header.Key, header.Value)
+		}
+	}
+	if lastEventID != "" {
+		request.Header.Set("Last-Event-ID", lastEventID)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, model.WrapError(model.KindNetwork, err)
+	}
+	if response.StatusCode != http.StatusOK {
+		response.Body.Close()
+		return nil, model.NewError(model.KindNetwork, "SSE endpoint returned "+response.Status)
+	}
+	return response, nil
+}
+
+func (s *sseSession) run(
+	ctx context.Context,
+	id string,
+	cfg SessionConfig,
+	emit EmitFunc,
+	response *http.Response,
+) {
+	defer close(s.done)
+	lastEventID := ""
+	retry := defaultSSERetry
+	connectFailures := 0
+
+	for {
+		err := consumeSSE(ctx, response, id, emit, &lastEventID, &retry)
+		response.Body.Close()
+		if ctx.Err() != nil {
+			emit(systemSSEMessage(id, "close", "closed by user"))
+			return
+		}
+		detail := "stream ended"
+		if err != nil {
+			detail = err.Error()
+		}
+		emit(systemSSEMessage(id, "reconnect", fmt.Sprintf("%s; retrying in %s", detail, retry)))
+		if !waitForSSE(ctx, retry) {
+			emit(systemSSEMessage(id, "close", "closed by user"))
+			return
+		}
+
+		for {
+			next, connectErr := connectSSE(ctx, cfg, lastEventID)
+			if connectErr == nil {
+				response = next
+				connectFailures = 0
+				emit(systemSSEMessage(id, "reconnect", "reconnected"))
+				break
+			}
+			if ctx.Err() != nil {
+				emit(systemSSEMessage(id, "close", "closed by user"))
+				return
+			}
+			connectFailures++
+			delay := sseBackoff(retry, connectFailures)
+			emit(systemSSEMessage(id, "reconnect", fmt.Sprintf("reconnect failed: %v; retrying in %s", connectErr, delay)))
+			if !waitForSSE(ctx, delay) {
+				emit(systemSSEMessage(id, "close", "closed by user"))
+				return
+			}
+		}
+	}
+}
+
+func consumeSSE(
+	ctx context.Context,
+	response *http.Response,
+	sessionID string,
+	emit EmitFunc,
+	lastEventID *string,
+	retry *time.Duration,
+) error {
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(make([]byte, 64*1024), 4<<20)
+	eventType := ""
+	eventID := *lastEventID
+	var dataLines []string
+	flush := func() {
+		if len(dataLines) == 0 {
+			eventType = ""
+			return
+		}
+		*lastEventID = eventID
+		emit(InboundMsg{
+			SessionId: sessionID,
+			Protocol:  "sse",
+			Direction: "in",
+			Kind:      "event",
+			Event:     eventType,
+			EventId:   eventID,
+			Data:      strings.Join(dataLines, "\n"),
+			Ts:        time.Now().UnixMilli(),
+		})
+		eventType = ""
+		dataLines = nil
+	}
+	firstLine := true
+	for scanner.Scan() {
+		line := scanner.Text()
+		if firstLine {
+			line = strings.TrimPrefix(line, "\ufeff")
+			firstLine = false
+		}
+		if line == "" {
+			flush()
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		field, value, found := strings.Cut(line, ":")
+		if !found {
+			value = ""
+		}
+		value = strings.TrimPrefix(value, " ")
+		switch field {
+		case "event":
+			eventType = value
+		case "data":
+			dataLines = append(dataLines, value)
+		case "id":
+			if !strings.ContainsRune(value, '\x00') {
+				eventID = value
+			}
+		case "retry":
+			milliseconds, err := strconv.ParseInt(value, 10, 64)
+			if err == nil && milliseconds >= 0 {
+				*retry = clampSSERetry(time.Duration(milliseconds) * time.Millisecond)
+			}
+		}
+	}
+	flush()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func clampSSERetry(retry time.Duration) time.Duration {
+	if retry < 100*time.Millisecond {
+		return 100 * time.Millisecond
+	}
+	if retry > maxSSERetry {
+		return maxSSERetry
+	}
+	return retry
+}
+
+func sseBackoff(base time.Duration, failures int) time.Duration {
+	delay := clampSSERetry(base)
+	for i := 1; i < failures && delay < maxSSERetry; i++ {
+		delay *= 2
+		if delay > maxSSERetry {
+			return maxSSERetry
+		}
+	}
+	return delay
+}
+
+func waitForSSE(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func systemSSEMessage(sessionID, kind, data string) InboundMsg {
+	return InboundMsg{
+		SessionId: sessionID, Protocol: "sse", Direction: "system",
+		Kind: kind, Data: data, Ts: time.Now().UnixMilli(),
+	}
+}
+
 func (s *sseSession) Send(string) error {
 	return model.NewError(model.KindValidation, "SSE is receive-only")
 }

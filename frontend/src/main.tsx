@@ -6,6 +6,7 @@ import './theme/theme.css';
 import './theme/store'; // 模块加载即恢复持久化主题
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { DialogProvider } from './components/DialogProvider';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,7 +25,9 @@ root.render(
   <React.StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <App />
+        <DialogProvider>
+          <App />
+        </DialogProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   </React.StrictMode>,

@@ -9,7 +9,8 @@ English | [简体中文](../ops.md)
 
 ## 1. Security Considerations
 
-- **Credential protection**: store secret variables and OAuth tokens in the system keychain by default (Windows Credential Manager / macOS Keychain). If the system backend is unavailable, encrypt them with a key derived from the user's master password. Mask values in the UI by default.
+- **Credential protection**: store secret variables and OAuth tokens in the system keychain by default (Windows Credential Manager / macOS Keychain). If the system backend is unavailable, derive a key with Argon2id and encrypt the fallback vault with AES-GCM. Mask values in the UI by default; history and script logs use the same redaction policy.
+- **Classification boundary**: the Vault protects secret parameters in the Auth model, `type=secret` variables, and the sync password. URLs, ordinary headers, bodies, and scripts are user-controlled request content; the application does not infer whether arbitrary strings are credentials. Reference credentials through structured auth fields or secret variables.
 - **Script sandbox**: JavaScript cannot access the host filesystem or arbitrary network destinations and has an execution timeout. See [Request Lifecycle](./request-lifecycle.md).
 - **Certificate trust**: allow custom CAs and client certificates, but show an explicit risk warning before disabling SSL verification.
 - **Treat imported content as untrusted**: prevent injection while parsing imports and never execute imported scripts automatically.
@@ -87,7 +88,8 @@ For every merge to the main branch and every release candidate, run on native Wi
 | macOS | `macos-latest` | Apple Silicon + Intel, universal or separate | `.app`/`.dmg` from `wails build` | Developer ID signing, Hardened Runtime, notarization, and stapling |
 | Linux | `ubuntu-latest` | x64 | `.AppImage` / `.deb` | Best-effort build and startup check |
 
-- **Automatic updates**: Wails has no built-in updater. Build a signed update manifest using go-update or a custom design. Stable and beta channels must map unambiguously to signatures and artifacts.
+- **Update path**: Wails has no built-in updater. Each stable release publishes `SHA256SUMS` and `update-manifest.json`; the Settings action currently opens the official release download page. No silent replacement is attempted until signature verification, rollback, and atomic replacement are specified.
+- **Signing status**: when Windows/macOS secrets are present, CI performs Authenticode or Developer ID signing plus notarization/stapling. Without them, artifact names include `-unsigned` and a platform-specific `SIGNING_STATUS-*.txt` is published.
 - **Crash reporting and telemetry**: optional, disabled by default, and disclosed clearly. Retain rotating local logs for diagnostics.
 
 ### 4.2 Platform Implementation Boundaries
