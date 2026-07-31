@@ -9,6 +9,8 @@ interface Props {
   nodeId?: string; // 已保存请求的节点 id（"保存为示例"需要）
 }
 
+const BODY_RENDER_CHAR_LIMIT = 500_000;
+
 const errorKindLabel: Record<string, string> = {
   network: '网络错误',
   tls: 'TLS 错误',
@@ -60,13 +62,16 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
   const pretty = useMemo(() => {
     const source = fullBody ?? response?.body?.text;
     if (!source) return '';
-    if (raw) return source;
+    // 大 JSON 的 parse + stringify 也会阻塞主线程，并可能把文本再膨胀数倍。
+    if (raw || source.length > BODY_RENDER_CHAR_LIMIT) return source;
     try {
       return JSON.stringify(JSON.parse(source), null, 2);
     } catch {
       return source;
     }
   }, [response, raw, fullBody]);
+
+  const renderedBody = useMemo(() => sliceBodyForRender(pretty), [pretty]);
 
   const contentType = useMemo(
     () =>
@@ -80,11 +85,11 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
     if (!search) return 0;
     let n = 0;
     let i = -1;
-    const lower = pretty.toLowerCase();
+    const lower = renderedBody.visibleText.toLowerCase();
     const q = search.toLowerCase();
     while ((i = lower.indexOf(q, i + 1)) !== -1) n++;
     return n;
-  }, [pretty, search]);
+  }, [renderedBody.visibleText, search]);
 
   if (sending) {
     return <Center>发送中…</Center>;
@@ -174,7 +179,9 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
               onChange={(e) => setSearch(e.target.value)}
             />
             {search && (
-              <span className="pb-2 text-xs text-gray-400 self-center">{matchCount} 处</span>
+              <span className="pb-2 text-xs text-gray-400 self-center">
+                {matchCount} 处{renderedBody.omittedChars > 0 ? '（当前片段）' : ''}
+              </span>
             )}
             <button
               className="pb-2 text-xs text-gray-500 hover:text-gray-800"
@@ -203,7 +210,7 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
                 </button>
               </div>
             )}
-            <HighlightedBody text={pretty} query={search} />
+            <HighlightedBody body={renderedBody} query={search} />
           </div>
         )}
         {pane === 'preview' && (
@@ -232,47 +239,73 @@ export default function ResponseViewer({ response, error, sending, nodeId }: Pro
   );
 }
 
-// HighlightedBody 带搜索高亮的 body 文本（无匹配时直接渲染，避免大文本分片开销）
-function HighlightedBody({ text, query }: { text: string; query: string }) {
+interface BodyRenderSlice {
+  visibleText: string;
+  omittedChars: number;
+}
+
+function sliceBodyForRender(text: string): BodyRenderSlice {
+  if (text.length <= BODY_RENDER_CHAR_LIMIT) return { visibleText: text, omittedChars: 0 };
+
+  let end = BODY_RENDER_CHAR_LIMIT;
+  const lastCodeUnit = text.charCodeAt(end - 1);
+  if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) end--;
+  return { visibleText: text.slice(0, end), omittedChars: text.length - end };
+}
+
+// HighlightedBody 只接收有界片段，搜索高亮不会意外把截断区重新带回 DOM。
+function HighlightedBody({ body, query }: { body: BodyRenderSlice; query: string }) {
+  const { visibleText, omittedChars } = body;
   const parts = useMemo(() => {
     if (!query) return null;
     const q = query.toLowerCase();
-    const lower = text.toLowerCase();
+    const lower = visibleText.toLowerCase();
     const out: { s: string; hit: boolean }[] = [];
     let i = 0;
     let hit = lower.indexOf(q);
     // 上限保护：超过 2000 处只高亮前 2000
     let count = 0;
     while (hit !== -1 && count < 2000) {
-      if (hit > i) out.push({ s: text.slice(i, hit), hit: false });
-      out.push({ s: text.slice(hit, hit + query.length), hit: true });
+      if (hit > i) out.push({ s: visibleText.slice(i, hit), hit: false });
+      out.push({ s: visibleText.slice(hit, hit + query.length), hit: true });
       i = hit + query.length;
       hit = lower.indexOf(q, i);
       count++;
     }
-    out.push({ s: text.slice(i), hit: false });
+    out.push({ s: visibleText.slice(i), hit: false });
     return out;
-  }, [text, query]);
+  }, [visibleText, query]);
 
   return (
-    <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
-      {parts
-        ? parts.map((p, i) =>
-            p.hit ? (
-              <mark key={i} className="bg-yellow-200 rounded-sm">
-                {p.s}
-              </mark>
-            ) : (
-              p.s
-            ),
-          )
-        : text}
-    </pre>
+    <>
+      {omittedChars > 0 && (
+        <div className="m-3 mb-0 border border-orange-200 bg-orange-50 rounded px-3 py-2 text-xs text-orange-800">
+          响应体过大，仅渲染前 {visibleText.length.toLocaleString()} 个字符，另有{' '}
+          {omittedChars.toLocaleString()} 个字符未显示。
+        </div>
+      )}
+      <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
+        {parts
+          ? parts.map((p, i) =>
+              p.hit ? (
+                <mark key={i} className="bg-yellow-200 rounded-sm">
+                  {p.s}
+                </mark>
+              ) : (
+                p.s
+              ),
+            )
+          : visibleText}
+      </pre>
+    </>
   );
 }
 
 // PreviewPane HTML iframe / 图片预览
 function PreviewPane({ text, contentType }: { text: string; contentType: string }) {
+  if (text.length > BODY_RENDER_CHAR_LIMIT) {
+    return <Center>响应体过大，Preview 暂不渲染（请使用 Body 片段查看）</Center>;
+  }
   if (contentType.startsWith('image/')) {
     // 文本形式的响应体对二进制图片不可靠；SVG 可直接内联
     if (contentType.includes('svg')) {

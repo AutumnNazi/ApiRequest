@@ -104,8 +104,48 @@ func (s *Store) ListHistory(workspaceId string, q model.HistoryQuery) ([]model.H
 	return out, rows.Err()
 }
 
-// ClearHistory 清空工作区历史
+// ClearHistory 清空工作区历史，并清理关联的大响应体 blob 文件，避免磁盘泄漏。
 func (s *Store) ClearHistory(workspaceId string) error {
-	_, err := s.db.Exec("DELETE FROM history WHERE workspace_id = ?", workspaceId)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. 先收集将删除的 blob 引用（DB 行删除后无法回查）
+	rows, err := tx.Query(
+		"SELECT body_ref FROM history WHERE workspace_id = ? AND body_ref != ''", workspaceId)
+	if err != nil {
+		return err
+	}
+	var refs []string
+	for rows.Next() {
+		var ref sql.NullString
+		if err := rows.Scan(&ref); err != nil {
+			rows.Close()
+			return err
+		}
+		if ref.Valid && ref.String != "" {
+			refs = append(refs, ref.String)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	// 2. 删除 DB 行
+	if _, err := tx.Exec("DELETE FROM history WHERE workspace_id = ?", workspaceId); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// 3. 清理孤儿 blob 文件（单个失败不阻断，记录继续）
+	for _, ref := range refs {
+		s.removeBlobFile(ref)
+	}
+	return nil
 }

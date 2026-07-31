@@ -44,8 +44,8 @@ type Engine struct {
 	transport *http.Transport
 	blobsDir  string // 空 = 不落盘（超限截断），非空 = 超限写 blob
 	// proxyOverride 应用级代理设置（nil = 系统代理）
-	proxyMu    sync.RWMutex
-	proxyFunc  func(*http.Request) (*url.URL, error)
+	proxyMu   sync.RWMutex
+	proxyFunc func(*http.Request) (*url.URL, error)
 }
 
 // New 创建引擎
@@ -267,15 +267,21 @@ func (e *Engine) readBodyWithBlob(r io.Reader) (head []byte, total int64, blobRe
 	name := uuid.NewString() + ".bin"
 	f, ferr := os.Create(filepath.Join(e.blobsDir, name))
 	if ferr != nil {
-		rest, _ := io.Copy(io.Discard, r)
+		rest, derr := io.Copy(io.Discard, r)
 		total += int64(pn) + rest
-		return buf.Bytes(), total, "", nil // 落盘失败降级为截断，不阻断响应
+		return appendTruncationMarker(buf.Bytes()), total, "", derr // 落盘失败降级为截断，不阻断响应
 	}
 	defer f.Close()
 	if _, werr := f.Write(buf.Bytes()); werr != nil {
-		return buf.Bytes(), total, "", nil
+		rest, derr := io.Copy(io.Discard, r)
+		total += int64(pn) + rest
+		return appendTruncationMarker(buf.Bytes()), total, "", derr
 	}
-	f.Write(probe[:pn])
+	if _, werr := f.Write(probe[:pn]); werr != nil {
+		rest, derr := io.Copy(io.Discard, r)
+		total += int64(pn) + rest
+		return appendTruncationMarker(buf.Bytes()), total, "", derr
+	}
 	rest, rerr := io.Copy(f, r)
 	total += int64(pn) + rest
 	if rerr != nil {
@@ -425,11 +431,21 @@ func buildBody(b model.Body) (io.Reader, string, error) {
 		if strings.TrimSpace(vars) == "" {
 			vars = "{}"
 		}
+		if !json.Valid([]byte(vars)) {
+			return nil, "", fmt.Errorf("graphql variables must be valid JSON")
+		}
 		payload := fmt.Sprintf(`{"query":%s,"variables":%s}`, jsonString(b.Query), vars)
 		return strings.NewReader(payload), "application/json", nil
 	default:
 		return nil, "", fmt.Errorf("unsupported body kind: %s", b.Kind)
 	}
+}
+
+func appendTruncationMarker(head []byte) []byte {
+	marker := []byte("\n… (truncated at 2 MiB)")
+	out := make([]byte, 0, len(head)+len(marker))
+	out = append(out, head...)
+	return append(out, marker...)
 }
 
 func flattenHeaders(h http.Header) []model.KV {

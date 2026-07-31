@@ -9,7 +9,8 @@ import CodegenDialog from './CodegenDialog';
 import VarPreview, { useActiveVariables } from './VarPreview';
 import type { Tab } from '../stores/tabs';
 import { useTabs } from '../stores/tabs';
-import type { Body, KV } from '../ipc';
+import type { Body, FormItem, KV } from '../ipc';
+import { useStableRowIds } from '../hooks/useStableRowIds';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
@@ -25,10 +26,11 @@ interface Props {
   tab: Tab;
   workspaceId: string;
   onSend(): void;
+  onCancel(): void;
   onSave(): void;
 }
 
-export default function RequestEditor({ tab, workspaceId, onSend, onSave }: Props) {
+export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSave }: Props) {
   const patchDraft = useTabs((s) => s.patchDraft);
   const [pane, setPane] = useState<'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings'>('params');
   const [scriptPhase, setScriptPhase] = useState<'pre' | 'test'>('pre');
@@ -43,17 +45,20 @@ export default function RequestEditor({ tab, workspaceId, onSend, onSave }: Prop
     <div className="flex flex-col h-full">
       {/* method + url + 按钮行 */}
       <div className="flex gap-2 p-3 border-b">
-        <select
+        <input
+          list="http-methods"
+          type="text"
           className={`border rounded px-2 py-1.5 font-semibold text-sm ${methodColor[d.method] ?? ''}`}
           value={d.method}
-          onChange={(e) => patchDraft(tab.id, { method: e.target.value })}
-        >
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(e) => patchDraft(tab.id, { method: e.target.value.toUpperCase() })}
+        />
+        <datalist id="http-methods">
           {METHODS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
+            <option key={m} value={m} />
           ))}
-        </select>
+        </datalist>
         <input
           className="flex-1 border rounded px-3 py-1.5 text-sm font-mono outline-none focus:border-blue-400"
           placeholder="https://api.example.com/path"
@@ -70,6 +75,15 @@ export default function RequestEditor({ tab, workspaceId, onSend, onSave }: Prop
         >
           {tab.sending ? '发送中…' : '发送'}
         </button>
+        {tab.sending && (
+          <button
+            className="border border-red-200 text-red-600 rounded px-3 py-1.5 text-sm hover:bg-red-50"
+            onClick={onCancel}
+            title="取消当前请求"
+          >
+            取消
+          </button>
+        )}
         <button
           className="border rounded px-3 py-1.5 text-sm hover:bg-gray-50"
           onClick={onSave}
@@ -142,11 +156,17 @@ export default function RequestEditor({ tab, workspaceId, onSend, onSave }: Prop
                     type="radio"
                     checked={(d.body?.kind ?? 'none') === k}
                     onChange={() => {
-                      if (k === 'raw') patchBody({ kind: 'raw', language: 'json' });
-                      else if (k === 'none') patchBody({ kind: 'none' });
-                      else if (k === 'graphql') patchBody({ kind: 'graphql' });
-                      else if (k === 'binary') patchBody({ kind: 'binary' });
-                      else patchBody({ kind: k, items: d.body?.items ?? [] });
+                      // 切换 kind 时显式丢弃不相关字段，避免 stale IR（例 kind=binary 但 items 残留）。
+                      // 注意：patchBody 用 Partial<Body>，所以只覆盖写了的字段；保留复用上一次
+                      // 的 items（仅在 formdata / urlencoded 间切时）。
+                      switch (k) {
+                        case 'raw':       patchBody({ kind: 'raw', language: 'json', text: '' }); break;
+                        case 'none':      patchBody({ kind: 'none', text: '', items: [], path: '', query: '', variables: '' }); break;
+                        case 'graphql':   patchBody({ kind: 'graphql', text: '', items: [], path: '', query: '', variables: '' }); break;
+                        case 'binary':    patchBody({ kind: 'binary', text: '', items: [], path: '', query: '', variables: '' }); break;
+                        case 'formdata':  patchBody({ kind: 'formdata', text: '', items: d.body?.items ?? [], path: '', query: '', variables: '' }); break;
+                        case 'urlencoded':patchBody({ kind: 'urlencoded', text: '', items: d.body?.items ?? [], path: '', query: '', variables: '' }); break;
+                      }
                     }}
                   />
                   {label}
@@ -164,7 +184,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onSave }: Prop
                 />
               </div>
             )}
-            {(d.body?.kind === 'urlencoded' || d.body?.kind === 'formdata') && (
+            {d.body?.kind === 'urlencoded' && (
               <KVTable
                 items={(d.body.items ?? []).map(
                   (it) => ({ key: it.key, value: it.value ?? '', enabled: it.enabled }) as KV,
@@ -179,6 +199,12 @@ export default function RequestEditor({ tab, workspaceId, onSend, onSave }: Prop
                     })),
                   })
                 }
+              />
+            )}
+            {d.body?.kind === 'formdata' && (
+              <FormDataTable
+                items={d.body.items ?? []}
+                onChange={(items) => patchBody({ items })}
               />
             )}
             {d.body?.kind === 'graphql' && (
@@ -205,6 +231,15 @@ export default function RequestEditor({ tab, workspaceId, onSend, onSave }: Prop
                     placeholder={'{}'}
                     onChange={(variables) => patchBody({ variables })}
                   />
+                  {d.body.variables?.trim() && (() => {
+                    try { JSON.parse(d.body.variables ?? ''); return null; } catch (e) {
+                      return (
+                        <div className="px-2 py-1 text-xs text-red-600 bg-red-50 border-t">
+                          JSON 语法错误：{(e as Error).message}
+                        </div>
+                      );
+                    }
+                  })()}
                 </div>
               </div>
             )}
@@ -342,4 +377,117 @@ export default function RequestEditor({ tab, workspaceId, onSend, onSave }: Prop
 function countEnabled(items?: { enabled: boolean; key: string }[]): string {
   const n = (items ?? []).filter((i) => i.enabled && i.key).length;
   return n > 0 ? ` (${n})` : '';
+}
+
+// form-data 表格：支持 text / file 两种条目（file 型走 Path，后端 multipart 读取）
+function FormDataTable({
+  items,
+  onChange,
+}: {
+  items: FormItem[];
+  onChange(items: FormItem[]): void;
+}) {
+  const rows: FormItem[] = [
+    ...items,
+    { key: '', type: 'text', value: '', path: '', enabled: true },
+  ];
+  const { rowIds, promoteGhostRow, removeRow } = useStableRowIds(rows.length);
+
+  const update = (idx: number, patch: Partial<FormItem>) => {
+    const next = rows.map((r, i) => (i === idx ? { ...r, ...patch } : r));
+    const nextItems = next.filter(
+      (r, i) => !(i === next.length - 1 && !r.key && !r.value && !r.path),
+    );
+    if (nextItems.length > items.length) promoteGhostRow();
+    onChange(nextItems);
+  };
+
+  const remove = (idx: number) => {
+    removeRow(idx);
+    onChange(items.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-left text-gray-500 border-b">
+          <th className="w-8 p-1"></th>
+          <th className="p-1 font-normal w-16">类型</th>
+          <th className="p-1 font-normal">Key</th>
+          <th className="p-1 font-normal">Value / 文件路径</th>
+          <th className="w-8 p-1"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => {
+          const isGhost = i === rows.length - 1;
+          const isFile = r.type === 'file';
+          return (
+            <tr key={rowIds[i]} className="border-b border-gray-100">
+              <td className="p-1 text-center">
+                {!isGhost && (
+                  <input
+                    type="checkbox"
+                    checked={r.enabled}
+                    onChange={(e) => update(i, { enabled: e.target.checked })}
+                  />
+                )}
+              </td>
+              <td className="p-1">
+                {!isGhost ? (
+                  <select
+                    className="border rounded px-1 py-0.5 text-xs"
+                    value={isFile ? 'file' : 'text'}
+                    onChange={(e) =>
+                      update(i, {
+                        type: e.target.value,
+                        // 切类型时清掉对方字段，避免 stale
+                        ...(e.target.value === 'file'
+                          ? { value: '', path: r.path ?? '' }
+                          : { path: '', value: r.value ?? '' }),
+                      })
+                    }
+                  >
+                    <option value="text">text</option>
+                    <option value="file">file</option>
+                  </select>
+                ) : (
+                  <span className="text-xs text-gray-400">text</span>
+                )}
+              </td>
+              <td className="p-1">
+                <input
+                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded"
+                  placeholder="Key"
+                  value={r.key}
+                  onChange={(e) => update(i, { key: e.target.value })}
+                />
+              </td>
+              <td className="p-1">
+                <input
+                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded font-mono text-xs"
+                  placeholder={isFile ? 'C:\\path\\to\\file' : 'Value'}
+                  value={isFile ? (r.path ?? '') : (r.value ?? '')}
+                  onChange={(e) =>
+                    update(i, isFile ? { path: e.target.value, type: 'file' } : { value: e.target.value, type: 'text' })
+                  }
+                />
+              </td>
+              <td className="p-1 text-center">
+                {!isGhost && (
+                  <button
+                    className="text-gray-400 hover:text-red-500"
+                    onClick={() => remove(i)}
+                    title="删除"
+                  >
+                    ×
+                  </button>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
 }

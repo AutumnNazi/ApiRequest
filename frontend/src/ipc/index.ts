@@ -12,9 +12,10 @@ import * as ProtocolApi from '../../wailsjs/go/binding/ProtocolApi';
 import * as OAuth2Api from '../../wailsjs/go/binding/OAuth2Api';
 import * as SettingsApi from '../../wailsjs/go/binding/SettingsApi';
 import * as GrpcApi from '../../wailsjs/go/binding/GrpcApi';
+import * as GraphqlApi from '../../wailsjs/go/binding/GraphqlApi';
 import * as SyncApi from '../../wailsjs/go/binding/SyncApi';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient, sync } from '../../wailsjs/go/models';
+import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient, graphql, sync } from '../../wailsjs/go/models';
 import { call } from './error';
 
 export type HttpRequest = model.HttpRequest;
@@ -26,6 +27,7 @@ export type HistoryItem = model.HistoryItem;
 export type HistoryQuery = model.HistoryQuery;
 export type KV = model.KV;
 export type Body = model.Body;
+export type FormItem = model.FormItem;
 export type Timing = model.Timing;
 export type Environment = model.Environment;
 export type Variable = model.Variable;
@@ -197,6 +199,29 @@ export const grpcCall = (
   requestJSON: string,
   headers: Record<string, string> = {},
 ) => call(() => GrpcApi.GrpcCall(grpcclient.ConnectConfig.createFrom(cfg), fullMethod, requestJSON, headers));
+export const grpcStreamOpen = (
+  sessionId: string,
+  cfg: Partial<GrpcConnectConfig>,
+  fullMethod: string,
+  headers: Record<string, string> = {},
+) => call(() => GrpcApi.GrpcStreamOpen(sessionId, grpcclient.ConnectConfig.createFrom(cfg), fullMethod, headers));
+export const grpcStreamSend = (sessionId: string, jsonPayload: string) =>
+  call(() => GrpcApi.GrpcStreamSend(sessionId, jsonPayload));
+export const grpcStreamClose = (sessionId: string) =>
+  call(() => GrpcApi.GrpcStreamClose(sessionId));
+export const grpcStreamCloseSend = (sessionId: string) =>
+  call(() => GrpcApi.GrpcStreamCloseSend(sessionId));
+
+export interface GrpcStreamMessage {
+  streamId: string;
+  kind: 'message' | 'error' | 'done';
+  data: string;
+  ts: number;
+}
+
+export function onGrpcStream(handler: (m: GrpcStreamMessage) => void): () => void {
+  return EventsOn('grpc:stream', handler);
+}
 
 // ── WebDAV 同步 ──
 
@@ -207,6 +232,14 @@ export const getSyncConfig = () => call(() => SyncApi.GetSyncConfig());
 export const setSyncConfig = (cfg: Partial<SyncDavConfig>) =>
   call(() => SyncApi.SetSyncConfig(sync.DavConfig.createFrom(cfg)));
 export const syncNow = (workspaceId: string) => call(() => SyncApi.SyncNow(workspaceId));
+
+// ── GraphQL 内省 ──
+
+export type GraphqlIntrospectConfig = graphql.IntrospectConfig;
+export type GraphqlResult = graphql.Result;
+
+export const graphqlIntrospect = (cfg: Partial<GraphqlIntrospectConfig>) =>
+  call(() => GraphqlApi.GraphqlIntrospect(graphql.IntrospectConfig.createFrom(cfg)));
 
 // ── 事件 ──
 

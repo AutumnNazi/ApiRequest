@@ -30,7 +30,9 @@ func attachCookies(store *storage.Store, req *model.HttpRequest) {
 		if c.Secure && u.Scheme != "https" {
 			continue
 		}
-		if c.Path != "" && c.Path != "/" && !strings.HasPrefix(u.Path, c.Path) {
+		if c.Path != "" && c.Path != "/" &&
+			u.Path != c.Path &&
+			!strings.HasPrefix(u.Path, c.Path+"/") {
 			continue
 		}
 		parts = append(parts, c.Name+"="+c.Value)

@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 
 	"apirequest/backend/model"
 )
@@ -143,11 +144,59 @@ func (s *Store) DeleteNode(nodeId string) error {
 	return err
 }
 
-// MoveNode 改父与排序
+// MoveNode 改父与排序，并保证树不会跨工作区、出现无效父级或循环引用。
 func (s *Store) MoveNode(nodeId, newParentId string, sortOrder float64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var workspaceId, kind string
+	if err := tx.QueryRow("SELECT workspace_id, kind FROM node WHERE id = ? AND deleted_at IS NULL", nodeId).Scan(&workspaceId, &kind); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("node not found")
+		}
+		return err
+	}
+	if kind == "collection" && newParentId != "" {
+		return errors.New("collection must stay at root")
+	}
+	if kind != "collection" && newParentId == "" {
+		return errors.New("only collections may stay at root")
+	}
+
 	parentId := sql.NullString{String: newParentId, Valid: newParentId != ""}
-	_, err := s.db.Exec(
+	if newParentId != "" {
+		var parentWorkspace, parentKind string
+		if err := tx.QueryRow("SELECT workspace_id, kind FROM node WHERE id = ? AND deleted_at IS NULL", newParentId).Scan(&parentWorkspace, &parentKind); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return errors.New("parent node not found")
+			}
+			return err
+		}
+		if parentWorkspace != workspaceId {
+			return errors.New("parent must belong to the same workspace")
+		}
+		if parentKind != "collection" && parentKind != "folder" {
+			return errors.New("parent must be a collection or folder")
+		}
+		var createsCycle bool
+		if err := tx.QueryRow(`WITH RECURSIVE sub(id) AS (
+			SELECT id FROM node WHERE id = ? AND deleted_at IS NULL
+			UNION ALL
+			SELECT n.id FROM node n JOIN sub ON n.parent_id = sub.id WHERE n.deleted_at IS NULL
+		) SELECT EXISTS(SELECT 1 FROM sub WHERE id = ?)`, nodeId, newParentId).Scan(&createsCycle); err != nil {
+			return err
+		}
+		if createsCycle {
+			return errors.New("cannot move a node into itself or its descendant")
+		}
+	}
+	if _, err := tx.Exec(
 		"UPDATE node SET parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ?",
-		parentId, sortOrder, nowMs(), nodeId)
-	return err
+		parentId, sortOrder, nowMs(), nodeId); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"apirequest/backend/model"
@@ -91,6 +93,36 @@ func TestWorkspaceAndNodeCrud(t *testing.T) {
 	}
 }
 
+func TestMoveNodeRejectsInvalidTrees(t *testing.T) {
+	s := openTestStore(t)
+	w, _ := s.EnsureDefaultWorkspace()
+	col, _ := s.UpsertNode(model.Node{WorkspaceId: w.Id, Kind: "collection", Name: "collection"})
+	folder, _ := s.UpsertNode(model.Node{WorkspaceId: w.Id, ParentId: col.Id, Kind: "folder", Name: "folder"})
+	child, _ := s.UpsertNode(model.Node{WorkspaceId: w.Id, ParentId: folder.Id, Kind: "folder", Name: "child"})
+	req, _ := s.UpsertNode(model.Node{WorkspaceId: w.Id, ParentId: folder.Id, Kind: "request", Name: "request"})
+
+	for _, tc := range []struct {
+		name, id, parent string
+	}{
+		{"missing node", "missing", col.Id},
+		{"missing parent", req.Id, "missing"},
+		{"request parent", req.Id, req.Id},
+		{"folder into descendant", folder.Id, child.Id},
+		{"collection below root", col.Id, folder.Id},
+		{"request at root", req.Id, ""},
+		{"folder at root", folder.Id, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := s.MoveNode(tc.id, tc.parent, 1); err == nil {
+				t.Fatal("MoveNode succeeded, want validation error")
+			}
+		})
+	}
+	if err := s.MoveNode(req.Id, col.Id, 2); err != nil {
+		t.Fatalf("valid move: %v", err)
+	}
+}
+
 func TestHistory(t *testing.T) {
 	s := openTestStore(t)
 	w, _ := s.EnsureDefaultWorkspace()
@@ -140,5 +172,32 @@ func TestHistory(t *testing.T) {
 	items, _ = s.ListHistory(w.Id, model.HistoryQuery{})
 	if len(items) != 0 {
 		t.Errorf("after clear len = %d, want 0", len(items))
+	}
+}
+
+func TestClearHistoryRemovesBlob(t *testing.T) {
+	s := openTestStore(t)
+	w, _ := s.EnsureDefaultWorkspace()
+	if err := os.MkdirAll(s.BlobsDir(), 0o755); err != nil {
+		t.Fatalf("mkdir blobs: %v", err)
+	}
+	const ref = "history-test.bin"
+	path := filepath.Join(s.BlobsDir(), ref)
+	if err := os.WriteFile(path, []byte("blob"), 0o600); err != nil {
+		t.Fatalf("write blob: %v", err)
+	}
+	if _, err := s.InsertHistory(model.HistoryItem{
+		WorkspaceId: w.Id,
+		RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.com"},
+		BodyRef:     ref,
+	}); err != nil {
+		t.Fatalf("insert history: %v", err)
+	}
+
+	if err := s.ClearHistory(w.Id); err != nil {
+		t.Fatalf("clear history: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("blob still exists, stat error = %v", err)
 	}
 }

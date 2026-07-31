@@ -3,7 +3,9 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listEnvironments, getGlobalVariables } from '../ipc';
 
-/** 当前生效变量表（激活环境 > 全局；不含集合级——需节点上下文，此处近似） */
+/** 当前生效变量表（激活环境 > 全局）。
+ *  注：不含集合级变量——集合变量由脚本运行时通过 pm.collectionVariables 写入，
+ *  无持久化存储与节点上下文绑定，无法在编辑器静态预览。 */
 export function useActiveVariables(workspaceId: string): Map<string, string> {
   const { data: envs = [] } = useQuery({
     queryKey: ['envs', workspaceId],

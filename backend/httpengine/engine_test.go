@@ -3,6 +3,7 @@ package httpengine
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -217,6 +218,40 @@ func TestSmallBodyStaysInline(t *testing.T) {
 	}
 	if !res.Body.Inline || res.Body.BlobRef != "" || res.Body.Text != "small" {
 		t.Errorf("body = %+v", res.Body)
+	}
+}
+
+func TestGraphQLVariablesMustBeValidJSON(t *testing.T) {
+	if _, _, err := buildBody(model.Body{Kind: "graphql", Variables: `{"broken":`}); err == nil {
+		t.Fatal("invalid GraphQL variables should be rejected")
+	}
+
+	r, contentType, err := buildBody(model.Body{Kind: "graphql", Query: "query { ok }", Variables: `{"enabled":true}`})
+	if err != nil {
+		t.Fatalf("valid GraphQL variables rejected: %v", err)
+	}
+	if contentType != "application/json" {
+		t.Fatalf("content type = %q, want application/json", contentType)
+	}
+	payload, err := io.ReadAll(r)
+	if err != nil || !json.Valid(payload) {
+		t.Fatalf("payload is not valid JSON: %q (%v)", payload, err)
+	}
+}
+
+func TestLargeBodyBlobFailureStillMarksTruncation(t *testing.T) {
+	big := strings.Repeat("z", inlineBodyLimit+1000)
+	e := New()
+	e.SetBlobsDir(filepath.Join(t.TempDir(), "missing"))
+	head, total, blobRef, err := e.readBodyWithBlob(strings.NewReader(big))
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if blobRef != "" || total != int64(len(big)) {
+		t.Fatalf("blobRef=%q total=%d, want empty ref and %d bytes", blobRef, total, len(big))
+	}
+	if !strings.Contains(string(head), "truncated") {
+		t.Fatalf("truncation marker missing from fallback preview")
 	}
 }
 

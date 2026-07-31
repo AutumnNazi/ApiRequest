@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   runCollection,
   cancelRun,
+  exportReport,
   onRunnerProgress,
   toAppError,
   type RunnerReport,
@@ -27,9 +28,12 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
   const [error, setError] = useState('');
   const runIdRef = useRef('');
 
-  useEffect(() => onRunnerProgress((p) => {
-    if (p.runId === runIdRef.current) setProgress(p);
-  }), []);
+  useEffect(() => {
+    const unsub = onRunnerProgress((p) => {
+      if (p.runId === runIdRef.current) setProgress(p);
+    });
+    return unsub;
+  }, []);
 
   const start = async () => {
     setError('');
@@ -202,9 +206,8 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                 <button
                   className="border rounded px-4 py-1.5 text-sm hover:bg-gray-50"
                   onClick={async () => {
-                    const { exportReport } = await import('../ipc');
-                    const json = await exportReport(report.runId);
-                    await navigator.clipboard.writeText(json);
+                    const text = await exportReport(report.runId);
+                    await navigator.clipboard.writeText(text);
                     alert('报告 JSON 已复制到剪贴板');
                   }}
                 >

@@ -25,11 +25,14 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
     runningMocks().then((m) => setAddr(m[collectionId] ?? ''));
   }, [collectionId]);
 
-  useEffect(() => onMockLog((entry) => {
-    if (entry.collectionId === collectionId) {
-      setLogs((prev) => [entry, ...prev].slice(0, 200));
-    }
-  }), [collectionId]);
+  useEffect(() => {
+    const unsub = onMockLog((entry) => {
+      if (entry.collectionId === collectionId) {
+        setLogs((prev) => [entry, ...prev].slice(0, 200));
+      }
+    });
+    return unsub;
+  }, [collectionId]);
 
   const toggle = async () => {
     setError('');

@@ -38,6 +38,7 @@ func main() {
 			app.OAuth2,
 			app.Settings,
 			app.Grpc,
+			app.Graphql,
 			app.Sync,
 		},
 	})

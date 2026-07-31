@@ -138,8 +138,8 @@ func (pythonGen) Generate(req model.HttpRequest) string {
 		args = append(args, "verify=False")
 	}
 
-	method := strings.ToLower(orGET(req.Method))
-	b.WriteString("\nresponse = requests." + method + "(" + strings.Join(args, ", ") + ")\n")
+	method := strings.ToUpper(orGET(req.Method))
+	b.WriteString("\nresponse = requests.request(" + pyQuote(method) + ", " + strings.Join(args, ", ") + ")\n")
 	b.WriteString("print(response.status_code)\nprint(response.text)")
 	return b.String()
 }
@@ -207,4 +207,8 @@ func init() {
 	Register(fetchGen{})
 	Register(pythonGen{})
 	Register(goGen{})
+	Register(javaGen{})
+	Register(rustGen{})
+	Register(phpGen{})
+	Register(csharpGen{})
 }

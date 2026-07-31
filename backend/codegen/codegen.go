@@ -54,23 +54,43 @@ func Generate(id string, req model.HttpRequest) (string, error) {
 
 // ── 共用辅助 ──
 
-// fullUrl 合并 url 与启用的 query 参数
+// fullUrl 合并 url 与启用的 query 参数。
+// 与 curl_export.fullURL 行为对齐：
+//   - 已在 URL query 中出现的 key 不再追加（避免重复，对 Postman 风格同 key 多值不丢）
+//   - URL 解析失败（如 {{base}}/path）回退 raw 拼接，保留 {{var}} 供前端模板引擎替换
+//   - 仍然对 Params 的 key/value 做 url.QueryEscape（codegen 输出代码片段需要合法 URL 字面）
 func fullUrl(req model.HttpRequest) string {
-	u := req.Url
-	var parts []string
-	for _, p := range req.Params {
-		if p.Enabled && p.Key != "" {
-			parts = append(parts, url.QueryEscape(p.Key)+"="+url.QueryEscape(p.Value))
+	raw := req.Url
+	existing := map[string]bool{}
+	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
+		for k := range u.Query() {
+			existing[k] = true
 		}
 	}
-	if len(parts) > 0 {
+	hasQ := strings.Contains(raw, "?")
+	for _, p := range req.Params {
+		if !p.Enabled || p.Key == "" || existing[p.Key] {
+			continue
+		}
 		sep := "?"
-		if strings.Contains(u, "?") {
+		if hasQ {
 			sep = "&"
 		}
-		u += sep + strings.Join(parts, "&")
+		raw += sep + url.QueryEscape(p.Key) + "=" + url.QueryEscape(p.Value)
+		hasQ = true
+		existing[p.Key] = true
 	}
-	return u
+	if strings.EqualFold(req.Auth.Type, "apikey") && strings.EqualFold(req.Auth.Params["in"], "query") {
+		key, value := req.Auth.Params["key"], req.Auth.Params["value"]
+		if key != "" && !existing[key] {
+			sep := "?"
+			if hasQ {
+				sep = "&"
+			}
+			raw += sep + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+		}
+	}
+	return raw
 }
 
 // enabledHeaders 启用的 header（含 auth 的 Authorization 预览）
@@ -85,8 +105,18 @@ func enabledHeaders(req model.HttpRequest) []model.KV {
 	case "bearer":
 		out = append(out, model.KV{Key: "Authorization", Value: "Bearer " + req.Auth.Params["token"]})
 	case "apikey":
-		if req.Auth.Params["in"] != "query" && req.Auth.Params["key"] != "" {
-			out = append(out, model.KV{Key: req.Auth.Params["key"], Value: req.Auth.Params["value"]})
+		key, value := req.Auth.Params["key"], req.Auth.Params["value"]
+		switch strings.ToLower(req.Auth.Params["in"]) {
+		case "query":
+			// query 形式已由 fullUrl 合并。
+		case "cookie":
+			if key != "" {
+				out = append(out, model.KV{Key: "Cookie", Value: key + "=" + value})
+			}
+		default:
+			if key != "" {
+				out = append(out, model.KV{Key: key, Value: value})
+			}
 		}
 	}
 	return out

@@ -1,10 +1,11 @@
 // 侧栏：集合树 + 历史 两个页签
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type DragEvent } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   listNodes,
   upsertNode,
   deleteNode,
+  moveNode,
   listHistory,
   clearHistory,
   exportData,
@@ -65,6 +66,9 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   const [runnerTarget, setRunnerTarget] = useState<Node | null>(null);
   const [mockTarget, setMockTarget] = useState<Node | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // 拖拽：HTML5 DnD，仅在同级集合/文件夹内重排；跨层级拖入 folder 时复用同 move
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const { data: nodes = [] } = useQuery({
     queryKey: ['nodes', workspaceId],
     queryFn: () => listNodes(workspaceId),
@@ -109,6 +113,55 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     onSuccess: invalidate,
   });
 
+  const move = useMutation({
+    // newParentId 为空字符串表示拖到根
+    mutationFn: ({ id, parentId, sortOrder }: { id: string; parentId: string; sortOrder: number }) =>
+      moveNode(id, parentId, sortOrder),
+    onSuccess: invalidate,
+    onError: (e) => alert('移动失败: ' + toAppError(e).detail),
+  });
+
+  // 判断 descendant 是否为 ancestor 的后代（含多层），防止把文件夹拖进自身子树造成环路。
+  const isDescendant = (ancestor: string, descendant: string): boolean => {
+    let cur: string | undefined = descendant;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur)) {
+      if (cur === ancestor) return true;
+      seen.add(cur);
+      const node = nodes.find((n) => n.id === cur);
+      cur = node?.parentId || undefined;
+    }
+    return false;
+  };
+
+  // folder/request 通用拖拽起点 props
+  const dragProps = (n: Node) => ({
+    draggable: true,
+    onDragStart: (e: DragEvent<HTMLDivElement>) => {
+      e.stopPropagation();
+      setDragId(n.id);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', n.id);
+    },
+  });
+
+  const canMoveInto = (parent: Node) => {
+    const dragged = nodes.find((n) => n.id === dragId);
+    return !!dragged
+      && dragged.kind !== 'collection'
+      && dragged.id !== parent.id
+      && !isDescendant(dragged.id, parent.id);
+  };
+
+  const moveInto = (parent: Node) => {
+    const dragged = nodes.find((n) => n.id === dragId);
+    if (!dragged || !canMoveInto(parent)) return;
+    const nextSort = childrenOf(parent.id).length;
+    move.mutate({ id: dragged.id, parentId: parent.id, sortOrder: nextSort });
+    setDragId(null);
+    setDragOverId(null);
+  };
+
   const doRename = (n: Node) => {
     const name = prompt('重命名：', n.name);
     if (name && name !== n.name) rename.mutate({ ...n, name } as Node);
@@ -136,8 +189,22 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       n.kind === 'folder' ? (
         <div key={n.id}>
           <div
-            className="flex items-center group py-1 rounded hover:bg-gray-200 cursor-pointer"
+            {...dragProps(n)}
+            className={`flex items-center group py-1 rounded hover:bg-gray-200 cursor-pointer ${dragOverId === n.id ? 'bg-blue-50 ring-1 ring-blue-300' : ''}`}
             style={{ paddingLeft: `${depth * 14 + 4}px` }}
+            onDragOver={(e) => {
+              if (canMoveInto(n)) {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOverId(n.id);
+              }
+            }}
+            onDragLeave={() => setDragOverId((id) => (id === n.id ? null : id))}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              moveInto(n);
+            }}
             onClick={() => toggle(n.id)}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -187,6 +254,12 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           depth={depth}
           onDelete={(id) => del.mutate(id)}
           onRename={() => doRename(n)}
+          onDragStart={(e: DragEvent<HTMLDivElement>) => {
+            e.stopPropagation();
+            setDragId(n.id);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', n.id);
+          }}
         />
       ),
     );
@@ -227,8 +300,44 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       {roots.length === 0 && (
         <p className="text-gray-400 text-center py-6 text-xs">还没有集合，点击上方创建</p>
       )}
-      {roots.map((col) => (
-        <div key={col.id} className="mb-1">
+      {roots.map((col, idx) => (
+        <div
+          key={col.id}
+          className={`mb-1 ${dragOverId === col.id ? 'border-t-2 border-blue-400' : ''}`}
+          draggable
+          onDragStart={(e) => {
+            setDragId(col.id);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', col.id);
+          }}
+          onDragEnd={() => {
+            setDragId(null);
+            setDragOverId(null);
+          }}
+          onDragOver={(e) => {
+            const dragged = nodes.find((n) => n.id === dragId);
+            if (dragged?.kind === 'collection' && dragged.id !== col.id) {
+              e.preventDefault();
+              setDragOverId(col.id);
+            }
+          }}
+          onDragLeave={() => setDragOverId((v) => (v === col.id ? null : v))}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDragOverId(null);
+            if (!dragId || dragId === col.id) return;
+            const dragged = nodes.find((n) => n.id === dragId);
+            if (dragged?.kind !== 'collection') return;
+            // 插入到当前 col 之前：sortOrder 取前一个 col 与 col 之间的中点
+            const nextSort = col.sortOrder;
+            const newSort = idx === 0
+              ? nextSort - 1
+              : (roots[idx - 1].sortOrder + nextSort) / 2;
+            move.mutate({ id: dragId, parentId: '', sortOrder: newSort });
+            setDragId(null);
+          }}
+        >
           <div
             className="flex items-center group px-1 py-1 rounded hover:bg-gray-200 cursor-pointer"
             onClick={() => toggle(col.id)}
@@ -279,12 +388,21 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             </button>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-              title="导出为 Postman v2.1 JSON"
+              title="导出集合"
               onClick={async (e) => {
                 e.stopPropagation();
-                const out = await exportData(col.id, 'postman');
-                await navigator.clipboard.writeText(out);
-                alert('已复制 Postman v2.1 JSON 到剪贴板');
+                const fmt = prompt('导出格式（postman / openapi / curl）:', 'postman');
+                if (!fmt) return;
+                try {
+                  const out = await exportData(col.id, fmt.toLowerCase().trim());
+                  await navigator.clipboard.writeText(out);
+                  const label = fmt.toLowerCase().trim() === 'openapi' ? 'OpenAPI 3.0.3'
+                    : fmt.toLowerCase().trim() === 'curl' ? 'cURL（JSON + shell）'
+                    : 'Postman v2.1';
+                  alert(`已复制 ${label} 到剪贴板`);
+                } catch (err) {
+                  alert('导出失败: ' + toAppError(err).detail);
+                }
               }}
             >
               ⇪
@@ -329,11 +447,13 @@ function TreeLeaf({
   depth,
   onDelete,
   onRename,
+  onDragStart,
 }: {
   node: Node;
   depth: number;
   onDelete(id: string): void;
   onRename(): void;
+  onDragStart?(e: DragEvent<HTMLDivElement>): void;
 }) {
   const openNode = useTabs((s) => s.openNode);
   if (node.kind !== 'request') return null;
@@ -341,6 +461,8 @@ function TreeLeaf({
     <div
       className="flex items-center group pr-1 py-1 rounded hover:bg-gray-200 cursor-pointer"
       style={{ paddingLeft: `${depth * 14 + 4}px` }}
+      draggable
+      onDragStart={(e) => onDragStart?.(e)}
       onClick={() => node.request && openNode(node.id, node.name, node.request)}
       onDoubleClick={(e) => {
         e.stopPropagation();

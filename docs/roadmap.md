@@ -8,7 +8,7 @@
 ## 1. 功能清单（完整版）
 
 ### 请求构造
-- [ ] HTTP 方法全集（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS + 自定义）
+- [x] HTTP 方法全集（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS + 自定义）
 - [ ] URL 与 Query 参数编辑（双向同步）
 - [ ] Header 编辑（含自动填充、批量编辑、禁用项）
 - [x] Body：form-data / x-www-form-urlencoded / raw(JSON/XML/HTML/Text) / binary / GraphQL
@@ -45,13 +45,13 @@
 ### 协议扩展
 - [x] WebSocket
 - [x] Server-Sent Events (SSE)
-- [ ] GraphQL schema 内省 + 补全（body 已支持 graphql 类型）
-- [x] gRPC（server reflection 发现 + dynamicpb 动态 unary 调用；流式待做）
+- [x] GraphQL schema 内省 + 补全（后端内省；body 已支持 graphql 类型）
+- [x] gRPC（server reflection 发现 + dynamicpb 动态调用；含 unary + client/server/bidi 流式）
 
 ### 互操作
 - [x] 导入：Postman v2.1 / OpenAPI 3.x / Swagger 2 / cURL / HAR / Insomnia
-- [x] 导出：Postman v2.1（OpenAPI / cURL 待做）
-- [x] 代码生成：cURL / JS fetch / Python requests / Go（更多语言待扩展）
+- [x] 导出：Postman v2.1 / OpenAPI 3.0.3 / cURL（JSON + shell 脚本）
+- [x] 代码生成：cURL / JS fetch / Python requests / Go / Java / Rust / PHP / C#
 - [x] 集合的 Git 友好文件镜像（JSON 目录树，单请求单文件）
 
 ### 高级

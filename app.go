@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"apirequest/backend/binding"
+	"apirequest/backend/grpcclient"
 	"apirequest/backend/httpengine"
 	"apirequest/backend/mock"
 	"apirequest/backend/platform"
@@ -31,6 +32,7 @@ type App struct {
 	OAuth2   *binding.OAuth2Api
 	Settings *binding.SettingsApi
 	Grpc     *binding.GrpcApi
+	Graphql  *binding.GraphqlApi
 	Sync     *binding.SyncApi
 }
 
@@ -67,16 +69,18 @@ func NewApp() *App {
 		OAuth2:    binding.NewOAuth2Api(),
 		Settings:  binding.NewSettingsApi(store, engine),
 		Grpc:      binding.NewGrpcApi(),
+		Graphql:   binding.NewGraphqlApi(),
 		Sync:      binding.NewSyncApi(store, engine),
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
-	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2)
+	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql)
 }
 
 func (a *App) shutdown(ctx context.Context) {
 	a.mocks.StopAll()
 	a.protocols.CloseAll()
+	grpcclient.CloseAllStreams()
 	a.store.Close()
 }

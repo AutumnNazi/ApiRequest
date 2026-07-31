@@ -11,6 +11,7 @@ export interface Tab {
   draft: HttpRequest;
   dirty: boolean;
   sending: boolean;
+  sendId?: string;
   response?: ResponseResult;
   error?: AppError;
 }
@@ -24,7 +25,7 @@ interface TabsState {
   setActive(tabId: string): void;
   patchDraft(tabId: string, patch: Partial<HttpRequest>): void;
   markSaved(tabId: string, nodeId: string, name: string): void;
-  setSending(tabId: string, sending: boolean): void;
+  setSending(tabId: string, sending: boolean, sendId?: string): void;
   setResponse(tabId: string, r: ResponseResult): void;
   setError(tabId: string, e: AppError): void;
 }
@@ -37,6 +38,9 @@ export const useTabs = create<TabsState>((set, get) => ({
   activeId: null,
 
   openBlank() {
+    // 始终新建标签（Ctrl+T / 标签栏 + 依赖此行为）。
+    // StrictMode 双触发防护放在 App.tsx 的 bootstrap useEffect 里
+    // （仅当 tabs.length === 0 时才调用），不要在这里做幂等拦截。
     const t: Tab = {
       id: nextId(),
       name: '新请求',
@@ -95,10 +99,12 @@ export const useTabs = create<TabsState>((set, get) => ({
     }));
   },
 
-  setSending(tabId, sending) {
+  setSending(tabId, sending, sendId) {
     set((s) => ({
       tabs: s.tabs.map((t) =>
-        t.id === tabId ? { ...t, sending, ...(sending ? { error: undefined } : {}) } : t,
+        t.id === tabId
+          ? { ...t, sending, ...(sending ? { sendId, error: undefined } : { sendId: undefined }) }
+          : t,
       ),
     }));
   },
@@ -106,14 +112,16 @@ export const useTabs = create<TabsState>((set, get) => ({
   setResponse(tabId, response) {
     set((s) => ({
       tabs: s.tabs.map((t) =>
-        t.id === tabId ? { ...t, response, error: undefined, sending: false } : t,
+        t.id === tabId ? { ...t, response, error: undefined, sending: false, sendId: undefined } : t,
       ),
     }));
   },
 
   setError(tabId, error) {
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, error, sending: false } : t)),
+      tabs: s.tabs.map((t) =>
+        t.id === tabId ? { ...t, error, sending: false, sendId: undefined } : t,
+      ),
     }));
   },
 }));

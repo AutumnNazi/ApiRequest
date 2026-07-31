@@ -47,6 +47,10 @@ func Startup(ctx context.Context, apis ...any) {
 			a.startup(ctx)
 		case *OAuth2Api:
 			a.startup(ctx)
+		case *GrpcApi:
+			a.startup(ctx)
+		case *GraphqlApi:
+			a.startup(ctx)
 		}
 	}
 }

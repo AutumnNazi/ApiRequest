@@ -117,23 +117,42 @@ export namespace convert {
 }
 
 export namespace grpcclient {
-	
+
 	export class CallResult {
 	    response: string;
 	    durationMs: number;
 	    headers?: Record<string, string>;
 	    trailers?: Record<string, string>;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new CallResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.response = source["response"];
 	        this.durationMs = source["durationMs"];
 	        this.headers = source["headers"];
 	        this.trailers = source["trailers"];
+	    }
+	}
+
+	export class StreamMessage {
+	    streamId: string;
+	    kind: string;
+	    data: string;
+	    ts: number;
+
+	    static createFrom(source: any = {}) {
+	        return new StreamMessage(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.streamId = source["streamId"];
+	        this.kind = source["kind"];
+	        this.data = source["data"];
+	        this.ts = source["ts"];
 	    }
 	}
 	export class ConnectConfig {
@@ -958,11 +977,11 @@ export namespace sync {
 	    remoteFresh: boolean;
 	    syncedAt: number;
 	    remote: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Report(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.pushed = source["pushed"];
@@ -972,6 +991,81 @@ export namespace sync {
 	        this.syncedAt = source["syncedAt"];
 	        this.remote = source["remote"];
 	    }
+	}
+
+}
+
+export namespace graphql {
+
+	export class IntrospectConfig {
+	    url: string;
+	    headers?: Record<string, string>;
+	    timeoutMs?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new IntrospectConfig(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.headers = source["headers"];
+	        this.timeoutMs = source["timeoutMs"];
+	    }
+	}
+	export class FieldSummary {
+	    name: string;
+	    description?: string;
+	    args?: string;
+	    returnType: string;
+
+	    static createFrom(source: any = {}) {
+	        return new FieldSummary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.args = source["args"];
+	        this.returnType = source["returnType"];
+	    }
+	}
+	export class Result {
+	    schemaJson: string;
+	    queries: FieldSummary[];
+	    mutations: FieldSummary[];
+	    subscriptions?: FieldSummary[];
+
+	    static createFrom(source: any = {}) {
+	        return new Result(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schemaJson = source["schemaJson"];
+	        this.queries = this.convertValues(source["queries"], FieldSummary);
+	        this.mutations = this.convertValues(source["mutations"], FieldSummary);
+	        this.subscriptions = this.convertValues(source["subscriptions"], FieldSummary);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

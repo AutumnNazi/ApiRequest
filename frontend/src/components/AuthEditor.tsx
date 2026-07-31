@@ -72,7 +72,8 @@ export default function AuthEditor({ auth, onChange }: Props) {
   const fetchToken = async () => {
     setTokenState('fetching');
     setTokenMsg(params.grantType === 'authorization_code' || !params.grantType
-      ? '已拉起浏览器，请完成授权…' : '');
+      ? '已拉起浏览器，请完成授权（本地回调）…'
+      : '');
     try {
       const tok = await getOAuth2Token(params);
       onChange({ type, params: { ...params, accessToken: tok.accessToken } } as Auth);
@@ -99,7 +100,10 @@ export default function AuthEditor({ auth, onChange }: Props) {
         <select
           className="border rounded px-2 py-1 text-sm flex-1"
           value={type}
-          onChange={(e) => onChange({ type: e.target.value, params: {} } as Auth)}
+          onChange={(e) => {
+            // 切类型时保留已有 params 字段，只替换 type（用户可能从一种认证切回，不应丢值）
+            onChange({ ...auth, type: e.target.value });
+          }}
         >
           {AUTH_TYPES.map(([value, label]) => (
             <option key={value} value={value}>

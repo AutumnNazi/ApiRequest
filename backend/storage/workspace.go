@@ -79,13 +79,38 @@ func (s *Store) RenameWorkspace(id, name string) error {
 	return err
 }
 
-// DeleteWorkspace 删除工作区及其全部数据（节点/环境/全局变量/历史）
+// DeleteWorkspace 删除工作区及其全部数据（节点/环境/全局变量/历史），并清理关联 blob 文件。
 func (s *Store) DeleteWorkspace(id string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+
+	// 1. 先收集将删除的 blob 引用（DB 行删除后无法回查）
+	rows, err := tx.Query(
+		"SELECT body_ref FROM history WHERE workspace_id = ? AND body_ref != ''", id)
+	if err != nil {
+		return err
+	}
+	var refs []string
+	for rows.Next() {
+		var ref sql.NullString
+		if err := rows.Scan(&ref); err != nil {
+			rows.Close()
+			return err
+		}
+		if ref.Valid && ref.String != "" {
+			refs = append(refs, ref.String)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	// 2. 删除 DB 数据（同一事务）
 	for _, q := range []string{
 		"DELETE FROM history WHERE workspace_id = ?",
 		"DELETE FROM environment WHERE workspace_id = ?",
@@ -99,5 +124,13 @@ func (s *Store) DeleteWorkspace(id string) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// 3. 提交成功后清理孤儿 blob 文件
+	for _, ref := range refs {
+		s.removeBlobFile(ref)
+	}
+	return nil
 }

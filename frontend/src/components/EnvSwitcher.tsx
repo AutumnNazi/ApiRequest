@@ -6,9 +6,11 @@ import {
   upsertEnvironment,
   deleteEnvironment,
   setActiveEnvironment,
+  toAppError,
   type Environment,
   type Variable,
 } from '../ipc';
+import { useStableRowIds } from '../hooks/useStableRowIds';
 
 interface Props {
   workspaceId: string;
@@ -26,6 +28,9 @@ export default function EnvSwitcher({ workspaceId }: Props) {
   const activate = useMutation({
     mutationFn: (envId: string) => setActiveEnvironment(workspaceId, envId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['envs', workspaceId] }),
+    // 切换失败时：select.value 仍然绑 envs.isActive，不主动回滚也能保持 UI 一致
+    // （mutation 失败不会改变后端 isActive），此处仅弹错给用户反馈
+    onError: (e) => alert('切换环境失败: ' + toAppError(e).detail),
   });
 
   return (
@@ -88,6 +93,7 @@ function EnvManager({
   const save = useMutation({
     mutationFn: (env: Environment) => upsertEnvironment(env),
     onSuccess: invalidate,
+    onError: (e) => alert('保存环境失败: ' + toAppError(e).detail),
   });
 
   const del = useMutation({
@@ -170,10 +176,18 @@ function EnvEditor({
   const [name, setName] = useState(env.name);
   const [vars, setVars] = useState<Variable[]>(env.variables ?? []);
   const rows = [...vars, { key: '', value: '', type: 'default', enabled: true } as Variable];
+  const { rowIds, promoteGhostRow, removeRow } = useStableRowIds(rows.length);
 
   const update = (idx: number, patch: Partial<Variable>) => {
     const next = rows.map((r, i) => (i === idx ? { ...r, ...patch } : r));
-    setVars(next.filter((r, i) => !(i === next.length - 1 && !r.key && !r.value)));
+    const nextVars = next.filter((r, i) => !(i === next.length - 1 && !r.key && !r.value));
+    if (nextVars.length > vars.length) promoteGhostRow();
+    setVars(nextVars);
+  };
+
+  const remove = (idx: number) => {
+    removeRow(idx);
+    setVars(vars.filter((_, i) => i !== idx));
   };
 
   return (
@@ -212,7 +226,7 @@ function EnvEditor({
             {rows.map((r, i) => {
               const isGhost = i === rows.length - 1;
               return (
-                <tr key={i} className="border-b border-gray-100">
+                <tr key={rowIds[i]} className="border-b border-gray-100">
                   <td className="p-1 text-center">
                     {!isGhost && (
                       <input
@@ -253,7 +267,7 @@ function EnvEditor({
                     {!isGhost && (
                       <button
                         className="text-gray-400 hover:text-red-500"
-                        onClick={() => setVars(vars.filter((_, vi) => vi !== i))}
+                        onClick={() => remove(i)}
                       >
                         ×
                       </button>

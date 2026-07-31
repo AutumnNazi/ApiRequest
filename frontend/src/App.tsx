@@ -1,20 +1,24 @@
 // 主应用：三栏布局（侧栏 / 多标签编辑区 / 响应区），发送与保存动作在此编排
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Sidebar from './components/Sidebar';
 import RequestEditor from './components/RequestEditor';
 import ResponseViewer from './components/ResponseViewer';
 import EnvSwitcher from './components/EnvSwitcher';
-import CookieManager from './components/CookieManager';
-import WsPanel from './components/WsPanel';
-import SettingsDialog from './components/SettingsDialog';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
-import GrpcPanel from './components/GrpcPanel';
-import ThemeDialog from './components/ThemeDialog';
+
+// 仅在打开时加载，降低初始渲染的脚本体积。
+const CookieManager = lazy(() => import('./components/CookieManager'));
+const WsPanel = lazy(() => import('./components/WsPanel'));
+const SettingsDialog = lazy(() => import('./components/SettingsDialog'));
+const GrpcPanel = lazy(() => import('./components/GrpcPanel'));
+const GraphqlPanel = lazy(() => import('./components/GraphqlPanel'));
+const ThemeDialog = lazy(() => import('./components/ThemeDialog'));
 import { useTabs } from './stores/tabs';
 import {
   getDefaultWorkspace,
   sendRequest,
+  cancelRequest,
   upsertNode,
   listNodes,
   syncNow,
@@ -44,6 +48,7 @@ export default function App() {
   const [showWs, setShowWs] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showGrpc, setShowGrpc] = useState(false);
+  const [showGraphql, setShowGraphql] = useState(false);
   const [showTheme, setShowTheme] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
@@ -79,17 +84,33 @@ export default function App() {
 
   const handleSend = async () => {
     if (!active || !workspace || active.sending) return;
-    const sendId = `${active.id}-${Date.now()}`;
-    setSending(active.id, true);
+    // 空 URL 直接前端拦截（与 RequestEditor 发送按钮 disabled 条件一致）
+    if (!active.draft.url.trim()) return;
+    const tabId = active.id;
+    const sendId = `${tabId}-${Date.now()}`;
+    setSending(tabId, true, sendId);
     try {
       const res = await sendRequest(sendId, active.draft, {
         workspaceId: workspace.id,
         requestId: active.nodeId ?? '',
       } as SendContext);
-      setResponse(active.id, res);
+      setResponse(tabId, res);
       qc.invalidateQueries({ queryKey: ['history', workspace.id] });
+      // 脚本可能改了环境/全局变量，刷新 EnvSwitcher 缓存
+      qc.invalidateQueries({ queryKey: ['envs', workspace.id] });
+      qc.invalidateQueries({ queryKey: ['globals', workspace.id] });
     } catch (e) {
-      setError(active.id, toAppError(e));
+      setError(tabId, toAppError(e));
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!active?.sendId) return;
+    try {
+      await cancelRequest(active.sendId);
+    } catch (e) {
+      // 取消失败时仍保留发送状态，等待原请求自然结束。
+      alert('取消请求失败: ' + toAppError(e).detail);
     }
   };
 
@@ -128,7 +149,8 @@ export default function App() {
       markSaved(active.id, saved.id, saved.name);
       qc.invalidateQueries({ queryKey: ['nodes', workspace.id] });
     } catch (e) {
-      setError(active.id, toAppError(e));
+      // 保存失败不应污染响应面板（与发送错误语义不同），用 alert 显式提示
+      alert('保存失败: ' + toAppError(e).detail);
     }
   };
 
@@ -191,6 +213,13 @@ export default function App() {
           gRPC
         </button>
         <button
+          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+          onClick={() => setShowGraphql(true)}
+          title="GraphQL schema 内省与补全"
+        >
+          GraphQL
+        </button>
+        <button
           className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 disabled:opacity-50"
           onClick={handleSync}
           disabled={syncing}
@@ -221,11 +250,14 @@ export default function App() {
         </button>
         <EnvSwitcher workspaceId={workspace.id} />
       </header>
-      {showCookies && <CookieManager onClose={() => setShowCookies(false)} />}
-      {showWs && <WsPanel onClose={() => setShowWs(false)} />}
-      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
-      {showGrpc && <GrpcPanel onClose={() => setShowGrpc(false)} />}
-      {showTheme && <ThemeDialog onClose={() => setShowTheme(false)} />}
+      <Suspense fallback={null}>
+        {showCookies && <CookieManager onClose={() => setShowCookies(false)} />}
+        {showWs && <WsPanel onClose={() => setShowWs(false)} />}
+        {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+        {showGrpc && <GrpcPanel onClose={() => setShowGrpc(false)} />}
+        {showGraphql && <GraphqlPanel onClose={() => setShowGraphql(false)} />}
+        {showTheme && <ThemeDialog onClose={() => setShowTheme(false)} />}
+      </Suspense>
 
       <div className="flex-1 flex min-h-0">
         {/* 侧栏 */}
@@ -279,6 +311,7 @@ export default function App() {
                   tab={active}
                   workspaceId={workspace.id}
                   onSend={handleSend}
+                  onCancel={handleCancel}
                   onSave={handleSave}
                 />
               </div>

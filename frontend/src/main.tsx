@@ -5,6 +5,7 @@ import './style.css';
 import './theme/theme.css';
 import './theme/store'; // 模块加载即恢复持久化主题
 import App from './App';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,8 +22,10 @@ const root = createRoot(container!);
 
 root.render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );

@@ -5,3 +5,11 @@ import {grpcclient} from '../models';
 export function GrpcCall(arg1:grpcclient.ConnectConfig,arg2:string,arg3:string,arg4:Record<string, string>):Promise<grpcclient.CallResult>;
 
 export function GrpcDiscover(arg1:grpcclient.ConnectConfig):Promise<Array<grpcclient.MethodInfo>>;
+
+export function GrpcStreamClose(arg1:string):Promise<void>;
+
+export function GrpcStreamCloseSend(arg1:string):Promise<void>;
+
+export function GrpcStreamOpen(arg1:string,arg2:grpcclient.ConnectConfig,arg3:string,arg4:Record<string, string>):Promise<void>;
+
+export function GrpcStreamSend(arg1:string,arg2:string):Promise<void>;

@@ -180,5 +180,14 @@ func (s *Store) ReadBlob(ref string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// removeBlobFile 删除 blob 文件；ref 校验与 ReadBlob 一致，避免路径逃逸。
+// 文件不存在或删除失败均不报错（调用方已删除 DB 行，孤儿文件不影响正确性）。
+func (s *Store) removeBlobFile(ref string) {
+	if ref == "" || strings.ContainsAny(ref, `/\`) || strings.Contains(ref, "..") {
+		return
+	}
+	os.Remove(filepath.Join(s.blobsDir, ref))
+}
+
 // Close 关闭底层连接
 func (s *Store) Close() error { return s.db.Close() }

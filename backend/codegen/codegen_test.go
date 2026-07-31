@@ -26,8 +26,8 @@ func sampleReq() model.HttpRequest {
 
 func TestTargets(t *testing.T) {
 	targets := Targets()
-	if len(targets) != 4 {
-		t.Fatalf("targets = %d, want 4", len(targets))
+	if len(targets) != 8 {
+		t.Fatalf("targets = %d, want 8", len(targets))
 	}
 	if _, err := Generate("nonexistent", sampleReq()); err == nil {
 		t.Error("unknown target should error")
@@ -78,7 +78,7 @@ func TestPythonGen(t *testing.T) {
 	}
 	for _, want := range []string{
 		"import requests", `url = "https://api.demo.io/users?notify=true"`,
-		"requests.post(", `auth=("u", "p")`,
+		`requests.request("POST", url`, `auth=("u", "p")`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("python missing %q in:\n%s", want, out)
@@ -117,6 +117,107 @@ func TestUrlencodedBodyAcrossTargets(t *testing.T) {
 		}
 		if !strings.Contains(out, "user=a+b") {
 			t.Errorf("%s missing urlencoded body:\n%s", target, out)
+		}
+	}
+}
+
+func TestJavaGen(t *testing.T) {
+	out, err := Generate("java-httpclient", sampleReq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"HttpClient.newHttpClient()", "URI.create(\"https://api.demo.io/users?notify=true\")",
+		`.method("POST"`, `.header("Authorization", "Bearer tok")`,
+		"HttpResponse.BodyHandlers.ofString()",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("java missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestRustGen(t *testing.T) {
+	out, err := Generate("rust-reqwest", sampleReq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"use std::error::Error", "Client::new()",
+		`client.request("POST".parse()?, "https://api.demo.io/users?notify=true")`,
+		`.header("Authorization", "Bearer tok")`,
+		".send().await",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rust missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestPhpGen(t *testing.T) {
+	out, err := Generate("php-curl", sampleReq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"$ch = curl_init('https://api.demo.io/users?notify=true')",
+		"CURLOPT_CUSTOMREQUEST", "CURLOPT_RETURNTRANSFER",
+		"'Authorization: Bearer tok'", "'X-Trace: t1'",
+		"curl_exec($ch)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("php missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestCsharpGen(t *testing.T) {
+	out, err := Generate("csharp-httpclient", sampleReq())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"new HttpClient()", "new HttpMethod(\"POST\")",
+		"req.Headers.TryAddWithoutValidation(\"Authorization\", \"Bearer tok\");",
+		"req.Headers.TryAddWithoutValidation(\"X-Trace\", \"t1\");",
+		"client.SendAsync(req)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("csharp missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestPythonCustomMethod(t *testing.T) {
+	req := sampleReq()
+	req.Method = "MKCOL"
+	out, err := Generate("python-requests", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `requests.request("MKCOL", url`) {
+		t.Fatalf("custom method should use requests.request:\n%s", out)
+	}
+}
+
+func TestApiKeyQueryAcrossCodegen(t *testing.T) {
+	req := model.HttpRequest{
+		Method: "GET", Url: "https://x.io/items",
+		Auth: model.Auth{Type: "apikey", Params: map[string]string{
+			"in": "query", "key": "api_key", "value": "a b",
+		}},
+		Settings: model.DefaultSettings(),
+	}
+	for _, target := range []string{"curl", "javascript-fetch", "python-requests", "go-nethttp"} {
+		out, err := Generate(target, req)
+		if err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+		if !strings.Contains(out, "api_key=a+b") {
+			t.Errorf("%s missing query API key:\n%s", target, out)
+		}
+		if strings.Contains(out, "api_key: a b") {
+			t.Errorf("%s incorrectly placed query API key in a header:\n%s", target, out)
 		}
 	}
 }

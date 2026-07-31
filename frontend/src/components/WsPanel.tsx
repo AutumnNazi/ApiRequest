@@ -23,11 +23,14 @@ export default function WsPanel({ onClose }: Props) {
   const sessionIdRef = useRef('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => onProtoMessage((m) => {
-    if (m.sessionId !== sessionIdRef.current) return;
-    setMessages((prev) => [...prev, m]);
-    if (m.kind === 'close' || m.kind === 'error') setConnected(false);
-  }), []);
+  useEffect(() => {
+    const unsub = onProtoMessage((m) => {
+      if (m.sessionId !== sessionIdRef.current) return;
+      setMessages((prev) => [...prev, m].slice(-1000));
+      if (m.kind === 'close' || m.kind === 'error') setConnected(false);
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,11 +43,14 @@ export default function WsPanel({ onClose }: Props) {
 
   const connect = async () => {
     setError('');
-    sessionIdRef.current = `ws-${Date.now()}`;
+    const id = `ws-${Date.now()}`;
+    sessionIdRef.current = id;
     try {
-      await openSession(sessionIdRef.current, { protocol, url });
+      await openSession(id, { protocol, url });
       setConnected(true);
     } catch (e) {
+      // 失败时回滚 sessionId，避免下次连接复用同一 id 导致后端冲突
+      sessionIdRef.current = '';
       setError(toAppError(e).detail);
     }
   };

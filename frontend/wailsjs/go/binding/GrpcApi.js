@@ -9,3 +9,19 @@ export function GrpcCall(arg1, arg2, arg3, arg4) {
 export function GrpcDiscover(arg1) {
   return window['go']['binding']['GrpcApi']['GrpcDiscover'](arg1);
 }
+
+export function GrpcStreamClose(arg1) {
+  return window['go']['binding']['GrpcApi']['GrpcStreamClose'](arg1);
+}
+
+export function GrpcStreamCloseSend(arg1) {
+  return window['go']['binding']['GrpcApi']['GrpcStreamCloseSend'](arg1);
+}
+
+export function GrpcStreamOpen(arg1, arg2, arg3, arg4) {
+  return window['go']['binding']['GrpcApi']['GrpcStreamOpen'](arg1, arg2, arg3, arg4);
+}
+
+export function GrpcStreamSend(arg1, arg2) {
+  return window['go']['binding']['GrpcApi']['GrpcStreamSend'](arg1, arg2);
+}

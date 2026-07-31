@@ -181,7 +181,12 @@ interface HttpRequest {
   body: Body;
   auth: Auth;
   settings: RequestSettings;
+  preScript?: string;        // 请求级前置脚本（与集合/文件夹级合并执行）
+  testScript?: string;       // 请求级测试脚本
 }
+// 注：上面 Body 用 TS 判别联合表达（窄化方便）。Wails 实际生成的是扁平 Body struct
+// （Kind + 其它字段都存在），前端用 `if (body.kind === 'formdata')` 做 type guard；
+// 这里写 union 仅为说明各 kind 触发的字段集合。
 type Body =
   | { kind: 'none' }
   | { kind: 'raw'; language: 'json'|'xml'|'html'|'text'; text: string }
@@ -191,6 +196,22 @@ type Body =
   | { kind: 'graphql'; query: string; variables: string };
 
 interface KV { key: string; value: string; enabled: boolean; description?: string }
+
+// 认证（Phase 1 仅透传；实际 provider 由后端 auth.Register 注册决定）
+// 合法 Type："" | "none" | "inherit"（不查表）+ 后端注册表中的所有 provider：
+//   basic | bearer | apikey | oauth1 | oauth2 | digest | awsv4
+interface Auth {
+  type: string;
+  params?: Record<string, string>;
+}
+
+interface FormItem {
+  key: string;
+  type: 'text' | 'file';   // file 时 path 生效，text 时 value 生效
+  value?: string;
+  path?: string;
+  enabled: boolean;
+}
 
 // 发送上下文（前端组装后传给 SendRequest）
 interface SendContext {
