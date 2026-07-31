@@ -1,5 +1,7 @@
 # Mock Server 与 Collection Runner
 
+[English](./en/advanced.md) | 简体中文
+
 相关文档：[文档索引](./index.md) · [请求生命周期](./request-lifecycle.md)
 
 ---
@@ -59,6 +61,6 @@ run_collection(target, options):
 ```
 
 - **执行顺序**：按树的显示顺序展开；脚本内可用 `pm.setNextRequest(name)` 改变流转（后期）。
-- **数据驱动**：每轮把数据文件一行注入 `data` 作用域（优先级见[变量解析](./request-lifecycle.md#变量解析与模板引擎)）。
+- **数据驱动**：每轮把数据文件一行注入 `data` 作用域（优先级见[变量解析](./request-lifecycle.md#2-变量解析与模板引擎)）。
 - **并发**：默认串行（多数接口有状态依赖）；可选有限并发用于压测型场景。
 - **报告**：结构化结果可导出 JSON/HTML，供 CI 消费；退出码反映失败数（配合 CLI 模式，后期）。

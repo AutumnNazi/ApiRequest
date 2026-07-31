@@ -1,5 +1,7 @@
 # 协作与同步（WebDAV，已实现）
 
+[English](./en/sync.md) | 简体中文
+
 > **状态：已实现（2026-07-26）**。采用 **WebDAV** 方案——用户自带任意 WebDAV 服务（坚果云 / Nextcloud / 自建），项目方无需运行服务端。与 Joplin / Floccus 等开源工具同一模式。原占位设计中的 oplog 推送留作未来实时协作的演进方向。
 
 相关文档：[文档索引](./index.md) · [数据模型](./data-model.md) · [安全与运维](./ops.md)

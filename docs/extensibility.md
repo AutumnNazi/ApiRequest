@@ -1,5 +1,7 @@
 # 可扩展性与插件接口
 
+[English](./en/extensibility.md) | 简体中文
+
 相关文档：[文档索引](./index.md) · [导入导出与代码生成](./interop.md) · [多协议适配器](./protocols.md)
 
 即便 v1 不开放第三方插件，内部也以"注册表 + interface（Go 接口）"组织可扩展点，降低耦合、便于测试与后续开放：

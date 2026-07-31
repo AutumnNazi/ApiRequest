@@ -1,5 +1,7 @@
 # 前后端接口约定（Wails 绑定方法与事件）
 
+[English](./en/api-contract.md) | 简体中文
+
 相关文档：[文档索引](./index.md) · [数据模型](./data-model.md) · [前端数据流](./frontend.md) · [请求生命周期](./request-lifecycle.md)
 
 ---

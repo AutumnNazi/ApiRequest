@@ -1,5 +1,7 @@
 # 请求生命周期、变量、脚本与 HTTP 引擎
 
+[English](./en/request-lifecycle.md) | 简体中文
+
 本篇覆盖一次请求从发起到落库的完整流程、变量解析与模板引擎、脚本引擎执行模型，以及 HTTP 引擎内核设计。
 
 相关文档：[文档索引](./index.md) · [数据模型](./data-model.md) · [认证](./auth.md) · [接口约定](./api-contract.md)

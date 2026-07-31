@@ -1,5 +1,7 @@
 # 数据模型、存储与共享类型
 
+[English](./en/data-model.md) | 简体中文
+
 本篇覆盖领域模型、SQLite Schema、前后端共享类型契约，以及 Schema 迁移与版本兼容。
 
 相关文档：[文档索引](./index.md) · [概览](./overview.md) · [请求生命周期](./request-lifecycle.md)

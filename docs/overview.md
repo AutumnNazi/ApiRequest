@@ -1,5 +1,7 @@
 # 概览：目标、架构与技术栈
 
+[English](./en/overview.md) | 简体中文
+
 > 一个类 Postman 的 API 调试与协作工具。
 > 技术选型：Wails v2（Go 后端）+ React + TypeScript（前端）。目标：完整版功能。
 
@@ -28,7 +30,7 @@
 | macOS | **一等** | macOS 12 Monterey+ | Apple Silicon + Intel（universal 或分架构产物） | 系统 WKWebView |
 | Linux | best-effort | 常见发行版（Ubuntu 22.04+ 等） | x64 | WebKitGTK |
 
-Wails 使用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），无需捆绑浏览器内核。跨平台打包、签名、CI 与冒烟门禁见 [ops.md](./ops.md#跨平台支持与发布)。
+Wails 使用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），无需捆绑浏览器内核。跨平台打包、签名、CI 与冒烟门禁见 [ops.md](./ops.md#4-跨平台支持与发布)。
 
 ---
 
@@ -127,7 +129,7 @@ Wails 使用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGT
 - **密钥**：见 [ADR-013](./decisions.md#adr-013-密钥存储默认系统-keychain无可用时主密码加密回退已定)。
 - **代理 / 证书**：HTTP 引擎通过 `platform` 注入配置，UI 只展示结果与手动覆盖项。
 
-细节（打包产物、CI 矩阵、冒烟清单）见 [ops.md](./ops.md#跨平台支持与发布)。
+细节（打包产物、CI 矩阵、冒烟清单）见 [ops.md](./ops.md#4-跨平台支持与发布)。
 
 ---
 

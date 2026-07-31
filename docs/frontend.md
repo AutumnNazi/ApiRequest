@@ -1,5 +1,7 @@
 # 前端状态与 UI/UX 规范
 
+[English](./en/frontend.md) | 简体中文
+
 相关文档：[文档索引](./index.md) · [概述与架构](./overview.md) · [接口约定](./api-contract.md)
 
 ---
@@ -30,7 +32,7 @@
 
 ## 3. IPC typed wrapper
 
-所有 `invoke`（即 Wails 生成绑定函数的调用）经由 `frontend/src/ipc/` 下按领域封装的函数，参数/返回类型引用[共享类型](./data-model.md#前后端共享类型契约)，禁止组件层直接裸调 Wails 绑定，保证：类型安全、便于 mock 测试、统一错误转换。
+所有 `invoke`（即 Wails 生成绑定函数的调用）经由 `frontend/src/ipc/` 下按领域封装的函数，参数/返回类型引用[共享类型](./data-model.md#3-前后端共享类型契约)，禁止组件层直接裸调 Wails 绑定，保证：类型安全、便于 mock 测试、统一错误转换。
 
 ---
 

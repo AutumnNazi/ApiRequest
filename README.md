@@ -184,16 +184,16 @@ Platform notes: Windows needs the **WebView2 Runtime** (preinstalled on Win 11 /
 
 Core loop (build → send → inspect → save → replay), variables & scripts, all auth types, import/export, Runner, Mock, WS/SSE are **implemented and tested**. Upcoming: gRPC, Git-friendly collection mirror, response preview polish, optional team sync, CLI runner.
 
-Full checklist and phase plan: [docs/roadmap.md](docs/roadmap.md) · Architecture decisions: [docs/decisions.md](docs/decisions.md)
+Full checklist and phase plan: [docs/en/roadmap.md](docs/en/roadmap.md) · Architecture decisions: [docs/en/decisions.md](docs/en/decisions.md)
 
 ---
 
 ## 📚 Documentation
 
-Design docs live in [`docs/`](docs/) — start at [docs/index.md](docs/index.md):
+English design docs live in [`docs/en/`](docs/en/) — start at [docs/en/index.md](docs/en/index.md):
 
-- New to the project → [overview](docs/overview.md) → [roadmap](docs/roadmap.md)
-- Hacking on core → [data model](docs/data-model.md) → [request lifecycle](docs/request-lifecycle.md) → [API contract](docs/api-contract.md)
+- New to the project → [overview](docs/en/overview.md) → [roadmap](docs/en/roadmap.md)
+- Hacking on core → [data model](docs/en/data-model.md) → [request lifecycle](docs/en/request-lifecycle.md) → [API contract](docs/en/api-contract.md)
 
 ---
 

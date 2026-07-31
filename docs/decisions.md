@@ -1,5 +1,7 @@
 # 架构决策记录（ADR）
 
+[English](./en/decisions.md) | 简体中文
+
 记录关键技术选型的**决定、理由、取舍与替代方案**，以及尚待拍板的**开放问题**。决策变更时在此追加而非删除，保留演进痕迹。
 
 状态标记：`已定` = 采纳并落入设计文档；`倾向` = 有推荐但可推翻；`待定` = 需决策。
@@ -72,7 +74,7 @@
 - **决定**：使用 `zalando/go-keyring` 访问 Windows Credential Manager 与 macOS Keychain，存放密钥变量、OAuth access token 与 refresh token；密钥本体不写入 SQLite、历史记录或集合镜像。系统 keychain 不可用时，要求用户设置主密码，以 `golang.org/x/crypto/argon2`（Argon2id）派生密钥并加密本地密钥数据。
 - **理由**：默认复用 OS 已有的凭证保护与用户解锁机制，确保 Windows/macOS 一致的安全体验；回退机制使无 GUI keychain 的 CI、受限企业环境和 Linux 不阻断核心功能。
 - **取舍**：首次使用回退模式须额外输入主密码；忘记主密码无法恢复密钥数据，只能清除并重新授权。
-- **边界**：keychain 调用、回退存储和错误归一化只能由 `platform` 包的 `secrets` 实现，业务模块不得感知具体平台后端。详见 [ops.md](./ops.md#安全考量)。
+- **边界**：keychain 调用、回退存储和错误归一化只能由 `platform` 包的 `secrets` 实现，业务模块不得感知具体平台后端。详见 [ops.md](./ops.md#1-安全考量)。
 
 ---
 

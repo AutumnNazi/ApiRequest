@@ -1,5 +1,7 @@
 # ApiRequest 设计文档索引
 
+[English](./en/index.md) | 简体中文
+
 > 一个类 Postman 的 API 调试与协作工具。
 > 技术选型：Wails v2（Go 后端）+ React + TypeScript（前端）。目标：完整版功能。
 

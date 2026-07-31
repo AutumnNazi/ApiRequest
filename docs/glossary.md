@@ -1,5 +1,7 @@
 # 术语表
 
+[English](./en/glossary.md) | 简体中文
+
 > 返回 [文档索引](./index.md)。
 
 | 术语 | 含义 |
