@@ -26,8 +26,8 @@
 
 | 平台 | 支持级别 | 最低系统 | 架构 | 运行时依赖 |
 |------|----------|----------|------|------------|
-| Windows | **一等** | Windows 10 1809+ / Windows 11 | x64（arm64 后期） | WebView2 Runtime（安装包可引导安装） |
-| macOS | **一等** | macOS 12 Monterey+ | Apple Silicon + Intel（universal 或分架构产物） | 系统 WKWebView |
+| Windows | **一等** | Windows 10 1809+ / Windows 11 | AMD64 + ARM64（独立产物） | WebView2 Runtime（安装包可引导安装） |
+| macOS | **一等** | macOS 12 Monterey+ | Intel + Apple Silicon（独立 DMG） | 系统 WKWebView |
 | Linux | best-effort | 常见发行版（Ubuntu 22.04+ 等） | x64 | WebKitGTK |
 
 Wails 使用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGTK），无需捆绑浏览器内核。跨平台打包、签名、CI 与冒烟门禁见 [ops.md](./ops.md#4-跨平台支持与发布)。

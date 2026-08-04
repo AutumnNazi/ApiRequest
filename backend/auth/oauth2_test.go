@@ -117,7 +117,7 @@ func TestAuthorizationCodePKCE(t *testing.T) {
 		q := r.URL.Query()
 		gotChallenge = q.Get("code_challenge")
 		redirect := q.Get("redirect_uri") + "?code=CODE1&state=" + url.QueryEscape(q.Get("state"))
-		http.Redirect(w, r, redirect, 302)
+		http.Redirect(w, r, redirect, http.StatusFound)
 	}))
 	defer authSrv.Close()
 

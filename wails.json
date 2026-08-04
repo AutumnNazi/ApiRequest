@@ -6,6 +6,13 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
+  "info": {
+    "companyName": "chenkaiyuan",
+    "productName": "ApiRequest",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright (c) 2026 chenkaiyuan",
+    "comments": "Native API development client built with Wails"
+  },
   "author": {
     "name": "chenkaiyuan",
     "email": "1150905716@qq.com"

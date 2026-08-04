@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="ApiRequest"
+    Manufacturer="chenkaiyuan"
+    Version="$(var.AppVersion)"
+    UpgradeCode="$(var.UpgradeCode)"
+    Language="1033"
+    Scope="perMachine"
+    InstallerVersion="500">
+    <SummaryInformation Description="ApiRequest API client installer" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ApiRequest is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="ApiRequestIcon" SourceFile="$(var.AppIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="ApiRequestIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="WEBVIEW2_MACHINE_WOW">
+      <RegistrySearch
+        Id="FindMachineWebView2Wow"
+        Root="HKLM"
+        Key="SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+        Name="pv"
+        Type="raw" />
+    </Property>
+    <Property Id="WEBVIEW2_MACHINE_NATIVE">
+      <RegistrySearch
+        Id="FindMachineWebView2Native"
+        Root="HKLM"
+        Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+        Name="pv"
+        Type="raw" />
+    </Property>
+    <Property Id="WEBVIEW2_USER">
+      <RegistrySearch
+        Id="FindUserWebView2"
+        Root="HKCU"
+        Key="Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+        Name="pv"
+        Type="raw" />
+    </Property>
+    <Launch
+      Condition="Installed OR ACTION = &quot;ADMIN&quot; OR (WEBVIEW2_MACHINE_WOW AND WEBVIEW2_MACHINE_WOW &lt;&gt; &quot;0.0.0.0&quot;) OR (WEBVIEW2_MACHINE_NATIVE AND WEBVIEW2_MACHINE_NATIVE &lt;&gt; &quot;0.0.0.0&quot;) OR (WEBVIEW2_USER AND WEBVIEW2_USER &lt;&gt; &quot;0.0.0.0&quot;)"
+      Message="ApiRequest requires the Microsoft Edge WebView2 Runtime. Install it from https://go.microsoft.com/fwlink/p/?LinkId=2124703, then run this installer again." />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="ApiRequest">
+        <Component Id="MainExecutable" Guid="*">
+          <File
+            Id="ApiRequestExecutable"
+            Source="$(var.AppExecutable)"
+            Name="ApiRequest.exe"
+            KeyPath="yes">
+            <Shortcut
+              Id="StartMenuShortcut"
+              Directory="ProgramMenuFolder"
+              Name="ApiRequest"
+              Description="ApiRequest API client"
+              WorkingDirectory="INSTALLFOLDER"
+              Icon="ApiRequestIcon"
+              Advertise="yes" />
+            <Shortcut
+              Id="DesktopShortcut"
+              Directory="DesktopFolder"
+              Name="ApiRequest"
+              Description="ApiRequest API client"
+              WorkingDirectory="INSTALLFOLDER"
+              Icon="ApiRequestIcon"
+              Advertise="yes" />
+          </File>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="ApiRequest" Level="1">
+      <ComponentRef Id="MainExecutable" />
+    </Feature>
+  </Package>
+</Wix>

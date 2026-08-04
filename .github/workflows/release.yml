@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -21,18 +21,27 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Go vet
+        run: go vet ./backend/... ./cmd/...
+
       - name: Go tests
-        run: go test ./...
+        run: go test ./backend/... ./cmd/...
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '20.19'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
+
+      - name: Packaging script tests
+        run: node --test scripts/*.test.mjs
+
+      - name: Documentation checks
+        run: node scripts/check-docs.mjs
 
       - name: Frontend tests
         run: npm --prefix frontend test -- --run
@@ -47,12 +56,36 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             label: windows-amd64
-          - os: macos-latest
-            label: darwin-universal
+            kind: windows
+            platform: windows/amd64
+            arch: amd64
+            asset_arch: Amd64
+          - os: windows-11-arm
+            label: windows-arm64
+            kind: windows
+            platform: windows/arm64
+            arch: arm64
+            asset_arch: Arm64
+          - os: macos-15-intel
+            label: macos-amd64
+            kind: macos
+            platform: darwin/amd64
+            arch: amd64
+            asset_arch: Amd64
+          - os: macos-15
+            label: macos-arm64
+            kind: macos
+            platform: darwin/arm64
+            arch: arm64
+            asset_arch: Arm64
           - os: ubuntu-latest
             label: linux-amd64
+            kind: linux
+            platform: linux/amd64
+            arch: amd64
+            asset_arch: Amd64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -66,15 +99,21 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '20.19'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup .NET for WiX
+        if: matrix.kind == 'windows'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
 
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
 
       - name: Install Linux WebKit dependencies
-        if: matrix.label == 'linux-amd64'
+        if: matrix.kind == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
@@ -82,19 +121,41 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
+      - name: Set release version metadata
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset_version="${RELEASE_VERSION#v}"
+          printf 'ASSET_VERSION=%s\n' "$asset_version" >> "$GITHUB_ENV"
+          node scripts/set-build-version.mjs "$RELEASE_VERSION"
+
       - name: Wails build
         shell: bash
         run: |
           set -euo pipefail
-          case "${{ matrix.label }}" in
-            darwin-universal) wails build -platform darwin/universal ;;
-            linux-amd64) wails build -tags webkit2_41 ;;
-            *) wails build ;;
-          esac
+          if [[ "${{ matrix.kind }}" == "linux" ]]; then
+            wails build -m -trimpath -platform "${{ matrix.platform }}" -tags webkit2_41
+          else
+            wails build -m -trimpath -platform "${{ matrix.platform }}"
+          fi
 
-      - name: Sign Windows executable (when certificate secrets are configured)
-        id: sign_windows
-        if: matrix.label == 'windows-amd64'
+      - name: Install WiX Toolset
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          $toolPath = Join-Path $env:RUNNER_TEMP 'wix'
+          dotnet tool install --tool-path $toolPath wix --version 6.0.2
+          if ($LASTEXITCODE -ne 0) { throw "WiX installation failed" }
+          $wix = Join-Path $toolPath 'wix.exe'
+          & $wix --version
+          if ($LASTEXITCODE -ne 0) { throw "WiX startup failed" }
+          "WIX_EXECUTABLE=$wix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Sign Windows executable
+        id: sign_windows_exe
+        if: matrix.kind == 'windows'
         env:
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
@@ -102,22 +163,64 @@ jobs:
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
             'signed=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Host 'Windows signing secrets are not configured; publishing an unsigned artifact.'
+            Write-Host 'Windows signing secrets are not configured; publishing unsigned packages.'
             exit 0
           }
-          $certPath = Join-Path $pwd 'signing.pfx'
+          $certPath = Join-Path $env:RUNNER_TEMP 'apirequest-signing.pfx'
           try {
             [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
-            & signtool sign /fd SHA256 /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD /tr http://timestamp.digicert.com /td SHA256 "build/bin/ApiRequest.exe"
-            if ($LASTEXITCODE -ne 0) { throw "signtool failed" }
+            & signtool sign /fd SHA256 /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD /tr https://timestamp.digicert.com /td SHA256 'build/bin/ApiRequest.exe'
+            if ($LASTEXITCODE -ne 0) { throw "EXE signing failed" }
+            & signtool verify /pa /all 'build/bin/ApiRequest.exe'
+            if ($LASTEXITCODE -ne 0) { throw "EXE signature verification failed" }
             'signed=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           } finally {
             Remove-Item -LiteralPath $certPath -Force -ErrorAction SilentlyContinue
           }
 
-      - name: Sign, notarize, and staple macOS app (when credentials are configured)
-        id: sign_macos
-        if: matrix.label == 'darwin-universal'
+      - name: Build Windows EXE, ZIP, and MSI packages
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          & ./scripts/build-windows-packages.ps1 `
+            -Architecture '${{ matrix.arch }}' `
+            -Version $env:APP_VERSION `
+            -AssetVersion $env:ASSET_VERSION `
+            -WixExecutable $env:WIX_EXECUTABLE
+
+      - name: Sign Windows MSI
+        if: matrix.kind == 'windows' && steps.sign_windows_exe.outputs.signed == 'true'
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'apirequest-signing.pfx'
+          $msiPath = "dist/ApiRequest-$env:ASSET_VERSION-Windows-${{ matrix.asset_arch }}-Installer.msi"
+          try {
+            [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+            & signtool sign /fd SHA256 /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD /tr https://timestamp.digicert.com /td SHA256 $msiPath
+            if ($LASTEXITCODE -ne 0) { throw "MSI signing failed" }
+            & signtool verify /pa /all $msiPath
+            if ($LASTEXITCODE -ne 0) { throw "MSI signature verification failed" }
+          } finally {
+            Remove-Item -LiteralPath $certPath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Record Windows signing status
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          $signing = if ('${{ steps.sign_windows_exe.outputs.signed }}' -eq 'true') { 'Authenticode signed (EXE and MSI)' } else { 'UNSIGNED (certificate secrets not configured)' }
+          @(
+            'platform=${{ matrix.label }}'
+            'architecture=${{ matrix.arch }}'
+            "signing=$signing"
+          ) | Out-File -FilePath 'dist/SIGNING_STATUS-${{ matrix.label }}.txt' -Encoding utf8
+
+      - name: Build, sign, and notarize macOS DMG
+        id: package_macos
+        if: matrix.kind == 'macos'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -128,22 +231,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" || -z "${APPLE_CERTIFICATE_PASSWORD:-}" || -z "${APPLE_SIGNING_IDENTITY:-}" || -z "${APPLE_ID:-}" || -z "${APPLE_APP_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
-            echo 'signed=false' >> "$GITHUB_OUTPUT"
-            echo 'Apple signing secrets are not configured; publishing an unsigned artifact.'
-            exit 0
-          fi
-          keychain="$RUNNER_TEMP/signing.keychain-db"
-          cert="$RUNNER_TEMP/signing.p12"
-          notary_archive="$RUNNER_TEMP/ApiRequest-notarization.zip"
-          original_keychain="$(security default-keychain -d user | tr -d '"')"
+          dmg="dist/ApiRequest-${ASSET_VERSION}-MacOS-${{ matrix.asset_arch }}.dmg"
+          keychain="$RUNNER_TEMP/apirequest-signing.keychain-db"
+          cert="$RUNNER_TEMP/apirequest-signing.p12"
+          original_keychain=""
           cleanup() {
-            security default-keychain -d user -s "$original_keychain" >/dev/null 2>&1 || true
-            security list-keychains -d user -s "$original_keychain" >/dev/null 2>&1 || true
+            if [[ -n "$original_keychain" ]]; then
+              security default-keychain -d user -s "$original_keychain" >/dev/null 2>&1 || true
+              security list-keychains -d user -s "$original_keychain" >/dev/null 2>&1 || true
+            fi
             security delete-keychain "$keychain" >/dev/null 2>&1 || true
-            rm -f "$cert" "$notary_archive"
+            rm -f "$cert"
           }
           trap cleanup EXIT
+
+          if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" || -z "${APPLE_CERTIFICATE_PASSWORD:-}" || -z "${APPLE_SIGNING_IDENTITY:-}" || -z "${APPLE_ID:-}" || -z "${APPLE_APP_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
+            bash scripts/build-macos-packages.sh '${{ matrix.arch }}' "$ASSET_VERSION" build/bin/ApiRequest.app dist
+            echo 'signed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          original_keychain="$(security default-keychain -d user | tr -d '"')"
           printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 -D > "$cert"
           security create-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
@@ -152,48 +260,44 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$APPLE_CERTIFICATE_PASSWORD" "$keychain"
           security list-keychains -d user -s "$keychain" "$original_keychain"
           security default-keychain -d user -s "$keychain"
-          codesign --deep --force --options runtime --sign "$APPLE_SIGNING_IDENTITY" "build/bin/ApiRequest.app"
-          codesign --verify --deep --strict "build/bin/ApiRequest.app"
-          ditto -c -k --keepParent "build/bin/ApiRequest.app" "$notary_archive"
-          xcrun notarytool submit "$notary_archive" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple "build/bin/ApiRequest.app"
-          xcrun stapler validate "build/bin/ApiRequest.app"
+
+          codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" build/bin/ApiRequest.app
+          codesign --verify --deep --strict --verbose=2 build/bin/ApiRequest.app
+          bash scripts/build-macos-packages.sh '${{ matrix.arch }}' "$ASSET_VERSION" build/bin/ApiRequest.app dist
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$dmg"
+          codesign --verify --strict --verbose=2 "$dmg"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          hdiutil verify "$dmg"
           echo 'signed=true' >> "$GITHUB_OUTPUT"
 
-      - name: Package artifact
+      - name: Record macOS signing status
+        if: matrix.kind == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.package_macos.outputs.signed }}" == "true" ]]; then
+            signing='Developer ID signed, notarized, and stapled'
+          else
+            signing='UNSIGNED (Apple signing secrets not configured)'
+          fi
+          printf 'platform=%s\narchitecture=%s\nsigning=%s\n' \
+            '${{ matrix.label }}' '${{ matrix.arch }}' "$signing" \
+            > "dist/SIGNING_STATUS-${{ matrix.label }}.txt"
+
+      - name: Package Linux executable
+        if: matrix.kind == 'linux'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          case "${{ matrix.label }}" in
-            windows-amd64)
-              if [[ "${{ steps.sign_windows.outputs.signed }}" == "true" ]]; then
-                asset="ApiRequest-windows-amd64.exe"
-                signing="Authenticode signed"
-              else
-                asset="ApiRequest-windows-amd64-unsigned.exe"
-                signing="UNSIGNED (certificate secrets not configured)"
-              fi
-              cp build/bin/ApiRequest.exe "dist/$asset"
-              ;;
-            darwin-universal)
-              if [[ "${{ steps.sign_macos.outputs.signed }}" == "true" ]]; then
-                asset="ApiRequest-darwin-universal.zip"
-                signing="Developer ID signed, notarized, stapled"
-              else
-                asset="ApiRequest-darwin-universal-unsigned.zip"
-                signing="UNSIGNED (Apple signing secrets not configured)"
-              fi
-              ditto -c -k --sequesterRsrc --keepParent build/bin/ApiRequest.app "dist/$asset"
-              ;;
-            linux-amd64)
-              asset="ApiRequest-linux-amd64-unsigned"
-              signing="UNSIGNED (Linux artifact)"
-              cp build/bin/ApiRequest "dist/$asset"
-              chmod +x "dist/$asset"
-              ;;
-          esac
-          printf 'platform=%s\nsigning=%s\n' "${{ matrix.label }}" "$signing" > "dist/SIGNING_STATUS-${{ matrix.label }}.txt"
+          asset="dist/ApiRequest-${ASSET_VERSION}-Linux-Amd64"
+          cp build/bin/ApiRequest "$asset"
+          chmod +x "$asset"
+          printf 'platform=%s\narchitecture=%s\nsigning=%s\n' \
+            '${{ matrix.label }}' '${{ matrix.arch }}' 'UNSIGNED (Linux artifact)' \
+            > "dist/SIGNING_STATUS-${{ matrix.label }}.txt"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -206,6 +310,8 @@ jobs:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -214,17 +320,41 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
-      - name: Create checksums and update manifest
+      - name: Verify packages, create checksums, and update manifest
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
           cd dist
-          sha256sum ApiRequest-* > SHA256SUMS
-          export VERSION="${GITHUB_REF_NAME#v}"
+          export VERSION="${RELEASE_VERSION#v}"
           node <<'NODE'
           const fs = require('fs');
-          const path = require('path');
-          const names = fs.readdirSync('.').filter((name) => name.startsWith('ApiRequest-') && name !== 'ApiRequest-dev');
+          const version = process.env.VERSION;
+          const required = [
+            `ApiRequest-${version}-MacOS-Amd64.dmg`,
+            `ApiRequest-${version}-MacOS-Arm64.dmg`,
+            `ApiRequest-${version}-Windows-Amd64-Installer.msi`,
+            `ApiRequest-${version}-Windows-Amd64-Portable.exe`,
+            `ApiRequest-${version}-Windows-Amd64-Portable.zip`,
+            `ApiRequest-${version}-Windows-Arm64-Installer.msi`,
+            `ApiRequest-${version}-Windows-Arm64-Portable.exe`,
+            `ApiRequest-${version}-Windows-Arm64-Portable.zip`,
+          ];
+          const missing = required.filter((name) => !fs.existsSync(name));
+          if (missing.length > 0) {
+            throw new Error(`missing required release packages: ${missing.join(', ')}`);
+          }
+          NODE
+          mapfile -t assets < <(find . -maxdepth 1 -type f -name 'ApiRequest-*' -printf '%f\n' | sort)
+          if (( ${#assets[@]} < 8 )); then
+            echo 'Expected at least eight ApiRequest packages.' >&2
+            exit 1
+          fi
+          sha256sum "${assets[@]}" > SHA256SUMS
+          node <<'NODE'
+          const fs = require('fs');
+          const names = fs.readdirSync('.').filter((name) => name.startsWith('ApiRequest-')).sort();
           const repo = process.env.GITHUB_REPOSITORY;
           const tag = process.env.GITHUB_REF_NAME;
           const base = `https://github.com/${repo}/releases/download/${tag}`;

@@ -444,13 +444,3 @@ func (s *Store) migrateSyncPassword() error {
 		return err
 	})
 }
-
-// rawSetting is used only by focused storage tests and migration internals.
-func (s *Store) rawSetting(key string) (string, error) {
-	var value string
-	err := s.db.QueryRow("SELECT value FROM setting WHERE key = ?", key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return value, err
-}

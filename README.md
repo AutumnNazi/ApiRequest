@@ -126,7 +126,7 @@ Browser-based tools hit CORS walls; Electron clients ship a whole Chromium. ApiR
 
 ### 🧩 Stack
 
-`Go 1.23` · `Wails v2` · `React 18` · `TypeScript` · `Vite` · `Tailwind CSS` · `Zustand` · `TanStack Query` · `CodeMirror 6` · `goja` · `modernc.org/sqlite` (pure Go, no CGO)
+`Go 1.26.5` · `Wails v2` · `React 18` · `TypeScript` · `Vite` · `Tailwind CSS` · `Zustand` · `TanStack Query` · `CodeMirror 6` · `goja` · `modernc.org/sqlite` (pure Go, no CGO)
 
 ---
 
@@ -146,8 +146,8 @@ Browser-based tools hit CORS walls; Electron clients ship a whole Chromium. ApiR
 
 ### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.23+
-- [Node.js](https://nodejs.org/) 18+
+- [Go](https://go.dev/dl/) 1.26.5+
+- [Node.js](https://nodejs.org/) 20.19+ on Node 20, or 22.12+
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation) v2
 
 ```bash
@@ -178,6 +178,19 @@ cd frontend && npm run build   # type-check + bundle
 ```
 
 Platform notes: Windows needs the **WebView2 Runtime** (preinstalled on Win 11 / recent Win 10); macOS and Linux use the system WebView (WebKit / WebKitGTK).
+
+### Downloads
+
+[Stable releases](https://github.com/AutumnNazi/ApiRequest/releases/latest) and [`dev-latest`](https://github.com/AutumnNazi/ApiRequest/releases/tag/dev-latest) publish native packages for both supported architectures:
+
+| Platform | Architecture | Packages |
+|----------|--------------|----------|
+| Windows | AMD64 | `ApiRequest-<version>-Windows-Amd64-Installer.msi`, `-Portable.exe`, and `-Portable.zip` |
+| Windows | ARM64 | `ApiRequest-<version>-Windows-Arm64-Installer.msi`, `-Portable.exe`, and `-Portable.zip` |
+| macOS | Intel | `ApiRequest-<version>-MacOS-Amd64.dmg` |
+| macOS | Apple Silicon | `ApiRequest-<version>-MacOS-Arm64.dmg` |
+
+Use the MSI for a normal Windows installation or a Portable package without installation. Linux AMD64 is published as an additional best-effort executable. Verify downloads against `SHA256SUMS`; consult the matching `SIGNING_STATUS-*.txt` before running a development or unsigned build.
 
 ---
 

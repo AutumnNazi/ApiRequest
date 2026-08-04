@@ -26,8 +26,8 @@ Related: [Documentation Index](./index.md) · [Data Model](./data-model.md) · [
 
 | Platform | Support | Minimum OS | Architectures | Runtime Dependency |
 |----------|---------|------------|---------------|--------------------|
-| Windows | **First-class** | Windows 10 1809+ / Windows 11 | x64; arm64 later | WebView2 Runtime, with installer guidance when needed |
-| macOS | **First-class** | macOS 12 Monterey+ | Apple Silicon + Intel, universal or separate artifacts | System WKWebView |
+| Windows | **First-class** | Windows 10 1809+ / Windows 11 | AMD64 + ARM64 as separate artifacts | WebView2 Runtime, with installer guidance when needed |
+| macOS | **First-class** | macOS 12 Monterey+ | Intel + Apple Silicon as separate DMGs | System WKWebView |
 | Linux | Best-effort | Common distributions such as Ubuntu 22.04+ | x64 | WebKitGTK |
 
 Wails uses the system WebView (WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux), so no browser engine is bundled. See [ops.md](./ops.md#4-cross-platform-support-and-releases) for cross-platform packaging, signing, CI, and smoke-test gates.

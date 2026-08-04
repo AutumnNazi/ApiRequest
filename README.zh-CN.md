@@ -125,7 +125,7 @@
 
 ### 🧩 技术栈
 
-`Go 1.23` · `Wails v2` · `React 18` · `TypeScript` · `Vite` · `Tailwind CSS` · `Zustand` · `TanStack Query` · `CodeMirror 6` · `goja` · `modernc.org/sqlite`（纯 Go 免 CGO）
+`Go 1.26.5` · `Wails v2` · `React 18` · `TypeScript` · `Vite` · `Tailwind CSS` · `Zustand` · `TanStack Query` · `CodeMirror 6` · `goja` · `modernc.org/sqlite`（纯 Go 免 CGO）
 
 ---
 
@@ -145,8 +145,8 @@
 
 ### 环境要求
 
-- [Go](https://go.dev/dl/) 1.23+
-- [Node.js](https://nodejs.org/) 18+
+- [Go](https://go.dev/dl/) 1.26.5+
+- [Node.js](https://nodejs.org/) 20.19+（Node 20）或 22.12+
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation) v2
 
 ```bash
@@ -177,6 +177,19 @@ cd frontend && npm run build   # 类型检查 + 打包
 ```
 
 平台说明：Windows 需要 **WebView2 Runtime**（Win 11 / 较新的 Win 10 已预装）；macOS 与 Linux 使用系统 WebView（WebKit / WebKitGTK）。
+
+### 下载
+
+[正式版本](https://github.com/AutumnNazi/ApiRequest/releases/latest)与 [`dev-latest`](https://github.com/AutumnNazi/ApiRequest/releases/tag/dev-latest) 均发布两种受支持架构的原生包：
+
+| 平台 | 架构 | 安装包 |
+|------|------|--------|
+| Windows | AMD64 | `ApiRequest-<版本>-Windows-Amd64-Installer.msi`、`-Portable.exe`、`-Portable.zip` |
+| Windows | ARM64 | `ApiRequest-<版本>-Windows-Arm64-Installer.msi`、`-Portable.exe`、`-Portable.zip` |
+| macOS | Intel | `ApiRequest-<版本>-MacOS-Amd64.dmg` |
+| macOS | Apple Silicon | `ApiRequest-<版本>-MacOS-Arm64.dmg` |
+
+Windows 常规安装请选择 MSI，无需安装时选择 Portable 包。Linux AMD64 作为额外的 best-effort 可执行文件发布。下载后应使用 `SHA256SUMS` 校验；运行开发版或未签名版本前，请查看对应的 `SIGNING_STATUS-*.txt`。
 
 ---
 

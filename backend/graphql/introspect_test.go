@@ -78,7 +78,7 @@ func TestIntrospect(t *testing.T) {
 func TestIntrospectErrors(t *testing.T) {
 	// 401
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "nope", 401)
+		http.Error(w, "nope", http.StatusUnauthorized)
 	}))
 	defer srv.Close()
 	if _, err := Introspect(context.Background(), IntrospectConfig{Url: srv.URL}); err == nil {

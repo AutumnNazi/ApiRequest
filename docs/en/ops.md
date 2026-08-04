@@ -65,9 +65,9 @@ func (e *AppError) Error() string { return string(e.Kind) + ": " + e.Detail }
 
 Keep core invariants in pure Go functions so they can receive high unit-test coverage without the UI.
 
-### 3.1 Windows/macOS Smoke-Test Gate
+### 3.1 Native Windows/macOS Acceptance
 
-For every merge to the main branch and every release candidate, run on native Windows and macOS runners:
+CI checks compilation, target architecture, package integrity, and any available signing/notarization state on native Windows AMD64/ARM64 and macOS Intel/Apple Silicon runners. Each release candidate must also complete the interactive smoke checks below. GUI launch, system-keychain behavior, and file dialogs are not currently claimed as fully automated by GitHub Actions:
 
 1. Build the platform package, install it, and launch the application.
 2. Create a workspace and request, then send one HTTP request to a local mock server.
@@ -84,12 +84,25 @@ For every merge to the main branch and every release candidate, run on native Wi
 
 | Platform | GitHub Actions Runner | Architecture | Artifact | Pre-Release Checks |
 |----------|-----------------------|--------------|----------|--------------------|
-| Windows | `windows-latest` | x64 | `.exe` from `wails build`, optionally NSIS `.msi` | Authenticode signing; ensure WebView2 Runtime is present or guide installation |
-| macOS | `macos-latest` | Apple Silicon + Intel, universal or separate | `.app`/`.dmg` from `wails build` | Developer ID signing, Hardened Runtime, notarization, and stapling |
-| Linux | `ubuntu-latest` | x64 | `.AppImage` / `.deb` | Best-effort build and startup check |
+| Windows | `windows-2025` | AMD64 | Portable `.exe`/`.zip` + WiX `.msi` | Verify EXE `GOARCH=amd64`, ZIP contents, MSI `x64` metadata, and Authenticode state |
+| Windows | `windows-11-arm` | ARM64 | Portable `.exe`/`.zip` + WiX `.msi` | Verify EXE `GOARCH=arm64`, ZIP contents, MSI `Arm64` metadata, and Authenticode state |
+| macOS | `macos-15-intel` | Intel (`x86_64`) | `.dmg` | Verify Mach-O architecture, DMG integrity, Developer ID, notarization, and stapling |
+| macOS | `macos-15` | Apple Silicon (`arm64`) | `.dmg` | Verify Mach-O architecture, DMG integrity, Developer ID, notarization, and stapling |
+| Linux | `ubuntu-latest` | AMD64 | Installer-free executable as an extra artifact | Best-effort build and architecture check |
 
-- **Update path**: Wails has no built-in updater. Each stable release publishes `SHA256SUMS` and `update-manifest.json`; the Settings action currently opens the official release download page. No silent replacement is attempted until signature verification, rollback, and atomic replacement are specified.
-- **Signing status**: when Windows/macOS secrets are present, CI performs Authenticode or Developer ID signing plus notarization/stapling. Without them, artifact names include `-unsigned` and a platform-specific `SIGNING_STATUS-*.txt` is published.
+Both stable releases and `dev-latest` must contain these eight packages. `<version>` is the stable tag without its leading `v`, or `dev-<short SHA>` for development builds:
+
+- `ApiRequest-<version>-MacOS-Amd64.dmg`
+- `ApiRequest-<version>-MacOS-Arm64.dmg`
+- `ApiRequest-<version>-Windows-Amd64-Installer.msi`
+- `ApiRequest-<version>-Windows-Amd64-Portable.exe`
+- `ApiRequest-<version>-Windows-Amd64-Portable.zip`
+- `ApiRequest-<version>-Windows-Arm64-Installer.msi`
+- `ApiRequest-<version>-Windows-Arm64-Portable.exe`
+- `ApiRequest-<version>-Windows-Arm64-Portable.zip`
+
+- **Update path**: Wails has no built-in updater. Stable releases and `dev-latest` publish `SHA256SUMS` and `update-manifest.json`; the Settings action currently opens the official release download page. No silent replacement is attempted until signature verification, rollback, and atomic replacement are specified.
+- **Signing status**: with Windows/macOS secrets configured, CI uses the order “sign EXE -> build MSI -> sign MSI” and “sign App -> build/sign DMG -> notarize/staple.” Without secrets, the same filenames are used for testable unsigned packages and platform-specific `SIGNING_STATUS-*.txt` files identify their state. Pull-request builds never receive production signing secrets.
 - **Crash reporting and telemetry**: optional, disabled by default, and disclosed clearly. Retain rotating local logs for diagnostics.
 
 ### 4.2 Platform Implementation Boundaries

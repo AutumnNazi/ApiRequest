@@ -65,9 +65,9 @@ func (e *AppError) Error() string { return string(e.Kind) + ": " + e.Detail }
 
 核心不变量放在 Go 纯函数层，保证脱离 UI 可高覆盖单测。
 
-### 3.1 Windows / macOS 冒烟门禁
+### 3.1 Windows / macOS 原生验收
 
-每次合并到主分支及每个发布候选版本，均在 Windows 和 macOS 的原生 runner 上执行：
+CI 在 Windows AMD64/ARM64 与 macOS Intel/Apple Silicon 原生 runner 上检查编译、目标架构、包完整性和可用的签名/公证状态。每个发布候选版本还应完成以下交互式冒烟；其中 GUI 启动、系统 keychain 与文件对话框暂不宣称由 GitHub Actions 全自动覆盖：
 
 1. 构建对应安装包并安装 / 启动应用。
 2. 创建工作区和请求，向本地 mock server 发起一次 HTTP 请求。
@@ -84,12 +84,25 @@ func (e *AppError) Error() string { return string(e.Kind) + ": " + e.Detail }
 
 | 平台 | GitHub Actions runner | 架构 | 产物 | 发布前检查 |
 |------|------------------------|------|------|------------|
-| Windows | `windows-latest` | x64 | `wails build` 产出 `.exe`（可附 NSIS `.msi`） | Authenticode 签名；确保 WebView2 Runtime 可用或由安装器引导安装 |
-| macOS | `macos-latest` | Apple Silicon + Intel（universal 或分架构） | `wails build` 产出 `.app`/`.dmg` | Developer ID 签名、Hardened Runtime、notarization 与 stapling |
-| Linux | `ubuntu-latest` | x64 | `.AppImage` / `.deb` | best-effort 构建与启动检查 |
+| Windows | `windows-2025` | AMD64 | Portable `.exe`/`.zip` + WiX `.msi` | 校验 EXE `GOARCH=amd64`、ZIP 内容、MSI `x64` 元数据与 Authenticode 状态 |
+| Windows | `windows-11-arm` | ARM64 | Portable `.exe`/`.zip` + WiX `.msi` | 校验 EXE `GOARCH=arm64`、ZIP 内容、MSI `Arm64` 元数据与 Authenticode 状态 |
+| macOS | `macos-15-intel` | Intel (`x86_64`) | `.dmg` | 校验 Mach-O 架构、DMG 完整性、Developer ID、notarization 与 stapling |
+| macOS | `macos-15` | Apple Silicon (`arm64`) | `.dmg` | 校验 Mach-O 架构、DMG 完整性、Developer ID、notarization 与 stapling |
+| Linux | `ubuntu-latest` | AMD64 | 无安装器的可执行文件（额外产物） | best-effort 编译与架构检查 |
 
-- **更新链路**：Wails 无内置 updater。每个 stable release 发布 `SHA256SUMS` 与 `update-manifest.json`，设置页当前只打开官方 release 下载页；在实现签名校验、回滚和原子替换前，不执行静默自更新。
-- **签名与标识**：Windows/macOS secrets 齐全时由 CI 执行 Authenticode、Developer ID 签名、公证与 stapling；未配置时产物文件名带 `-unsigned`，并附平台级 `SIGNING_STATUS-*.txt`。
+Stable Release 与 `dev-latest` 都必须具备以下 8 个包；`<版本>` 在正式版中为去掉 `v` 的 tag，在开发版中为 `dev-<短 SHA>`：
+
+- `ApiRequest-<版本>-MacOS-Amd64.dmg`
+- `ApiRequest-<版本>-MacOS-Arm64.dmg`
+- `ApiRequest-<版本>-Windows-Amd64-Installer.msi`
+- `ApiRequest-<版本>-Windows-Amd64-Portable.exe`
+- `ApiRequest-<版本>-Windows-Amd64-Portable.zip`
+- `ApiRequest-<版本>-Windows-Arm64-Installer.msi`
+- `ApiRequest-<版本>-Windows-Arm64-Portable.exe`
+- `ApiRequest-<版本>-Windows-Arm64-Portable.zip`
+
+- **更新链路**：Wails 无内置 updater。Stable Release 与 `dev-latest` 均发布 `SHA256SUMS` 和 `update-manifest.json`；设置页当前只打开官方 release 下载页。在实现签名校验、回滚和原子替换前，不执行静默自更新。
+- **签名与标识**：Windows/macOS secrets 齐全时，CI 按“签 EXE -> 构建 MSI -> 签 MSI”和“签 App -> 构建/签 DMG -> 公证/staple”的顺序处理。未配置时仍使用相同文件名发布可测试的未签名产物，并在平台级 `SIGNING_STATUS-*.txt` 中明确标记；PR 构建永不接收生产签名 secrets。
 - **崩溃与遥测**：可选、默认关闭、明确告知；本地日志滚动留存便于排障。
 
 ### 4.2 平台实现边界

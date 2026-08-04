@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   backend:
@@ -26,19 +26,18 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: go.mod
 
       - name: Go vet
-        # 仅 backend 包：根目录 main 包引入 Wails，在无 WebKitGTK 头文件的
-        # runner 上无法通过 CGO 编译；main 包由 desktop job 的 wails build 验证
-        run: go vet ./backend/...
+        # The root Wails package needs WebKitGTK on Linux. Desktop jobs compile it
+        # on native runners; this job covers the platform-independent packages.
+        run: go vet ./backend/... ./cmd/...
 
       - name: Go tests
-        # 失败详情写入 job summary（Actions UI 直接可见，无需日志权限）
         shell: bash
         run: |
           set -o pipefail
-          if ! go test -v ./backend/... 2>&1 | tee test-out.log; then
+          if ! go test -v ./backend/... ./cmd/... 2>&1 | tee test-out.log; then
             {
               echo '## Go test failures'
               echo '```'
@@ -49,7 +48,7 @@ jobs:
           fi
 
   frontend:
-    name: Frontend type-check & build
+    name: Frontend type-check and build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -58,32 +57,62 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '20.19'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: npm --prefix frontend ci
 
+      - name: Packaging script tests
+        run: node --test scripts/*.test.mjs
+
+      - name: Documentation checks
+        run: node scripts/check-docs.mjs
+
       - name: Frontend tests
         run: npm --prefix frontend test -- --run
 
-      - name: Type-check & build
+      - name: Type-check and build
         run: npm --prefix frontend run build
 
   desktop:
-    name: Wails build (${{ matrix.os }})
+    name: Build (${{ matrix.label }})
     needs: [backend, frontend]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            label: windows
-          - os: macos-latest
-            label: macos
+          - os: windows-2025
+            label: windows-amd64
+            kind: windows
+            platform: windows/amd64
+            arch: amd64
+            asset_arch: Amd64
+          - os: windows-11-arm
+            label: windows-arm64
+            kind: windows
+            platform: windows/arm64
+            arch: arm64
+            asset_arch: Arm64
+          - os: macos-15-intel
+            label: macos-amd64
+            kind: macos
+            platform: darwin/amd64
+            arch: amd64
+            asset_arch: Amd64
+          - os: macos-15
+            label: macos-arm64
+            kind: macos
+            platform: darwin/arm64
+            arch: arm64
+            asset_arch: Arm64
           - os: ubuntu-latest
-            label: linux
+            label: linux-amd64
+            kind: linux
+            platform: linux/amd64
+            arch: amd64
+            asset_arch: Amd64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -92,17 +121,26 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: go.mod
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '20.19'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Setup .NET for WiX
+        if: matrix.kind == 'windows'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+
       - name: Install Linux WebKit dependencies
-        if: matrix.label == 'linux'
+        if: matrix.kind == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
@@ -110,55 +148,267 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
+      - name: Set development version metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          printf 'ASSET_VERSION=dev-%s\n' "$short_sha" >> "$GITHUB_ENV"
+          node scripts/set-build-version.mjs "0.0.${GITHUB_RUN_NUMBER}"
+
       - name: Wails build
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ matrix.label }}" == "linux" ]]; then
-            wails build -tags webkit2_41
+          if [[ "${{ matrix.kind }}" == "linux" ]]; then
+            wails build -m -trimpath -platform "${{ matrix.platform }}" -tags webkit2_41
           else
-            wails build
+            wails build -m -trimpath -platform "${{ matrix.platform }}"
           fi
 
-      - name: Package dev asset
+      - name: Install WiX Toolset
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          $toolPath = Join-Path $env:RUNNER_TEMP 'wix'
+          dotnet tool install --tool-path $toolPath wix --version 6.0.2
+          if ($LASTEXITCODE -ne 0) { throw "WiX installation failed" }
+          $wix = Join-Path $toolPath 'wix.exe'
+          & $wix --version
+          if ($LASTEXITCODE -ne 0) { throw "WiX startup failed" }
+          "WIX_EXECUTABLE=$wix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Sign Windows executable
+        id: sign_windows_exe
+        if: matrix.kind == 'windows' && github.event_name == 'push'
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            'signed=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host 'Windows signing secrets are not configured; publishing unsigned packages.'
+            exit 0
+          }
+          $certPath = Join-Path $env:RUNNER_TEMP 'apirequest-signing.pfx'
+          try {
+            [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+            & signtool sign /fd SHA256 /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD /tr https://timestamp.digicert.com /td SHA256 'build/bin/ApiRequest.exe'
+            if ($LASTEXITCODE -ne 0) { throw "EXE signing failed" }
+            & signtool verify /pa /all 'build/bin/ApiRequest.exe'
+            if ($LASTEXITCODE -ne 0) { throw "EXE signature verification failed" }
+            'signed=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } finally {
+            Remove-Item -LiteralPath $certPath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Build Windows EXE, ZIP, and MSI packages
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          & ./scripts/build-windows-packages.ps1 `
+            -Architecture '${{ matrix.arch }}' `
+            -Version $env:APP_VERSION `
+            -AssetVersion $env:ASSET_VERSION `
+            -WixExecutable $env:WIX_EXECUTABLE
+
+      - name: Sign Windows MSI
+        if: matrix.kind == 'windows' && steps.sign_windows_exe.outputs.signed == 'true'
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'apirequest-signing.pfx'
+          $msiPath = "dist/ApiRequest-$env:ASSET_VERSION-Windows-${{ matrix.asset_arch }}-Installer.msi"
+          try {
+            [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+            & signtool sign /fd SHA256 /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD /tr https://timestamp.digicert.com /td SHA256 $msiPath
+            if ($LASTEXITCODE -ne 0) { throw "MSI signing failed" }
+            & signtool verify /pa /all $msiPath
+            if ($LASTEXITCODE -ne 0) { throw "MSI signature verification failed" }
+          } finally {
+            Remove-Item -LiteralPath $certPath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Record Windows signing status
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          if ('${{ steps.sign_windows_exe.outputs.signed }}' -eq 'true') {
+            $signing = 'Authenticode signed (EXE and MSI)'
+          } elseif ('${{ github.event_name }}' -eq 'pull_request') {
+            $signing = 'UNSIGNED (pull request builds do not receive signing secrets)'
+          } else {
+            $signing = 'UNSIGNED (certificate secrets not configured)'
+          }
+          @(
+            'platform=${{ matrix.label }}'
+            'architecture=${{ matrix.arch }}'
+            "signing=$signing"
+          ) | Out-File -FilePath 'dist/SIGNING_STATUS-${{ matrix.label }}.txt' -Encoding utf8
+
+      - name: Build unsigned macOS DMG for pull request
+        if: matrix.kind == 'macos' && github.event_name == 'pull_request'
+        shell: bash
+        run: bash scripts/build-macos-packages.sh '${{ matrix.arch }}' "$ASSET_VERSION" build/bin/ApiRequest.app dist
+
+      - name: Build, sign, and notarize macOS DMG
+        id: package_macos
+        if: matrix.kind == 'macos' && github.event_name == 'push'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          SHORT_SHA="${GITHUB_SHA::7}"
+          dmg="dist/ApiRequest-${ASSET_VERSION}-MacOS-${{ matrix.asset_arch }}.dmg"
+          keychain="$RUNNER_TEMP/apirequest-signing.keychain-db"
+          cert="$RUNNER_TEMP/apirequest-signing.p12"
+          original_keychain=""
+          cleanup() {
+            if [[ -n "$original_keychain" ]]; then
+              security default-keychain -d user -s "$original_keychain" >/dev/null 2>&1 || true
+              security list-keychains -d user -s "$original_keychain" >/dev/null 2>&1 || true
+            fi
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            rm -f "$cert"
+          }
+          trap cleanup EXIT
+
+          if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" || -z "${APPLE_CERTIFICATE_PASSWORD:-}" || -z "${APPLE_SIGNING_IDENTITY:-}" || -z "${APPLE_ID:-}" || -z "${APPLE_APP_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
+            bash scripts/build-macos-packages.sh '${{ matrix.arch }}' "$ASSET_VERSION" build/bin/ApiRequest.app dist
+            echo 'signed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          original_keychain="$(security default-keychain -d user | tr -d '"')"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 -D > "$cert"
+          security create-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$keychain"
+          security import "$cert" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$APPLE_CERTIFICATE_PASSWORD" "$keychain"
+          security list-keychains -d user -s "$keychain" "$original_keychain"
+          security default-keychain -d user -s "$keychain"
+
+          codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" build/bin/ApiRequest.app
+          codesign --verify --deep --strict --verbose=2 build/bin/ApiRequest.app
+          bash scripts/build-macos-packages.sh '${{ matrix.arch }}' "$ASSET_VERSION" build/bin/ApiRequest.app dist
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$dmg"
+          codesign --verify --strict --verbose=2 "$dmg"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          hdiutil verify "$dmg"
+          echo 'signed=true' >> "$GITHUB_OUTPUT"
+
+      - name: Record macOS signing status
+        if: matrix.kind == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.package_macos.outputs.signed }}" == "true" ]]; then
+            signing='Developer ID signed, notarized, and stapled'
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            signing='UNSIGNED (pull request builds do not receive signing secrets)'
+          else
+            signing='UNSIGNED (Apple signing secrets not configured)'
+          fi
+          printf 'platform=%s\narchitecture=%s\nsigning=%s\n' \
+            '${{ matrix.label }}' '${{ matrix.arch }}' "$signing" \
+            > "dist/SIGNING_STATUS-${{ matrix.label }}.txt"
+
+      - name: Package Linux executable
+        if: matrix.kind == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p dist
-          case "${{ matrix.label }}" in
-            windows)
-              cp build/bin/ApiRequest.exe "dist/ApiRequest-dev-${SHORT_SHA}-Windows-Amd64.exe"
-              ;;
-            macos)
-              cd build/bin && zip -qr "../../dist/ApiRequest-dev-${SHORT_SHA}-MacOS.zip" ApiRequest.app
-              ;;
-            linux)
-              cp build/bin/ApiRequest "dist/ApiRequest-dev-${SHORT_SHA}-Linux-Amd64"
-              chmod +x "dist/ApiRequest-dev-${SHORT_SHA}-Linux-Amd64"
-              ;;
-          esac
+          asset="dist/ApiRequest-${ASSET_VERSION}-Linux-Amd64"
+          cp build/bin/ApiRequest "$asset"
+          chmod +x "$asset"
+          printf 'platform=%s\narchitecture=%s\nsigning=%s\n' \
+            '${{ matrix.label }}' '${{ matrix.arch }}' 'UNSIGNED (Linux artifact)' \
+            > "dist/SIGNING_STATUS-${{ matrix.label }}.txt"
 
       - name: Upload dev artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ApiRequest-dev-${{ matrix.label }}
+          name: dev-${{ matrix.label }}
           path: dist/
+          if-no-files-found: error
           retention-days: 7
 
   publish-dev:
     name: Update dev-latest release
-    # 仅 dev 分支推送时更新（PR 只跑构建验证，不发布）
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     needs: desktop
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download all dev artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: ApiRequest-dev-*
+          pattern: dev-*
           merge-multiple: true
+
+      - name: Verify packages and create release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          export ASSET_VERSION="dev-${short_sha}"
+          export APP_VERSION="0.0.${GITHUB_RUN_NUMBER}"
+          cd dist
+          node <<'NODE'
+          const fs = require('fs');
+          const assetVersion = process.env.ASSET_VERSION;
+          const required = [
+            `ApiRequest-${assetVersion}-MacOS-Amd64.dmg`,
+            `ApiRequest-${assetVersion}-MacOS-Arm64.dmg`,
+            `ApiRequest-${assetVersion}-Windows-Amd64-Installer.msi`,
+            `ApiRequest-${assetVersion}-Windows-Amd64-Portable.exe`,
+            `ApiRequest-${assetVersion}-Windows-Amd64-Portable.zip`,
+            `ApiRequest-${assetVersion}-Windows-Arm64-Installer.msi`,
+            `ApiRequest-${assetVersion}-Windows-Arm64-Portable.exe`,
+            `ApiRequest-${assetVersion}-Windows-Arm64-Portable.zip`,
+          ];
+          const missing = required.filter((name) => !fs.existsSync(name));
+          if (missing.length > 0) {
+            throw new Error(`missing required development packages: ${missing.join(', ')}`);
+          }
+          NODE
+          mapfile -t assets < <(find . -maxdepth 1 -type f -name 'ApiRequest-*' -printf '%f\n' | sort)
+          if (( ${#assets[@]} < 8 )); then
+            echo 'Expected at least eight ApiRequest packages.' >&2
+            exit 1
+          fi
+          sha256sum "${assets[@]}" > SHA256SUMS
+          node <<'NODE'
+          const fs = require('fs');
+          const names = fs.readdirSync('.').filter((name) => name.startsWith('ApiRequest-')).sort();
+          const repo = process.env.GITHUB_REPOSITORY;
+          const tag = 'dev-latest';
+          const base = `https://github.com/${repo}/releases/download/${tag}`;
+          const manifest = {
+            schemaVersion: 1,
+            version: process.env.APP_VERSION,
+            channel: 'dev',
+            tag,
+            commit: process.env.GITHUB_SHA,
+            releaseUrl: `https://github.com/${repo}/releases/tag/${tag}`,
+            assets: names.map((name) => ({ name, url: `${base}/${encodeURIComponent(name)}` })),
+          };
+          fs.writeFileSync('update-manifest.json', `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+          NODE
 
       - name: Recreate dev-latest release
         env:
@@ -166,28 +416,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SHORT_SHA="${GITHUB_SHA::7}"
-          BUILD_TIME="$(date -u '+%Y-%m-%d %H:%M:%S') UTC"
+          short_sha="${GITHUB_SHA::7}"
+          build_time="$(date -u '+%Y-%m-%d %H:%M:%S') UTC"
           cat > release-notes.md << EOF
-          ## 🧪 测试版本 (Dev Build)
+          ## Development build
 
-          **版本**: \`dev-${SHORT_SHA}\`
-          **分支**: \`dev\`
-          **提交**: [\`${GITHUB_SHA}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
-          **构建时间**: ${BUILD_TIME}
+          **Version**: \`0.0.${GITHUB_RUN_NUMBER}\`
+          **Asset version**: \`dev-${short_sha}\`
+          **Branch**: \`dev\`
+          **Commit**: [\`${GITHUB_SHA}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
+          **Build time**: ${build_time}
 
-          > ⚠️ 这是开发测试版本，仅供测试使用，不建议用于生产环境。
-          > 每次 push 到 \`dev\` 分支会自动覆盖此 release。
-
-          > ⚠️ This is a development build for testing only, not recommended for production.
-          > Every push to \`dev\` automatically overwrites this release. For stable versions use a \`vX.Y.Z\` release.
+          This development build is for testing only. Every push to \`dev\` replaces this release.
+          For production use, download a stable \`vX.Y.Z\` release.
           EOF
-          # 删除旧的 dev-latest release 与 tag（首次运行不存在，容错）
           gh release delete dev-latest --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
           gh release create dev-latest \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "🧪 Dev Build (dev-${SHORT_SHA})" \
+            --title "Dev Build (dev-${short_sha})" \
             --notes-file release-notes.md \
             --prerelease \
             dist/*
