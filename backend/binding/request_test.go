@@ -9,6 +9,7 @@ import (
 
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 )
 
@@ -104,7 +105,12 @@ func TestSendRequestRedactsExpandedSecretsFromHistory(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
-	store, err := storage.Open(t.TempDir())
+	dataDir := t.TempDir()
+	vault := secrets.NewWithKeyring(dataDir, nil)
+	if err := vault.Unlock("binding-request-test"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.OpenWithVault(dataDir, vault)
 	if err != nil {
 		t.Fatal(err)
 	}

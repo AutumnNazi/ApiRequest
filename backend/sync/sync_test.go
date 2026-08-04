@@ -11,6 +11,7 @@ import (
 	"golang.org/x/net/webdav"
 
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 )
 
@@ -41,7 +42,12 @@ func startDav(t *testing.T, user, pass string) *httptest.Server {
 // newDevice 模拟一台设备：独立本地库 + 默认工作区固定 id
 func newDevice(t *testing.T) (*storage.Store, string) {
 	t.Helper()
-	store, err := storage.Open(t.TempDir())
+	dataDir := t.TempDir()
+	vault := secrets.NewWithKeyring(dataDir, nil)
+	if err := vault.Unlock("sync-test-device"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.OpenWithVault(dataDir, vault)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,13 +198,15 @@ func TestLWWConflictAndTombstone(t *testing.T) {
 func TestOmitSecrets(t *testing.T) {
 	srv := startDav(t, "", "")
 	store, wsId := newDevice(t)
-	store.UpsertEnvironment(model.Environment{
+	if _, err := store.UpsertEnvironment(model.Environment{
 		WorkspaceId: wsId, Name: "dev",
 		Variables: []model.Variable{
 			{Key: "token", Value: "SECRET-1", Type: "secret", Enabled: true},
 			{Key: "host", Value: "x.io", Type: "default", Enabled: true},
 		},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	cfg := DavConfig{Url: srv.URL, OmitSecrets: true}
 	if _, err := Sync(store, wsId, cfg); err != nil {
 		t.Fatal(err)
