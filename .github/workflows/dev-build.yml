@@ -360,13 +360,12 @@ jobs:
           pattern: dev-*
           merge-multiple: true
 
-      - name: Verify packages and create release metadata
+      - name: Verify packages and create checksums
         shell: bash
         run: |
           set -euo pipefail
           short_sha="${GITHUB_SHA::7}"
           export ASSET_VERSION="dev-${short_sha}"
-          export APP_VERSION="0.0.${GITHUB_RUN_NUMBER}"
           cd dist
           node <<'NODE'
           const fs = require('fs');
@@ -392,23 +391,6 @@ jobs:
             exit 1
           fi
           sha256sum "${assets[@]}" > SHA256SUMS
-          node <<'NODE'
-          const fs = require('fs');
-          const names = fs.readdirSync('.').filter((name) => name.startsWith('ApiRequest-')).sort();
-          const repo = process.env.GITHUB_REPOSITORY;
-          const tag = 'dev-latest';
-          const base = `https://github.com/${repo}/releases/download/${tag}`;
-          const manifest = {
-            schemaVersion: 1,
-            version: process.env.APP_VERSION,
-            channel: 'dev',
-            tag,
-            commit: process.env.GITHUB_SHA,
-            releaseUrl: `https://github.com/${repo}/releases/tag/${tag}`,
-            assets: names.map((name) => ({ name, url: `${base}/${encodeURIComponent(name)}` })),
-          };
-          fs.writeFileSync('update-manifest.json', `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-          NODE
 
       - name: Recreate dev-latest release
         env:
@@ -437,4 +419,5 @@ jobs:
             --title "Dev Build (dev-${short_sha})" \
             --notes-file release-notes.md \
             --prerelease \
-            dist/*
+            dist/ApiRequest-* \
+            dist/SHA256SUMS

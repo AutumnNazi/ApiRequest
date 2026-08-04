@@ -101,8 +101,8 @@ Stable Release 与 `dev-latest` 都必须具备以下 8 个包；`<版本>` 在�
 - `ApiRequest-<版本>-Windows-Arm64-Portable.exe`
 - `ApiRequest-<版本>-Windows-Arm64-Portable.zip`
 
-- **更新链路**：Wails 无内置 updater。Stable Release 与 `dev-latest` 均发布 `SHA256SUMS` 和 `update-manifest.json`；设置页当前只打开官方 release 下载页。在实现签名校验、回滚和原子替换前，不执行静默自更新。
-- **签名与标识**：Windows/macOS secrets 齐全时，CI 按“签 EXE -> 构建 MSI -> 签 MSI”和“签 App -> 构建/签 DMG -> 公证/staple”的顺序处理。未配置时仍使用相同文件名发布可测试的未签名产物，并在平台级 `SIGNING_STATUS-*.txt` 中明确标记；PR 构建永不接收生产签名 secrets。
+- **更新链路**：Wails 无内置 updater。Stable Release 与 `dev-latest` 仅发布安装包和 `SHA256SUMS`；设置页当前只打开官方 release 下载页。在实现带签名验证的 manifest、回滚和原子替换前，不发布更新 manifest，也不执行静默自更新。
+- **签名与标识**：Windows/macOS secrets 齐全时，CI 按“签 EXE -> 构建 MSI -> 签 MSI”和“签 App -> 构建/签 DMG -> 公证/staple”的顺序处理。未配置时仍使用相同文件名生成可测试的未签名产物；平台级 `SIGNING_STATUS-*.txt` 仅保留在 Actions 构建 artifact 中，不作为公开 Release 资产。PR 构建永不接收生产签名 secrets。
 - **崩溃与遥测**：可选、默认关闭、明确告知；本地日志滚动留存便于排障。
 
 ### 4.2 平台实现边界

@@ -320,7 +320,7 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
-      - name: Verify packages, create checksums, and update manifest
+      - name: Verify packages and create checksums
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
         shell: bash
@@ -352,27 +352,13 @@ jobs:
             exit 1
           fi
           sha256sum "${assets[@]}" > SHA256SUMS
-          node <<'NODE'
-          const fs = require('fs');
-          const names = fs.readdirSync('.').filter((name) => name.startsWith('ApiRequest-')).sort();
-          const repo = process.env.GITHUB_REPOSITORY;
-          const tag = process.env.GITHUB_REF_NAME;
-          const base = `https://github.com/${repo}/releases/download/${tag}`;
-          const manifest = {
-            schemaVersion: 1,
-            version: process.env.VERSION,
-            channel: 'stable',
-            tag,
-            releaseUrl: `https://github.com/${repo}/releases/tag/${tag}`,
-            assets: names.map((name) => ({ name, url: `${base}/${encodeURIComponent(name)}` })),
-          };
-          fs.writeFileSync('update-manifest.json', `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-          NODE
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            dist/ApiRequest-*
+            dist/SHA256SUMS
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

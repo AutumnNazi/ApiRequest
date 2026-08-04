@@ -101,8 +101,8 @@ Both stable releases and `dev-latest` must contain these eight packages. `<versi
 - `ApiRequest-<version>-Windows-Arm64-Portable.exe`
 - `ApiRequest-<version>-Windows-Arm64-Portable.zip`
 
-- **Update path**: Wails has no built-in updater. Stable releases and `dev-latest` publish `SHA256SUMS` and `update-manifest.json`; the Settings action currently opens the official release download page. No silent replacement is attempted until signature verification, rollback, and atomic replacement are specified.
-- **Signing status**: with Windows/macOS secrets configured, CI uses the order “sign EXE -> build MSI -> sign MSI” and “sign App -> build/sign DMG -> notarize/staple.” Without secrets, the same filenames are used for testable unsigned packages and platform-specific `SIGNING_STATUS-*.txt` files identify their state. Pull-request builds never receive production signing secrets.
+- **Update path**: Wails has no built-in updater. Stable releases and `dev-latest` publish only the packages and `SHA256SUMS`; the Settings action currently opens the official release download page. No update manifest is published and no silent replacement is attempted until signed manifest verification, rollback, and atomic replacement are specified.
+- **Signing status**: with Windows/macOS secrets configured, CI uses the order “sign EXE -> build MSI -> sign MSI” and “sign App -> build/sign DMG -> notarize/staple.” Without secrets, the same filenames are used to produce testable unsigned packages. Platform-specific `SIGNING_STATUS-*.txt` files remain in Actions build artifacts and are not public Release assets. Pull-request builds never receive production signing secrets.
 - **Crash reporting and telemetry**: optional, disabled by default, and disclosed clearly. Retain rotating local logs for diagnostics.
 
 ### 4.2 Platform Implementation Boundaries

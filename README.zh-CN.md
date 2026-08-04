@@ -189,7 +189,7 @@ cd frontend && npm run build   # 类型检查 + 打包
 | macOS | Intel | `ApiRequest-<版本>-MacOS-Amd64.dmg` |
 | macOS | Apple Silicon | `ApiRequest-<版本>-MacOS-Arm64.dmg` |
 
-Windows 常规安装请选择 MSI，无需安装时选择 Portable 包。Linux AMD64 作为额外的 best-effort 可执行文件发布。下载后应使用 `SHA256SUMS` 校验；运行开发版或未签名版本前，请查看对应的 `SIGNING_STATUS-*.txt`。
+Windows 常规安装请选择 MSI，无需安装时选择 Portable 包。Linux AMD64 作为额外的 best-effort 可执行文件发布。下载后应使用 `SHA256SUMS` 校验。开发版以及 Release notes 中未明确标注已签名的安装包，均应视为未签名。
 
 ---
 

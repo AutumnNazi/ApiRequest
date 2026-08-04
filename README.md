@@ -190,7 +190,7 @@ Platform notes: Windows needs the **WebView2 Runtime** (preinstalled on Win 11 /
 | macOS | Intel | `ApiRequest-<version>-MacOS-Amd64.dmg` |
 | macOS | Apple Silicon | `ApiRequest-<version>-MacOS-Arm64.dmg` |
 
-Use the MSI for a normal Windows installation or a Portable package without installation. Linux AMD64 is published as an additional best-effort executable. Verify downloads against `SHA256SUMS`; consult the matching `SIGNING_STATUS-*.txt` before running a development or unsigned build.
+Use the MSI for a normal Windows installation or a Portable package without installation. Linux AMD64 is published as an additional best-effort executable. Verify downloads against `SHA256SUMS`. Treat development builds and packages not explicitly described as signed in the release notes as unsigned.
 
 ---
 
