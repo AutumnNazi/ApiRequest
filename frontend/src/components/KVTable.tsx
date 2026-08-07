@@ -54,7 +54,7 @@ export default function KVTable({ items, onChange }: Props) {
               </td>
               <td className="p-1">
                 <input
-                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded"
+                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50"
                   placeholder="Key"
                   value={r.key}
                   onChange={(e) => update(i, { key: e.target.value })}
@@ -62,7 +62,7 @@ export default function KVTable({ items, onChange }: Props) {
               </td>
               <td className="p-1">
                 <input
-                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded"
+                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50"
                   placeholder="Value"
                   value={r.value}
                   onChange={(e) => update(i, { value: e.target.value })}

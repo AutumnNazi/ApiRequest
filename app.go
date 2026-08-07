@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"apirequest/backend/binding"
 	"apirequest/backend/grpcclient"
@@ -81,6 +82,11 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := binding.Shutdown(shutdownCtx, a.Runner, a.Request); err != nil {
+		log.Printf("stop request operations: %v", err)
+	}
 	a.mocks.StopAll()
 	a.protocols.CloseAll()
 	grpcclient.CloseAllStreams()

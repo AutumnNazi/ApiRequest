@@ -61,7 +61,7 @@ SaveFile(title, defaultFilename string) (string, error)
 ReadTextFile(path string) (string, error) // 仅用户选择的普通 UTF-8 文件，最大 32 MiB
 ```
 
-**取消语义**：`SendRequest` 内部为每个 `sendId` 注册一个 `context.CancelFunc`；`CancelRequest(sendId)` 触发 cancel，进行中的请求以 `AppError{kind:"network", detail:"canceled"}` 结束；对未知/已完成的 `sendId` 调用是 no-op（返回 nil），避免竞态报错。
+**取消语义**：Operation Lifecycle Module 为每个活动 `sendId` / `runId` 注册唯一操作；重复 ID 会立即返回 validation error。`CancelRequest(sendId)` 取消单个请求，`CancelRun(runId)` 通过父 context 同时取消当前子请求和后续迭代；对未知/已完成 ID 调用是 no-op。关闭发送中的标签或运行中的 Runner 会先触发取消，应用 shutdown 会停止接收新操作并等待活动请求退出后再关闭存储。
 
 上述签名来自当前 Go binding；`frontend/src/ipc/` 是唯一推荐的前端入口。历史上的 Phase 1 任务分解保留作项目演进记录，不再代表未实现接口。
 

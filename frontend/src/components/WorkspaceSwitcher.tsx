@@ -11,6 +11,7 @@ import {
 import { useTabs } from '../stores/tabs';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
+import Dropdown from './Dropdown';
 
 interface Props {
   activeId: string;
@@ -30,7 +31,7 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
   const removeSession = useTabs((state) => state.removeSession);
 
   const doCreate = async () => {
-    const name = await dialog.prompt('新工作区名称：', {
+    const name = await dialog.prompt(formatMessage('新工作区名称：'), {
       defaultValue: formatMessage('工作区 {index}', { index: workspaces.length + 1 }),
     });
     if (!name) return;
@@ -42,7 +43,7 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
     } catch (e) {
       void dialog.alert(
         formatMessage('创建工作区失败: {detail}', { detail: toAppError(e).detail }),
-        { title: '创建工作区失败' },
+        { title: formatMessage('创建工作区失败') },
       );
     } finally {
       setBusy(false);
@@ -51,14 +52,14 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
 
   const doRename = async () => {
     if (!active) return;
-    const name = await dialog.prompt('重命名工作区：', { defaultValue: active.name });
+    const name = await dialog.prompt(formatMessage('重命名工作区：'), { defaultValue: active.name });
     if (!name || name === active.name) return;
     try {
       await renameWorkspace(active.id, name);
       invalidate();
     } catch (e) {
       void dialog.alert(formatMessage('重命名失败: {detail}', { detail: toAppError(e).detail }), {
-        title: '重命名失败',
+        title: formatMessage('重命名失败'),
       });
     }
   };
@@ -81,35 +82,29 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
     } catch (e) {
       void dialog.alert(
         formatMessage('删除工作区失败: {detail}', { detail: toAppError(e).detail }),
-        { title: '删除工作区失败' },
+        { title: formatMessage('删除工作区失败') },
       );
     }
   };
 
   return (
     <div className="flex items-center gap-1 ml-3">
-      <select
-        className="border rounded px-2 py-1 text-xs bg-white max-w-40"
+      <Dropdown
         value={activeId}
-        onChange={(e) => onSwitch(e.target.value)}
-        disabled={busy}
-      >
-        {workspaces.map((w) => (
-          <option key={w.id} value={w.id}>
-            <Verbatim value={w.name} />
-          </option>
-        ))}
-      </select>
+        options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
+        onChange={onSwitch}
+        title={formatMessage('工作区')}
+      />
       <button
         className="text-xs text-gray-500 hover:text-gray-800 px-1"
-        title="新建工作区"
+        title={formatMessage('新建工作区')}
         onClick={doCreate}
       >
         +
       </button>
       <button
         className="text-xs text-gray-500 hover:text-gray-800 px-1"
-        title="重命名"
+        title={formatMessage('重命名')}
         onClick={doRename}
       >
         ✎
@@ -117,7 +112,7 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
       {workspaces.length > 1 && (
         <button
           className="text-xs text-gray-400 hover:text-red-500 px-1"
-          title="删除工作区"
+          title={formatMessage('删除工作区')}
           onClick={doDelete}
         >
           ×

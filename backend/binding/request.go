@@ -5,7 +5,6 @@ package binding
 import (
 	"context"
 	"encoding/base64"
-	"sync"
 	"time"
 
 	wailsrt "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -20,17 +19,15 @@ import (
 
 // RequestApi 请求执行域
 type RequestApi struct {
-	ctx    context.Context
-	engine *httpengine.Engine
-	store  *storage.Store
-
-	mu       sync.Mutex
-	inFlight map[string]context.CancelFunc // sendId → cancel
+	ctx        context.Context
+	engine     *httpengine.Engine
+	store      *storage.Store
+	operations *operationRegistry
 }
 
 // NewRequestApi 构造
 func NewRequestApi(engine *httpengine.Engine, store *storage.Store) *RequestApi {
-	return &RequestApi{engine: engine, store: store, inFlight: map[string]context.CancelFunc{}}
+	return &RequestApi{engine: engine, store: store, operations: newOperationRegistry()}
 }
 
 // Startup 由 Wails OnStartup 注入运行时 context（事件推送用）。
@@ -82,18 +79,22 @@ func (a *RequestApi) emitProgress(sendId, phase string, bytesReceived, totalByte
 // 收集上下文 → 前置脚本 → 变量解析 → 发送 → 测试脚本 → 变量持久化 → 落历史。
 // sendId 由前端生成，用于关联进度事件与取消。
 func (a *RequestApi) SendRequest(sendId string, req model.HttpRequest, sendCtx model.SendContext) (model.ResponseResult, error) {
+	parent := a.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	return a.sendRequest(parent, sendId, req, sendCtx)
+}
+
+func (a *RequestApi) sendRequest(parent context.Context, sendId string, req model.HttpRequest, sendCtx model.SendContext) (model.ResponseResult, error) {
 	if sendCtx.WorkspaceId == "" {
 		return model.ResponseResult{}, model.NewError(model.KindValidation, "workspaceId is required")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	a.mu.Lock()
-	a.inFlight[sendId] = cancel
-	a.mu.Unlock()
-	defer func() {
-		a.mu.Lock()
-		delete(a.inFlight, sendId)
-		a.mu.Unlock()
-	}()
+	ctx, finish, err := a.operations.begin(parent, sendId)
+	if err != nil {
+		return model.ResponseResult{}, model.NewError(model.KindValidation, err.Error())
+	}
+	defer finish()
 
 	var zero model.ResponseResult
 
@@ -229,11 +230,10 @@ func (a *RequestApi) SaveResponseBlob(blobRef, destination string) (int64, error
 
 // CancelRequest 取消进行中的请求；未知/已完成的 sendId 为 no-op
 func (a *RequestApi) CancelRequest(sendId string) error {
-	a.mu.Lock()
-	cancel, ok := a.inFlight[sendId]
-	a.mu.Unlock()
-	if ok {
-		cancel()
-	}
+	a.operations.cancel(sendId)
 	return nil
+}
+
+func (a *RequestApi) shutdown(ctx context.Context) error {
+	return a.operations.shutdown(ctx)
 }

@@ -11,6 +11,7 @@ English | [简体中文](./CONTEXT.zh-CN.md)
 - **History Detail**: the on-demand replay record for one history item. Request credentials are already redacted before persistence.
 - **Response Blob**: a response body stored outside SQLite. Consumers inspect metadata, read bounded ranges, or stream it to a user-selected file; they do not assume the whole blob fits in memory.
 - **Request Progress**: the lifecycle state emitted for a send: `sending`, `ttfb`, `downloading`, and `done`, with received byte counts where available.
+- **Operation Lifecycle**: the registry-backed identity, parent cancellation, completion, and shutdown semantics shared by Request Execution and Collection Runner operations. An active operation ID is unique until completion.
 
 ## Invariants
 
@@ -19,6 +20,7 @@ English | [简体中文](./CONTEXT.zh-CN.md)
 3. Node identity includes workspace ownership. Updates, moves, ancestor lookup, request sends, and environment selection must reject cross-workspace references.
 4. List Interfaces return bounded summaries. Large detail and body payloads require explicit detail or range Interfaces.
 5. Closing a dirty draft requires an explicit user decision. Recoverable drafts are stored per Workspace Session, with structured auth credentials omitted from the frontend persistence copy.
+6. Canceling a parent operation propagates to its active child request. Application shutdown stops accepting new operations, cancels active work, and waits for completion before closing storage.
 
 ## Adapters
 

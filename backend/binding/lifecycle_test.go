@@ -4,9 +4,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
+	"apirequest/backend/runner"
 	"apirequest/backend/storage"
 )
 
@@ -138,5 +140,73 @@ func TestPreScriptFailureAborts(t *testing.T) {
 	}
 	if hit {
 		t.Error("request should not be sent after pre-script failure")
+	}
+}
+
+func TestRunnerCancelStopsCurrentRequest(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	store, err := storage.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	collection, _ := store.UpsertNode(model.Node{
+		WorkspaceId: workspace.Id, Kind: "collection", Name: "cancel",
+	})
+	node, _ := store.UpsertNode(model.Node{
+		WorkspaceId: workspace.Id,
+		ParentId:    collection.Id,
+		Kind:        "request",
+		Name:        "slow",
+		Request: &model.HttpRequest{
+			Method: "GET", Url: srv.URL, Settings: model.DefaultSettings(),
+		},
+	})
+	requestApi := NewRequestApi(httpengine.New(), store)
+	runnerApi := NewRunnerApi(requestApi, store)
+	type result struct {
+		reportCanceled bool
+		failed         int
+		err            error
+	}
+	done := make(chan result, 1)
+	go func() {
+		report, runErr := runnerApi.RunCollection("cancel-run", workspace.Id, collection.Id, runner.Options{})
+		out := result{err: runErr}
+		if report != nil {
+			out.reportCanceled = report.Canceled
+			out.failed = report.Failed
+		}
+		done <- out
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("runner request did not start")
+	}
+	if err := runnerApi.CancelRun("cancel-run"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-done:
+		if got.err != nil || !got.reportCanceled || got.failed != 0 {
+			t.Fatalf("canceled run = %+v", got)
+		}
+	case <-time.After(500 * time.Millisecond):
+		_ = requestApi.CancelRequest("cancel-run-" + node.Id)
+		t.Fatal("CancelRun did not stop the current HTTP request")
 	}
 }

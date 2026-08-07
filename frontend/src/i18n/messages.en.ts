@@ -104,6 +104,7 @@ export const en: Record<string, string> = {
   '确认导入': 'Import',
   '导入失败:': 'Import failed:',
   '环境管理': 'Environment manager',
+  '无环境': 'No Environment',
   '+ 新建环境': '+ New environment',
   '选择或新建一个环境': 'Select or create an environment',
   '切换环境 (Ctrl+E)': 'Switch environment (Ctrl+E)',
@@ -442,4 +443,8 @@ export const en: Record<string, string> = {
   '导出失败': 'Export failed',
   '重命名失败': 'Rename failed',
   '删除工作区失败': 'Failed to delete workspace',
+  '我的工作区': 'My Workspace',
+  '格式化': 'Format',
+  '格式化失败': 'Format failed',
+  'JSON 格式化失败: {detail}': 'JSON format failed: {detail}',
 };

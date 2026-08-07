@@ -41,6 +41,10 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
     return unsub;
   }, []);
 
+  useEffect(() => () => {
+    if (runIdRef.current) void cancelRun(runIdRef.current);
+  }, []);
+
   const start = async () => {
     setError('');
     setReport(null);
@@ -58,8 +62,27 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
     } catch (e) {
       setError(toAppError(e).detail);
     } finally {
+      runIdRef.current = '';
       setRunning(false);
     }
+  };
+
+  const requestClose = async () => {
+    if (running && runIdRef.current) {
+      const confirmed = await dialog.confirm('Runner 正在运行，是否取消并关闭？', {
+        title: '取消 Runner',
+        confirmLabel: '取消并关闭',
+      });
+      if (!confirmed) return;
+      try {
+        await cancelRun(runIdRef.current);
+        runIdRef.current = '';
+      } catch (cause) {
+        setError(toAppError(cause).detail);
+        return;
+      }
+    }
+    onClose();
   };
 
   const pickFile = async () => {
@@ -76,14 +99,14 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => void requestClose()}>
       <div
         className="bg-white rounded-lg shadow-xl w-[720px] max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b">
           <h2 className="font-semibold text-sm">Runner · <Verbatim value={collectionName} /></h2>
-          <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={onClose}>
+          <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={() => void requestClose()} aria-label="关闭 Runner">
             ×
           </button>
         </div>

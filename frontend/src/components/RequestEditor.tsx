@@ -108,7 +108,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
       <VarPreview text={d.url ?? ''} vars={activeVars} />
 
       {/* 页签 */}
-      <div className="flex gap-4 px-3 pt-2 border-b text-sm">
+      <div className="flex gap-1 px-3 pt-2 border-b text-sm">
         {(
           [
             ['params', `Params${countEnabled(d.params)}`],
@@ -121,10 +121,10 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
         ).map(([key, label]) => (
           <button
             key={key}
-            className={`pb-2 border-b-2 -mb-px ${
+            className={`px-3 py-1.5 mb-1 rounded ${
               pane === key
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
+                ? 'bg-gray-100 text-gray-900 font-medium'
+                : 'text-gray-500 hover:text-gray-800'
             }`}
             onClick={() => setPane(key)}
           >
@@ -185,10 +185,29 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
               ))}
             </div>
             {d.body?.kind === 'raw' && (
-              <div className="flex-1 border rounded overflow-hidden">
+              <div className="flex-1 flex flex-col border rounded overflow-hidden">
+                <div className="flex items-center justify-between px-2 py-1 bg-gray-50 border-b">
+                  <span className="text-xs text-gray-400">JSON</span>
+                  <button
+                    className="text-xs text-blue-600 hover:text-blue-800"
+                    onClick={() => {
+                      try {
+                        const parsed = JSON.parse(d.body?.text ?? '');
+                        patchBody({ text: JSON.stringify(parsed, null, 2) });
+                      } catch (e) {
+                        void dialog.alert(
+                          formatMessage('JSON 格式化失败: {detail}', { detail: (e as Error).message }),
+                          { title: formatMessage('格式化失败') },
+                        );
+                      }
+                    }}
+                  >
+                    {formatMessage('格式化')}
+                  </button>
+                </div>
                 <CodeMirror
                   height="100%"
-                  style={{ height: '100%' }}
+                  style={{ flex: 1, overflow: 'auto' }}
                   value={d.body.text ?? ''}
                   extensions={[json()]}
                   onChange={(text) => patchBody({ text })}
@@ -486,7 +505,7 @@ function FormDataTable({
               </td>
               <td className="p-1">
                 <input
-                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded"
+                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50"
                   placeholder="Key"
                   value={r.key}
                   onChange={(e) => update(i, { key: e.target.value })}
@@ -495,7 +514,7 @@ function FormDataTable({
               <td className="p-1">
                 <div className="flex gap-1">
                   <input
-                    className="min-w-0 flex-1 px-1 py-0.5 outline-none focus:bg-blue-50 rounded font-mono text-xs"
+                    className="min-w-0 flex-1 px-1 py-0.5 outline-none focus:bg-blue-50 font-mono text-xs"
                     placeholder={isFile ? 'C:\\path\\to\\file' : 'Value'}
                     value={isFile ? (r.path ?? '') : (r.value ?? '')}
                     onChange={(e) =>

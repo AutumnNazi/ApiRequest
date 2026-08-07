@@ -3,6 +3,7 @@ package binding
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -19,18 +20,18 @@ type RunnerApi struct {
 	request *RequestApi
 	store   *storage.Store
 
-	mu      sync.Mutex
-	running map[string]context.CancelFunc // runId → cancel
-	reports map[string]*runner.Report     // runId → 最新报告（内存）
+	operations *operationRegistry
+	mu         sync.Mutex
+	reports    map[string]*runner.Report // runId → 最新报告（内存）
 }
 
 // NewRunnerApi 构造
 func NewRunnerApi(request *RequestApi, store *storage.Store) *RunnerApi {
 	return &RunnerApi{
-		request: request,
-		store:   store,
-		running: map[string]context.CancelFunc{},
-		reports: map[string]*runner.Report{},
+		request:    request,
+		store:      store,
+		operations: newOperationRegistry(),
+		reports:    map[string]*runner.Report{},
 	}
 }
 
@@ -50,15 +51,15 @@ type runnerProgress struct {
 // RunCollection 同步执行集合并返回报告（长任务；进度经事件推送，可 CancelRun 中止）。
 // runId 由前端生成。
 func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts runner.Options) (*runner.Report, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	a.mu.Lock()
-	a.running[runId] = cancel
-	a.mu.Unlock()
-	defer func() {
-		a.mu.Lock()
-		delete(a.running, runId)
-		a.mu.Unlock()
-	}()
+	parent := a.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, finish, err := a.operations.begin(parent, runId)
+	if err != nil {
+		return nil, model.NewError(model.KindValidation, err.Error())
+	}
+	defer finish()
 
 	nodes, err := a.store.ListNodes(workspaceId)
 	if err != nil {
@@ -118,7 +119,12 @@ loop:
 				WorkspaceId: workspaceId, RequestId: node.Id,
 				VariableOverrides: row,
 			}
-			res, serr := a.request.SendRequest(runId+"-"+node.Id, *node.Request, sendCtx)
+			requestSendId := fmt.Sprintf("%s-%d-%s", runId, iter+1, node.Id)
+			res, serr := a.request.sendRequest(ctx, requestSendId, *node.Request, sendCtx)
+			if ctx.Err() != nil {
+				report.Canceled = true
+				break loop
+			}
 			if serr != nil {
 				rr.Failed = true
 				rr.Error = serr.Error()
@@ -158,13 +164,12 @@ loop:
 
 // CancelRun 取消进行中的运行；未知 runId 为 no-op
 func (a *RunnerApi) CancelRun(runId string) error {
-	a.mu.Lock()
-	cancel, ok := a.running[runId]
-	a.mu.Unlock()
-	if ok {
-		cancel()
-	}
+	a.operations.cancel(runId)
 	return nil
+}
+
+func (a *RunnerApi) shutdown(ctx context.Context) error {
+	return a.operations.shutdown(ctx)
 }
 
 // ExportReport 导出报告 JSON（供 CI/存档）

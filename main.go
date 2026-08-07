@@ -15,9 +15,10 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  "ApiRequest",
-		Width:  1280,
-		Height: 800,
+		Title:     "ApiRequest",
+		Width:     1280,
+		Height:    800,
+		Frameless: true, // 去掉原生标题栏，由前端自绘标题栏与窗口控制（main/app.go 约定）
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

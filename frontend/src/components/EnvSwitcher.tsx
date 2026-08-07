@@ -13,6 +13,7 @@ import {
 import { useStableRowIds } from '../hooks/useStableRowIds';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
+import Dropdown from './Dropdown';
 
 interface Props {
   workspaceId: string;
@@ -42,25 +43,22 @@ export default function EnvSwitcher({ workspaceId }: Props) {
 
   return (
     <div className="ml-auto flex items-center gap-2">
-      <select
-        className="border rounded px-2 py-1 text-xs bg-white"
+      <Dropdown
         value={active?.id ?? ''}
-        onChange={(e) => activate.mutate(e.target.value)}
-        title="切换环境 (Ctrl+E)"
+        options={[
+          { value: '', label: formatMessage('无环境') },
+          ...envs.map((e) => ({ value: e.id, label: e.name })),
+        ]}
+        onChange={(v) => activate.mutate(v)}
+        title={formatMessage('切换环境 (Ctrl+E)')}
       >
-        <option value="">No Environment</option>
-        {envs.map((e) => (
-          <option key={e.id} value={e.id}>
-            <Verbatim value={e.name} />
-          </option>
-        ))}
-      </select>
-      <button
-        className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
-        onClick={() => setManaging(true)}
-      >
-        管理
-      </button>
+        <button
+          className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 ml-1"
+          onClick={() => setManaging(true)}
+        >
+          {formatMessage('管理')}
+        </button>
+      </Dropdown>
       {managing && (
         <EnvManager workspaceId={workspaceId} envs={envs} onClose={() => setManaging(false)} />
       )}
@@ -126,7 +124,7 @@ function EnvManager({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">环境管理</h2>
+          <h2 className="font-semibold text-sm">{formatMessage('环境管理')}</h2>
           <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={onClose}>
             ×
           </button>
@@ -152,7 +150,7 @@ function EnvManager({
               className="m-2 border border-dashed rounded py-1 text-xs text-gray-500 hover:text-gray-800"
               onClick={() => create.mutate()}
             >
-              + 新建环境
+              {formatMessage('+ 新建环境')}
             </button>
           </div>
           {/* 变量编辑 */}
@@ -169,7 +167,7 @@ function EnvManager({
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-              选择或新建一个环境
+              {formatMessage('选择或新建一个环境')}
             </div>
           )}
         </div>
@@ -216,13 +214,13 @@ function EnvEditor({
           className="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700"
           onClick={() => onSave({ ...env, name, variables: vars } as Environment)}
         >
-          保存
+          {formatMessage('保存')}
         </button>
         <button
           className="border border-red-200 text-red-500 rounded px-3 py-1 text-sm hover:bg-red-50"
           onClick={onDelete}
         >
-          删除
+          {formatMessage('删除')}
         </button>
       </div>
       <div className="flex-1 overflow-auto p-3">
@@ -230,9 +228,9 @@ function EnvEditor({
           <thead>
             <tr className="text-left text-gray-500 border-b">
               <th className="w-8 p-1"></th>
-              <th className="p-1 font-normal">变量名</th>
-              <th className="p-1 font-normal">值</th>
-              <th className="w-16 p-1 font-normal">密钥</th>
+              <th className="p-1 font-normal">{formatMessage('变量名')}</th>
+              <th className="p-1 font-normal">{formatMessage('值')}</th>
+              <th className="w-16 p-1 font-normal">{formatMessage('密钥')}</th>
               <th className="w-8 p-1"></th>
             </tr>
           </thead>

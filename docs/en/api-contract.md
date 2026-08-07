@@ -61,7 +61,7 @@ SaveFile(title, defaultFilename string) (string, error)
 ReadTextFile(path string) (string, error) // user-selected regular UTF-8 file, max 32 MiB
 ```
 
-**Cancellation semantics**: inside `SendRequest`, register a `context.CancelFunc` for every `sendId`. `CancelRequest(sendId)` invokes that function, and the in-flight request ends with `AppError{kind:"network", detail:"canceled"}`. Calling it with an unknown or completed `sendId` is a no-op that returns nil, avoiding race-condition errors.
+**Cancellation semantics**: the Operation Lifecycle Module registers one unique operation for each active `sendId` or `runId`; duplicate IDs fail immediately with a validation error. `CancelRequest(sendId)` cancels one request. `CancelRun(runId)` propagates its parent context to the current child request and prevents later iterations. Unknown or completed IDs are no-ops. Closing an active request tab or Runner first triggers cancellation, and application shutdown stops accepting operations and waits for active requests before closing storage.
 
 The signatures above mirror the current Go bindings. `frontend/src/ipc/` is the only recommended frontend entry point; the historical Phase 1 breakdown is kept as an evolution record, not as a list of missing APIs.
 

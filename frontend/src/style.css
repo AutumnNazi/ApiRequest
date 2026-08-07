@@ -21,3 +21,22 @@ pre,
 .cm-editor {
   user-select: text;
 }
+
+/* 按钮圆角：仅对带 rounded class 的按钮提升到 8px（覆盖 Tailwind 默认 4px）。
+   导航 tab 等无 rounded 的按钮保持方角。 */
+button.rounded { border-radius: 0.5rem; }
+button.rounded-sm { border-radius: 0.375rem; }
+button.rounded-md { border-radius: 0.5rem; }
+button.rounded-lg { border-radius: 0.75rem; }
+button.rounded-full { border-radius: 9999px; }
+button.rounded-none { border-radius: 0; }
+
+/* 顶栏下拉框美化：去原生箭头，用 SVG 自绘 */
+select.tidy {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  padding-right: 1.75rem;
+}

@@ -32,17 +32,19 @@ export default function Sidebar({ workspaceId }: Props) {
   const [pane, setPane] = useState<'collections' | 'history'>('collections');
   return (
     <div className="flex flex-col h-full border-r bg-gray-50">
-      <div className="flex text-sm border-b">
+      <div className="flex gap-1 px-2 pt-2 text-sm border-b">
         {(
           [
-            ['collections', '集合'],
-            ['history', '历史'],
+            ['collections', formatMessage('集合')],
+            ['history', formatMessage('历史')],
           ] as const
         ).map(([key, label]) => (
           <button
             key={key}
-            className={`flex-1 py-2 ${
-              pane === key ? 'bg-white font-medium' : 'text-gray-500 hover:text-gray-800'
+            className={`flex-1 text-center px-3 py-1.5 mb-1 rounded ${
+              pane === key
+                ? 'bg-gray-200 text-gray-900 font-medium'
+                : 'text-gray-500 hover:text-gray-800'
             }`}
             onClick={() => setPane(key)}
           >
@@ -297,17 +299,17 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     <div className="p-2 text-sm">
       <div className="flex gap-1 mb-2">
         <button
-          className="flex-1 border border-dashed rounded py-1.5 text-gray-500 hover:text-gray-800 hover:border-gray-400"
+          className="flex-1 border rounded py-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 hover:border-gray-300"
           onClick={() => createCollection.mutate()}
         >
-          + 新建集合
+          + {formatMessage('新建集合')}
         </button>
         <button
-          className="border border-dashed rounded py-1.5 px-3 text-gray-500 hover:text-gray-800 hover:border-gray-400"
+          className="border rounded py-1.5 px-3 text-gray-500 hover:text-gray-800 hover:bg-gray-100 hover:border-gray-300"
           onClick={() => setImporting(true)}
-          title="导入 Postman / OpenAPI / cURL / HAR / Insomnia"
+          title={formatMessage('导入 Postman / OpenAPI / cURL / HAR / Insomnia')}
         >
-          导入
+          {formatMessage('导入')}
         </button>
       </div>
       {importing && <ImportDialog workspaceId={workspaceId} onClose={() => setImporting(false)} />}
@@ -582,15 +584,15 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
           onChange={(e) => setSearch(e.target.value)}
         />
         <button
-          className="text-xs text-gray-400 hover:text-red-500 px-1"
-          title="清空全部历史"
+          className="border rounded px-2 py-1 text-xs text-gray-400 hover:text-red-500 hover:border-gray-300"
+          title={formatMessage('清空全部历史')}
           onClick={() => {
-            void dialog.confirm('清空全部历史记录？').then((ok) => {
+            void dialog.confirm(formatMessage('清空全部历史记录？')).then((ok) => {
               if (ok) clear.mutate();
             });
           }}
         >
-          清空
+          {formatMessage('清空')}
         </button>
       </div>
       <div className="flex-1 overflow-auto">

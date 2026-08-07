@@ -4,9 +4,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Sidebar from './components/Sidebar';
 import RequestEditor from './components/RequestEditor';
 import ResponseViewer from './components/ResponseViewer';
+import Splitter from './components/Splitter';
+import WindowControls from './components/WindowControls';
 import EnvSwitcher from './components/EnvSwitcher';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import { useDialog } from './components/DialogProvider';
+import { usePersistentState } from './hooks/usePersistentState';
+import { dragRegion, noDragRegion } from './titlebar';
 import { formatMessage, useLocale, Verbatim } from './i18n/locale';
 
 // 仅在打开时加载，降低初始渲染的脚本体积。
@@ -19,11 +23,13 @@ const ThemeDialog = lazy(() => import('./components/ThemeDialog'));
 import { useTabs, type Tab } from './stores/tabs';
 import {
   getDefaultWorkspace,
+  renameWorkspace,
   sendRequest,
   cancelRequest,
   upsertNode,
   listNodes,
   syncNow,
+  getSyncConfig,
   onRequestProgress,
   toAppError,
   type Node,
@@ -48,6 +54,18 @@ export default function App() {
     queryKey: ['workspace'],
     queryFn: getDefaultWorkspace,
   });
+  // 首次加载：若默认工作区仍为英文名"My Workspace"，重命名为本地化名称
+  useEffect(() => {
+    if (defaultWorkspace?.name === 'My Workspace') {
+      const localName = formatMessage('我的工作区');
+      if (localName !== 'My Workspace') {
+        void renameWorkspace(defaultWorkspace.id, localName).then(() => {
+          qc.invalidateQueries({ queryKey: ['workspace'] });
+          qc.invalidateQueries({ queryKey: ['workspaces'] });
+        });
+      }
+    }
+  }, [defaultWorkspace, qc]);
   // 当前工作区：默认为 GetDefaultWorkspace，切换后覆盖
   const [workspaceOverride, setWorkspaceOverride] = useState<{ id: string; name: string } | null>(
     null,
@@ -65,6 +83,15 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const [syncFailed, setSyncFailed] = useState(false);
+  // WebDAV 同步配置：仅已配置时展示同步按钮
+  const { data: syncCfg } = useQuery({
+    queryKey: ['syncConfig'],
+    queryFn: getSyncConfig,
+  });
+  const syncEnabled = !!(syncCfg?.url && syncCfg?.username);
+  // 布局持久化：侧栏宽度（px）与编辑区高度比例（0~1）
+  const [sidebarWidth, setSidebarWidth] = usePersistentState('apirequest-layout-sidebar', 256);
+  const [editorRatio, setEditorRatio] = usePersistentState('apirequest-layout-editor', 0.5);
 
   useEffect(() => onRequestProgress(setProgress), [setProgress]);
 
@@ -114,6 +141,17 @@ export default function App() {
       tab.dirty &&
       !(await dialog.confirm(formatMessage('关闭「{name}」并放弃未保存的修改？', { name: tab.name })))
     ) return;
+    if (tab.sendId) {
+      try {
+        await cancelRequest(tab.sendId);
+      } catch (cause) {
+        void dialog.alert(
+          formatMessage('关闭标签前取消请求失败: {detail}', { detail: toAppError(cause).detail }),
+          { title: '请求取消失败' },
+        );
+        return;
+      }
+    }
     close(tab.id);
   };
 
@@ -236,70 +274,91 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col">
-      {/* 顶栏 */}
-      <header className="flex items-center px-4 py-2 border-b bg-white">
-        <h1 className="font-semibold text-sm">ApiRequest</h1>
-        <WorkspaceSwitcher
-          activeId={workspace.id}
-          onSwitch={(id) => setWorkspaceOverride({ id, name: '' })}
-        />
-        <button
-          className="ml-4 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
-          onClick={() => setShowCookies(true)}
-        >
-          Cookies
-        </button>
-        <button
-          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
-          onClick={() => setShowWs(true)}
-          title="WebSocket / SSE 会话"
-        >
-          WS/SSE
-        </button>
-        <button
-          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
-          onClick={() => setShowGrpc(true)}
-          title="gRPC 反射调用"
-        >
-          gRPC
-        </button>
-        <button
-          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
-          onClick={() => setShowGraphql(true)}
-          title="GraphQL schema 内省与补全"
-        >
-          GraphQL
-        </button>
-        <button
-          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 disabled:opacity-50"
-          onClick={handleSync}
-          disabled={syncing}
-          title="WebDAV 同步（先在 ⚙ 设置里配置）"
-        >
-          {syncing ? '⇅ 同步中…' : '⇅ 同步'}
-        </button>
-        {syncMsg && (
-          <span
-            className={`ml-2 text-xs ${syncFailed ? 'text-red-500' : 'text-green-600'}`}
-          >
-            <Verbatim value={syncMsg} />
-          </span>
-        )}
-        <button
-          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
-          onClick={() => setShowTheme(true)}
-          title="主题"
-        >
-          🎨
-        </button>
-        <button
-          className="ml-2 text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
-          onClick={() => setShowSettings(true)}
-          title="应用设置"
-        >
-          ⚙
-        </button>
-        <EnvSwitcher workspaceId={workspace.id} />
+      {/* 自绘标题栏（无边框窗口）：标题区可拖动，交互控件与窗口按钮 no-drag */}
+      <header
+        className="flex items-center h-10 px-3 border-b bg-white shrink-0"
+        style={dragRegion}
+      >
+        <h1 className="font-semibold text-sm px-1">ApiRequest</h1>
+        <div className="flex items-center flex-1 min-w-0" style={noDragRegion}>
+          {/* 分组1：工作区 + 环境 */}
+          <WorkspaceSwitcher
+            activeId={workspace.id}
+            onSwitch={(id) => setWorkspaceOverride({ id, name: '' })}
+          />
+          <EnvSwitcher workspaceId={workspace.id} />
+
+          {/* 分组2：协议工具 */}
+          <div className="ml-3 flex items-center gap-1.5 border-l pl-3">
+            <button
+              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              onClick={() => setShowCookies(true)}
+            >
+              Cookies
+            </button>
+            <button
+              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              onClick={() => setShowWs(true)}
+              title={formatMessage('WebSocket / SSE 会话')}
+            >
+              WS/SSE
+            </button>
+            <button
+              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              onClick={() => setShowGrpc(true)}
+              title={formatMessage('gRPC 反射调用')}
+            >
+              gRPC
+            </button>
+            <button
+              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              onClick={() => setShowGraphql(true)}
+              title={formatMessage('GraphQL schema 内省与补全')}
+            >
+              GraphQL
+            </button>
+          </div>
+
+          {/* 分组3：同步（仅 WebDAV 已配置时展示） */}
+          {syncEnabled && (
+          <div className="ml-3 flex items-center gap-1.5 border-l pl-3">
+            <button
+              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 disabled:opacity-50"
+              onClick={handleSync}
+              disabled={syncing}
+              title={formatMessage('WebDAV 同步（先在 ⚙ 设置里配置）')}
+            >
+              {syncing ? formatMessage('⇅ 同步中…') : formatMessage('⇅ 同步')}
+            </button>
+            {syncMsg && (
+              <span
+                className={`text-xs ${syncFailed ? 'text-red-500' : 'text-green-600'}`}
+              >
+                <Verbatim value={syncMsg} />
+              </span>
+            )}
+          </div>
+          )}
+
+          {/* 分组4：应用设置（右对齐） */}
+          <div className="ml-auto flex items-center gap-1.5 border-l pl-3">
+            <button
+              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              onClick={() => setShowTheme(true)}
+              title={formatMessage('主题')}
+            >
+              {formatMessage('主题')}
+            </button>
+            <button
+              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              onClick={() => setShowSettings(true)}
+              title={formatMessage('应用设置')}
+            >
+              {formatMessage('设置')}
+            </button>
+          </div>
+        </div>
+        <WindowControls />
       </header>
       <Suspense fallback={null}>
         {showCookies && <CookieManager onClose={() => setShowCookies(false)} />}
@@ -311,20 +370,25 @@ export default function App() {
       </Suspense>
 
       <div className="flex-1 flex min-h-0">
-        {/* 侧栏 */}
-        <aside className="w-64 shrink-0">
+        {/* 侧栏（可拖拽调整宽度） */}
+        <aside className="shrink-0" style={{ width: sidebarWidth }}>
           <Sidebar workspaceId={workspace.id} />
         </aside>
+        <Splitter
+          orientation="vertical"
+          ratio={sidebarWidth / Math.max(window.innerWidth, 1)}
+          onRatio={(r) => setSidebarWidth(r * window.innerWidth)}
+        />
 
         {/* 编辑 + 响应 */}
         <main className="flex-1 flex flex-col min-w-0">
           {/* 标签栏 */}
-          <div className="flex border-b bg-gray-50 text-sm overflow-x-auto">
+          <div className="flex items-center gap-1 border-b bg-gray-50 px-2 py-1 text-sm overflow-x-auto">
             {tabs.map((t) => (
               <div
                 key={t.id}
-                className={`flex items-center gap-1 px-3 py-2 border-r cursor-pointer whitespace-nowrap ${
-                  t.id === activeId ? 'bg-white font-medium' : 'text-gray-500 hover:bg-gray-100'
+                className={`flex items-center gap-1 px-3 py-1.5 rounded cursor-pointer whitespace-nowrap ${
+                  t.id === activeId ? 'bg-white font-medium shadow-sm' : 'text-gray-500 hover:bg-gray-100'
                 }`}
                 onClick={() => setActive(t.id)}
                 onAuxClick={(e) => {
@@ -347,17 +411,20 @@ export default function App() {
               </div>
             ))}
             <button
-              className="px-3 text-gray-400 hover:text-gray-700"
+              className="border rounded px-2.5 py-0.5 ml-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 text-sm"
               onClick={() => openBlank(workspace.id)}
-              title="新建标签 (Ctrl+T)"
+              title={formatMessage('新建标签 (Ctrl+T)')}
             >
               +
             </button>
           </div>
 
           {active ? (
-            <div className="flex-1 flex flex-col min-h-0">
-              <div className="h-1/2 min-h-0 border-b">
+            <div
+              className="flex-1 flex flex-col min-h-0"
+              style={{ height: '100%' }}
+            >
+              <div className="min-h-0" style={{ height: `${editorRatio * 100}%` }}>
                 <RequestEditor
                   tab={active}
                   workspaceId={workspace.id}
@@ -366,7 +433,12 @@ export default function App() {
                   onSave={handleSave}
                 />
               </div>
-              <div className="h-1/2 min-h-0">
+              <Splitter
+                orientation="horizontal"
+                ratio={editorRatio}
+                onRatio={setEditorRatio}
+              />
+              <div className="flex-1 min-h-0">
                 <ResponseViewer
                   response={active.response}
                   error={active.error}

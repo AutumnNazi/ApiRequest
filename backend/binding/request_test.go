@@ -1,11 +1,13 @@
 package binding
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
@@ -62,6 +64,98 @@ func TestCancelUnknownSendIdIsNoop(t *testing.T) {
 	api := NewRequestApi(httpengine.New(), store)
 	if err := api.CancelRequest("nonexistent"); err != nil {
 		t.Errorf("cancel unknown = %v, want nil", err)
+	}
+}
+
+func TestSendRequestRejectsDuplicateInFlightId(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	store, err := storage.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	api := NewRequestApi(httpengine.New(), store)
+	req := model.HttpRequest{Method: "GET", Url: srv.URL, Settings: model.DefaultSettings()}
+	ctx := model.SendContext{WorkspaceId: workspace.Id}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, sendErr := api.SendRequest("same-id", req, ctx)
+		firstDone <- sendErr
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not start")
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, sendErr := api.SendRequest("same-id", req, ctx)
+		secondDone <- sendErr
+	}()
+	select {
+	case duplicateErr := <-secondDone:
+		if duplicateErr == nil || !strings.Contains(duplicateErr.Error(), "already in flight") {
+			t.Fatalf("duplicate error = %v", duplicateErr)
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("duplicate send id was not rejected immediately")
+	}
+}
+
+func TestShutdownCancelsAndWaitsForInFlightRequest(t *testing.T) {
+	started := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	store, err := storage.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	api := NewRequestApi(httpengine.New(), store)
+	done := make(chan error, 1)
+	go func() {
+		_, sendErr := api.SendRequest("shutdown-request", model.HttpRequest{
+			Method: "GET", Url: srv.URL, Settings: model.DefaultSettings(),
+		}, model.SendContext{WorkspaceId: workspace.Id})
+		done <- sendErr
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("request did not start")
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := Shutdown(shutdownCtx, api); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	select {
+	case sendErr := <-done:
+		if sendErr == nil || !strings.Contains(sendErr.Error(), "canceled") {
+			t.Fatalf("request error after shutdown = %v", sendErr)
+		}
+	default:
+		t.Fatal("shutdown returned before the in-flight request completed")
 	}
 }
 
