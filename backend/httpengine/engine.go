@@ -214,15 +214,20 @@ func (e *Engine) NewHTTPClient(timeout time.Duration) *http.Client {
 
 // Send 执行请求。ctx 取消即中止（对应 CancelRequest）。
 func (e *Engine) Send(ctx context.Context, req model.HttpRequest) (model.ResponseResult, error) {
-	return e.send(ctx, req, nil)
+	return e.send(ctx, req, nil, e.blobsDir)
 }
 
 // SendWithProgress executes a request and reports final-response transfer progress.
 func (e *Engine) SendWithProgress(ctx context.Context, req model.HttpRequest, progress ProgressFunc) (model.ResponseResult, error) {
-	return e.send(ctx, req, progress)
+	return e.send(ctx, req, progress, e.blobsDir)
 }
 
-func (e *Engine) send(ctx context.Context, req model.HttpRequest, progress ProgressFunc) (model.ResponseResult, error) {
+// SendTransient executes a subrequest without retaining oversized response files.
+func (e *Engine) SendTransient(ctx context.Context, req model.HttpRequest) (model.ResponseResult, error) {
+	return e.send(ctx, req, nil, "")
+}
+
+func (e *Engine) send(ctx context.Context, req model.HttpRequest, progress ProgressFunc, blobsDir string) (model.ResponseResult, error) {
 	var res model.ResponseResult
 
 	httpReq, err := e.buildRequest(ctx, req)
@@ -307,7 +312,7 @@ func (e *Engine) send(ctx context.Context, req model.HttpRequest, progress Progr
 		tracker = &downloadProgressReader{reader: resp.Body, total: totalBytes, emit: progress}
 		bodyReader = tracker
 	}
-	body, size, blobRef, err := e.readBodyWithBlob(bodyReader)
+	body, size, blobRef, err := readBodyWithBlob(bodyReader, blobsDir)
 	if tracker != nil {
 		tracker.finish()
 	}
@@ -404,6 +409,10 @@ func responseBodyIsText(contentType string, body []byte) bool {
 // readBodyWithBlob 读响应体：≤限额全内联；超限时（有 blobsDir）全量写 blob 文件，
 // 内存只留前 2MiB 作预览；无 blobsDir 时退回丢弃式截断
 func (e *Engine) readBodyWithBlob(r io.Reader) (head []byte, total int64, blobRef string, err error) {
+	return readBodyWithBlob(r, e.blobsDir)
+}
+
+func readBodyWithBlob(r io.Reader, blobsDir string) (head []byte, total int64, blobRef string, err error) {
 	var buf bytes.Buffer
 	n, err := io.Copy(&buf, io.LimitReader(r, inlineBodyLimit))
 	total = n
@@ -423,7 +432,7 @@ func (e *Engine) readBodyWithBlob(r io.Reader) (head []byte, total int64, blobRe
 		return buf.Bytes(), total, "", perr
 	}
 
-	if e.blobsDir == "" {
+	if blobsDir == "" {
 		// 无落盘目录：统计大小后丢弃
 		rest, derr := io.Copy(io.Discard, r)
 		total += int64(pn) + rest
@@ -432,7 +441,7 @@ func (e *Engine) readBodyWithBlob(r io.Reader) (head []byte, total int64, blobRe
 	}
 
 	// 落盘：头部 + probe + 剩余 全量写文件
-	temp, ferr := os.CreateTemp(e.blobsDir, ".response-*.tmp")
+	temp, ferr := os.CreateTemp(blobsDir, ".response-*.tmp")
 	if ferr != nil {
 		rest, derr := io.Copy(io.Discard, r)
 		total += int64(pn) + rest
@@ -468,7 +477,7 @@ func (e *Engine) readBodyWithBlob(r io.Reader) (head []byte, total int64, blobRe
 		return appendTruncationMarker(buf.Bytes()), total, "", nil
 	}
 	name := uuid.NewString() + ".bin"
-	if err := os.Rename(tempPath, filepath.Join(e.blobsDir, name)); err != nil {
+	if err := os.Rename(tempPath, filepath.Join(blobsDir, name)); err != nil {
 		return appendTruncationMarker(buf.Bytes()), total, "", nil
 	}
 	committed = true

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -332,5 +333,100 @@ func TestSendRequestRedactsExpandedSecretsFromHistory(t *testing.T) {
 	}
 	if !strings.Contains(detail.RequestSnap.Url, "<redacted>") {
 		t.Fatalf("history has no redaction marker: %s", raw)
+	}
+}
+
+func TestSendRequestDoesNotPersistLargeResponseBlobInHistory(t *testing.T) {
+	const secretValue = "large-history-response-secret"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(secretValue + strings.Repeat("x", (2<<20)+1024)))
+	}))
+	defer srv.Close()
+
+	dataDir := t.TempDir()
+	vault := secrets.NewWithKeyring(dataDir, nil)
+	if err := vault.Unlock("large-history-test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vault.Put("test/large-history-response", secretValue); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.OpenWithVault(dataDir, vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	engine := httpengine.New()
+	engine.SetBlobsDir(store.BlobsDir())
+
+	api := NewRequestApi(engine, store)
+	response, err := api.SendRequest(
+		"large-history-response",
+		model.HttpRequest{Method: "GET", Url: srv.URL, Settings: model.DefaultSettings()},
+		model.SendContext{WorkspaceId: workspace.Id},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Body.Inline || response.Body.BlobRef == "" {
+		t.Fatalf("large response body = %+v", response.Body)
+	}
+	detail, err := store.GetHistory(workspace.Id, response.HistoryId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.BodyRef != "" {
+		t.Fatalf("history retained live response blob %q", detail.BodyRef)
+	}
+	if _, err := api.GetResponseBlobInfo(response.Body.BlobRef); err != nil {
+		t.Fatalf("live response blob is not readable: %v", err)
+	}
+	if err := api.ReleaseResponseBlob(response.Body.BlobRef); err != nil {
+		t.Fatalf("release response blob: %v", err)
+	}
+	if _, err := api.GetResponseBlobInfo(response.Body.BlobRef); err == nil {
+		t.Fatal("released response blob remained readable")
+	}
+}
+
+func TestPMSendRequestDoesNotPersistLargeResponseBlob(t *testing.T) {
+	largeBody := strings.Repeat("z", (2<<20)+1024)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/large" {
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write([]byte(largeBody))
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	store, err := storage.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	engine := httpengine.New()
+	engine.SetBlobsDir(store.BlobsDir())
+	request := model.HttpRequest{
+		Method:    "GET",
+		Url:       srv.URL,
+		PreScript: `pm.sendRequest('` + srv.URL + `/large', function (err) { if (err) throw err; });`,
+		Settings:  model.DefaultSettings(),
+	}
+	if _, err := NewRequestApi(engine, store).SendRequest(
+		"pm-send-request-large-response", request, model.SendContext{WorkspaceId: workspace.Id},
+	); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(store.BlobsDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("pm.sendRequest left response blobs: %+v", entries)
 	}
 }

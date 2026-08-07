@@ -361,6 +361,8 @@ export const en: Record<string, string> = {
   '已导出镜像到 ': 'Mirror exported to ',
   '」及其全部请求？': '" and all its requests?',
   '历史记录加载失败': 'Failed to load history entry',
+  '释放响应文件失败: {detail}': 'Failed to release response file: {detail}',
+  '响应清理失败': 'Response cleanup failed',
   '创建工作区失败': 'Failed to create workspace',
   '」及其全部集合、环境与历史？此操作不可恢复。': '" and all its collections, environments, and history? This cannot be undone.',
   '支持 {{变量}} 占位，发送时解析。': 'Supports {{variable}} placeholders resolved when sending.',

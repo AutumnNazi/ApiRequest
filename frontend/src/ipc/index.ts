@@ -78,6 +78,8 @@ export const readResponseBlobRange = (blobRef: string, offset: number, limit: nu
   call(() => RequestApi.ReadResponseBlobRange(blobRef, offset, limit));
 export const saveResponseBlob = (blobRef: string, destination: string) =>
   call(() => RequestApi.SaveResponseBlob(blobRef, destination));
+export const releaseResponseBlob = (blobRef: string) =>
+  call(() => RequestApi.ReleaseResponseBlob(blobRef));
 
 export const openNativeFile = (title: string) => call(() => DialogApi.OpenFile(translate(title)));
 export const openNativeDirectory = (title: string) =>

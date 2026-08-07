@@ -54,17 +54,18 @@ func NewApp() *App {
 	protocols := protocol.NewManager(engine.NewHTTPClient(0))
 
 	request := binding.NewRequestApi(engine, store)
+	runner := binding.NewRunnerApi(request, store)
 	return &App{
 		store:     store,
 		mocks:     mocks,
 		protocols: protocols,
 		Request:   request,
-		Node:      binding.NewNodeApi(store),
+		Node:      binding.NewNodeApi(store, runner, request),
 		History:   binding.NewHistoryApi(store),
 		Env:       binding.NewEnvApi(store),
 		Cookie:    binding.NewCookieApi(store),
 		Convert:   binding.NewConvertApi(store),
-		Runner:    binding.NewRunnerApi(request, store),
+		Runner:    runner,
 		Example:   binding.NewExampleApi(store),
 		Mock:      binding.NewMockApi(store, mocks),
 		Protocol:  binding.NewProtocolApi(protocols),

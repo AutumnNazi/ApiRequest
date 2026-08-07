@@ -14,6 +14,10 @@ export function ReadResponseBlobRange(arg1, arg2, arg3) {
   return window['go']['binding']['RequestApi']['ReadResponseBlobRange'](arg1, arg2, arg3);
 }
 
+export function ReleaseResponseBlob(arg1) {
+  return window['go']['binding']['RequestApi']['ReleaseResponseBlob'](arg1);
+}
+
 export function SaveResponseBlob(arg1, arg2) {
   return window['go']['binding']['RequestApi']['SaveResponseBlob'](arg1, arg2);
 }

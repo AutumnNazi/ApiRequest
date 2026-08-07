@@ -12,21 +12,23 @@ var errOperationRegistryClosing = errors.New("operation registry is shutting dow
 type operation struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	scope  string
 }
 
 // operationRegistry owns uniqueness, cancellation, completion, and shutdown
 // for one class of long-running operations.
 type operationRegistry struct {
-	mu      sync.Mutex
-	active  map[string]*operation
-	closing bool
+	mu            sync.Mutex
+	active        map[string]*operation
+	blockedScopes map[string]struct{}
+	closing       bool
 }
 
 func newOperationRegistry() *operationRegistry {
-	return &operationRegistry{active: map[string]*operation{}}
+	return &operationRegistry{active: map[string]*operation{}, blockedScopes: map[string]struct{}{}}
 }
 
-func (r *operationRegistry) begin(parent context.Context, id string) (context.Context, func(), error) {
+func (r *operationRegistry) begin(parent context.Context, id, scope string) (context.Context, func(), error) {
 	if strings.TrimSpace(id) == "" {
 		return nil, nil, errors.New("operation id is required")
 	}
@@ -39,12 +41,16 @@ func (r *operationRegistry) begin(parent context.Context, id string) (context.Co
 		r.mu.Unlock()
 		return nil, nil, errOperationRegistryClosing
 	}
+	if _, blocked := r.blockedScopes[scope]; blocked {
+		r.mu.Unlock()
+		return nil, nil, errors.New("operation scope is closing: " + scope)
+	}
 	if _, exists := r.active[id]; exists {
 		r.mu.Unlock()
 		return nil, nil, errors.New("operation already in flight: " + id)
 	}
 	ctx, cancel := context.WithCancel(parent)
-	op := &operation{cancel: cancel, done: make(chan struct{})}
+	op := &operation{cancel: cancel, done: make(chan struct{}), scope: scope}
 	r.active[id] = op
 	r.mu.Unlock()
 
@@ -61,6 +67,38 @@ func (r *operationRegistry) begin(parent context.Context, id string) (context.Co
 		})
 	}
 	return ctx, finish, nil
+}
+
+func (r *operationRegistry) cancelScope(ctx context.Context, scope string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.mu.Lock()
+	r.blockedScopes[scope] = struct{}{}
+	operations := make([]*operation, 0)
+	for _, op := range r.active {
+		if op.scope == scope {
+			operations = append(operations, op)
+		}
+	}
+	r.mu.Unlock()
+	for _, op := range operations {
+		op.cancel()
+	}
+	for _, op := range operations {
+		select {
+		case <-op.done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+func (r *operationRegistry) resumeScope(scope string) {
+	r.mu.Lock()
+	delete(r.blockedScopes, scope)
+	r.mu.Unlock()
 }
 
 func (r *operationRegistry) cancel(id string) {

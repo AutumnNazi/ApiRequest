@@ -26,6 +26,7 @@ import {
   renameWorkspace,
   sendRequest,
   cancelRequest,
+  releaseResponseBlob,
   upsertNode,
   listNodes,
   getNode,
@@ -153,6 +154,17 @@ export default function App() {
         return;
       }
     }
+    const blobRef = tab.response?.body?.blobRef;
+    if (blobRef) {
+      try {
+        await releaseResponseBlob(blobRef);
+      } catch (cause) {
+        void dialog.alert(
+          formatMessage('释放响应文件失败: {detail}', { detail: toAppError(cause).detail }),
+          { title: '响应清理失败' },
+        );
+      }
+    }
     close(tab.id);
   };
 
@@ -174,6 +186,14 @@ export default function App() {
     const tabId = active.id;
     const sendId = `${tabId}-${Date.now()}`;
     setSending(tabId, true, sendId);
+    const previousBlobRef = active.response?.body?.blobRef;
+    if (previousBlobRef) {
+      try {
+        await releaseResponseBlob(previousBlobRef);
+      } catch {
+        // Backend shutdown and workspace cleanup remain the final owner fallback.
+      }
+    }
     try {
       const res = await sendRequest(sendId, active.draft, {
         workspaceId: active.workspaceId,

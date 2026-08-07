@@ -1,17 +1,29 @@
 package binding
 
 import (
+	"context"
+	"fmt"
+	"time"
+
 	"apirequest/backend/model"
 	"apirequest/backend/storage"
 )
 
+type workspaceOperationOwner interface {
+	cancelWorkspace(context.Context, string) error
+	resumeWorkspace(string)
+}
+
 // NodeApi 集合树 CRUD 域
 type NodeApi struct {
-	store *storage.Store
+	store     *storage.Store
+	operation []workspaceOperationOwner
 }
 
 // NewNodeApi 构造
-func NewNodeApi(store *storage.Store) *NodeApi { return &NodeApi{store: store} }
+func NewNodeApi(store *storage.Store, operation ...workspaceOperationOwner) *NodeApi {
+	return &NodeApi{store: store, operation: operation}
+}
 
 // GetDefaultWorkspace 返回默认工作区（无则创建）
 func (a *NodeApi) GetDefaultWorkspace() (model.Workspace, error) {
@@ -63,7 +75,23 @@ func (a *NodeApi) DeleteWorkspace(id string) error {
 	if len(all) <= 1 {
 		return model.NewError(model.KindValidation, "cannot delete the last workspace")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	blocked := make([]workspaceOperationOwner, 0, len(a.operation))
+	resumeBlocked := func() {
+		for _, owner := range blocked {
+			owner.resumeWorkspace(id)
+		}
+	}
+	for _, owner := range a.operation {
+		blocked = append(blocked, owner)
+		if err := owner.cancelWorkspace(ctx, id); err != nil {
+			resumeBlocked()
+			return model.WrapError(model.KindStorage, fmt.Errorf("stop workspace operations: %w", err))
+		}
+	}
 	if err := a.store.DeleteWorkspace(id); err != nil {
+		resumeBlocked()
 		return model.WrapError(model.KindStorage, err)
 	}
 	return nil

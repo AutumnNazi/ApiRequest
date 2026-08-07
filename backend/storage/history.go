@@ -19,6 +19,8 @@ type responseMeta struct {
 }
 
 const historyResponseRedactionMigrationKey = "history.response-redaction.v1"
+const historyResponseBlobRemovalMigrationKey = "history.response-blobs.removed.v1"
+const historyResponseLegacyBlobRefsKey = "history.response-blobs.legacy-refs.v1"
 
 // historyRetentionLimit bounds each workspace independently. Stable ordering by
 // created_at and id matches ListHistory cursor semantics.
@@ -91,8 +93,67 @@ func (s *Store) migrateHistoryResponseSecrets() error {
 	return tx.Commit()
 }
 
+// migrateHistoryResponseBlobs removes legacy large-body references. History is
+// currently a request replay audit surface; retaining raw response files there
+// bypasses response-secret redaction and serves no user-visible workflow.
+func (s *Store) migrateHistoryResponseBlobs() error {
+	done, err := s.GetSetting(historyResponseBlobRemovalMigrationKey)
+	if err != nil || done == "1" {
+		return err
+	}
+	legacyRaw, err := s.GetSetting(historyResponseLegacyBlobRefsKey)
+	if err != nil {
+		return err
+	}
+	var refs []string
+	if legacyRaw != "" {
+		if err := json.Unmarshal([]byte(legacyRaw), &refs); err != nil {
+			return fmt.Errorf("decode legacy history blob refs: %w", err)
+		}
+	}
+	rows, err := s.db.Query("SELECT DISTINCT body_ref FROM history WHERE body_ref IS NOT NULL AND body_ref != ''")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			rows.Close()
+			return err
+		}
+		refs = append(refs, ref)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("UPDATE history SET body_ref = NULL WHERE body_ref IS NOT NULL AND body_ref != ''"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO setting(key, value) VALUES (?, '1')
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, historyResponseBlobRemovalMigrationKey); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.removeUnreferencedBlobFiles(refs)
+	return nil
+}
+
 // InsertHistory writes one redacted detail record and returns its generated id.
 func (s *Store) InsertHistory(item model.HistoryDetail) (string, error) {
+	if item.BodyRef != "" {
+		return "", errors.New("history response blob persistence is disabled")
+	}
 	if item.Id == "" {
 		item.Id = newId()
 	}

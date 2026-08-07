@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"sync"
 	"time"
 
 	wailsrt "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -24,11 +25,15 @@ type RequestApi struct {
 	engine     *httpengine.Engine
 	store      *storage.Store
 	operations *operationRegistry
+	blobMu     sync.RWMutex
+	liveBlobs  map[string]string // blob ref -> workspace id
 }
 
 // NewRequestApi 构造
 func NewRequestApi(engine *httpengine.Engine, store *storage.Store) *RequestApi {
-	return &RequestApi{engine: engine, store: store, operations: newOperationRegistry()}
+	return &RequestApi{
+		engine: engine, store: store, operations: newOperationRegistry(), liveBlobs: map[string]string{},
+	}
 }
 
 // Startup 由 Wails OnStartup 注入运行时 context（事件推送用）。
@@ -91,7 +96,7 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	if sendCtx.WorkspaceId == "" {
 		return model.ResponseResult{}, model.NewError(model.KindValidation, "workspaceId is required")
 	}
-	ctx, finish, err := a.operations.begin(parent, sendId)
+	ctx, finish, err := a.operations.begin(parent, sendId, sendCtx.WorkspaceId)
 	if err != nil {
 		return model.ResponseResult{}, model.NewError(model.KindValidation, err.Error())
 	}
@@ -110,7 +115,7 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 		resolved := template.ResolveRequest(sreq, ec.scope)
 		sctx, scancel := context.WithTimeout(ctx, 30*time.Second)
 		defer scancel()
-		return a.engine.Send(sctx, resolved)
+		return a.engine.SendTransient(sctx, resolved)
 	}
 
 	// 2. 前置脚本（根→叶→请求级；可改请求与变量）
@@ -151,6 +156,11 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	if err != nil {
 		return res, model.WrapError(model.KindNetwork, err)
 	}
+	if res.Body.BlobRef != "" {
+		a.blobMu.Lock()
+		a.liveBlobs[res.Body.BlobRef] = sendCtx.WorkspaceId
+		a.blobMu.Unlock()
+	}
 
 	// 5.5 响应 Set-Cookie 写回 Jar
 	cookiePersistErr := persistCookies(a.store, resolved.Url, res.Cookies)
@@ -182,7 +192,7 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	}
 	res.ScriptLogs = redactor.Strings(res.ScriptLogs)
 
-	// 8. 落历史（存已解析请求快照；大 body 只存 blob 引用；失败不阻断响应返回）
+	// 8. 落历史（存已解析请求快照；大响应仅作为 live Blob 返回，不进入审计历史）
 	histItem := model.HistoryItem{
 		WorkspaceId: sendCtx.WorkspaceId,
 		RequestSnap: redactor.Request(resolved),
@@ -195,8 +205,6 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	}
 	if res.Body.Inline {
 		histItem.BodyInline = res.Body.Text
-	} else {
-		histItem.BodyRef = res.Body.BlobRef
 	}
 	histId, herr := a.store.InsertHistory(histItem)
 	if herr == nil {
@@ -209,6 +217,11 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 
 // GetResponseBlobInfo reads metadata without loading the response body.
 func (a *RequestApi) GetResponseBlobInfo(blobRef string) (model.ResponseBlobInfo, error) {
+	a.blobMu.RLock()
+	defer a.blobMu.RUnlock()
+	if _, ok := a.liveBlobs[blobRef]; !ok {
+		return model.ResponseBlobInfo{}, model.NewError(model.KindStorage, "response blob is not available")
+	}
 	size, err := a.store.BlobInfo(blobRef)
 	if err != nil {
 		return model.ResponseBlobInfo{}, model.WrapError(model.KindStorage, err)
@@ -218,6 +231,11 @@ func (a *RequestApi) GetResponseBlobInfo(blobRef string) (model.ResponseBlobInfo
 
 // ReadResponseBlobRange returns a bounded binary-safe chunk.
 func (a *RequestApi) ReadResponseBlobRange(blobRef string, offset, limit int64) (model.ResponseBlobChunk, error) {
+	a.blobMu.RLock()
+	defer a.blobMu.RUnlock()
+	if _, ok := a.liveBlobs[blobRef]; !ok {
+		return model.ResponseBlobChunk{}, model.NewError(model.KindStorage, "response blob is not available")
+	}
 	data, eof, err := a.store.ReadBlobRange(blobRef, offset, limit)
 	if err != nil {
 		return model.ResponseBlobChunk{}, model.WrapError(model.KindStorage, err)
@@ -229,11 +247,67 @@ func (a *RequestApi) ReadResponseBlobRange(blobRef string, offset, limit int64) 
 
 // SaveResponseBlob streams a blob to a path selected through DialogApi.
 func (a *RequestApi) SaveResponseBlob(blobRef, destination string) (int64, error) {
+	a.blobMu.RLock()
+	defer a.blobMu.RUnlock()
+	if _, ok := a.liveBlobs[blobRef]; !ok {
+		return 0, model.NewError(model.KindStorage, "response blob is not available")
+	}
 	written, err := a.store.CopyBlob(blobRef, destination)
 	if err != nil {
 		return 0, model.WrapError(model.KindStorage, err)
 	}
 	return written, nil
+}
+
+// ReleaseResponseBlob releases a live response body after its UI owner is gone.
+func (a *RequestApi) ReleaseResponseBlob(blobRef string) error {
+	if err := a.releaseResponseBlob(blobRef); err != nil {
+		return model.WrapError(model.KindStorage, err)
+	}
+	return nil
+}
+
+func (a *RequestApi) releaseResponseBlob(blobRef string) error {
+	a.blobMu.Lock()
+	defer a.blobMu.Unlock()
+	if _, ok := a.liveBlobs[blobRef]; !ok {
+		return nil
+	}
+	if err := a.store.RemoveBlob(blobRef); err != nil {
+		return err
+	}
+	delete(a.liveBlobs, blobRef)
+	return nil
+}
+
+func (a *RequestApi) releaseWorkspaceBlobs(workspaceId string) error {
+	a.blobMu.Lock()
+	defer a.blobMu.Unlock()
+	var firstErr error
+	for ref, owner := range a.liveBlobs {
+		if workspaceId != "" && owner != workspaceId {
+			continue
+		}
+		if err := a.store.RemoveBlob(ref); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		delete(a.liveBlobs, ref)
+	}
+	return firstErr
+}
+
+func (a *RequestApi) cancelWorkspace(ctx context.Context, workspaceId string) error {
+	if err := a.operations.cancelScope(ctx, workspaceId); err != nil {
+		return err
+	}
+	return a.releaseWorkspaceBlobs(workspaceId)
+}
+
+func (a *RequestApi) resumeWorkspace(workspaceId string) {
+	a.operations.resumeScope(workspaceId)
 }
 
 // CancelRequest 取消进行中的请求；未知/已完成的 sendId 为 no-op
@@ -243,5 +317,8 @@ func (a *RequestApi) CancelRequest(sendId string) error {
 }
 
 func (a *RequestApi) shutdown(ctx context.Context) error {
-	return a.operations.shutdown(ctx)
+	if err := a.operations.shutdown(ctx); err != nil {
+		return err
+	}
+	return a.releaseWorkspaceBlobs("")
 }

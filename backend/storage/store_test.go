@@ -22,6 +22,16 @@ func openTestStore(t *testing.T) *Store {
 	return s
 }
 
+func insertLegacyHistoryBlob(t *testing.T, store *Store, workspaceId, ref string) {
+	t.Helper()
+	if _, err := store.db.Exec(`
+		INSERT INTO history (id, workspace_id, request_snap, method, url, response_meta, body_ref, created_at)
+		VALUES (?, ?, '{}', 'GET', 'https://example.test', '{}', ?, ?)`,
+		newId(), workspaceId, ref, nowMs()); err != nil {
+		t.Fatalf("insert legacy history blob: %v", err)
+	}
+}
+
 func TestMigrateAndReopen(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
@@ -87,6 +97,78 @@ func TestHistoryProjectionMigrationToleratesInvalidJSON(t *testing.T) {
 	}
 	if method != "" || url != "" {
 		t.Fatalf("invalid snapshot projection = method %q, url %q", method, url)
+	}
+}
+
+func TestHistoryOwnershipMigrationRemovesLegacyResponseBlobs(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "apirequest.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 7; i++ {
+		if _, err := db.Exec(migrations[i]); err != nil {
+			db.Close()
+			t.Fatalf("apply migration %d: %v", i+1, err)
+		}
+	}
+	if _, err := db.Exec("PRAGMA user_version = 7"); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO workspace (id, name, type, created_at, updated_at) VALUES ('w1', 'test', 'local', 1, 1)"); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	for _, row := range []struct {
+		id, workspaceId, ref string
+	}{
+		{id: "valid-history", workspaceId: "w1", ref: "legacy-valid.bin"},
+		{id: "orphan-history", workspaceId: "missing", ref: "legacy-orphan.bin"},
+	} {
+		if _, err := db.Exec(`
+			INSERT INTO history (id, workspace_id, request_snap, method, url, response_meta, body_ref, created_at)
+			VALUES (?, ?, '{}', 'GET', 'https://example.test', '{}', ?, 1)`,
+			row.id, row.workspaceId, row.ref); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "blobs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"legacy-valid.bin", "legacy-orphan.bin"} {
+		if err := os.WriteFile(filepath.Join(dir, "blobs", ref), []byte("legacy secret"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var bodyRef sql.NullString
+	if err := store.db.QueryRow("SELECT body_ref FROM history WHERE id = 'valid-history'").Scan(&bodyRef); err != nil {
+		t.Fatal(err)
+	}
+	if bodyRef.Valid {
+		t.Fatalf("legacy history body ref survived migration: %q", bodyRef.String)
+	}
+	var orphanCount int
+	if err := store.db.QueryRow("SELECT COUNT(*) FROM history WHERE id = 'orphan-history'").Scan(&orphanCount); err != nil {
+		t.Fatal(err)
+	}
+	if orphanCount != 0 {
+		t.Fatal("orphan history survived ownership migration")
+	}
+	for _, ref := range []string{"legacy-valid.bin", "legacy-orphan.bin"} {
+		if _, err := os.Stat(filepath.Join(store.BlobsDir(), ref)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("legacy response blob %q survived migration: %v", ref, err)
+		}
 	}
 }
 
@@ -322,6 +404,32 @@ func TestHistory(t *testing.T) {
 	}
 }
 
+func TestInsertHistoryRejectsDeletedWorkspace(t *testing.T) {
+	s := openTestStore(t)
+	workspace, _ := s.EnsureDefaultWorkspace()
+	if err := s.DeleteWorkspace(workspace.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertHistory(model.HistoryDetail{
+		WorkspaceId: workspace.Id,
+		RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.test/orphan"},
+	}); err == nil {
+		t.Fatal("history was inserted after its workspace had been deleted")
+	}
+}
+
+func TestInsertHistoryRejectsResponseBlob(t *testing.T) {
+	s := openTestStore(t)
+	workspace, _ := s.EnsureDefaultWorkspace()
+	if _, err := s.InsertHistory(model.HistoryDetail{
+		WorkspaceId: workspace.Id,
+		RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.test"},
+		BodyRef:     "raw-response.bin",
+	}); err == nil {
+		t.Fatal("history accepted a raw response blob")
+	}
+}
+
 func TestHistoryCursorPaginationIsStable(t *testing.T) {
 	s := openTestStore(t)
 	w, _ := s.EnsureDefaultWorkspace()
@@ -372,13 +480,7 @@ func TestClearHistoryRemovesBlob(t *testing.T) {
 	if err := os.WriteFile(path, []byte("blob"), 0o600); err != nil {
 		t.Fatalf("write blob: %v", err)
 	}
-	if _, err := s.InsertHistory(model.HistoryItem{
-		WorkspaceId: w.Id,
-		RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.com"},
-		BodyRef:     ref,
-	}); err != nil {
-		t.Fatalf("insert history: %v", err)
-	}
+	insertLegacyHistoryBlob(t, s, w.Id, ref)
 
 	if err := s.ClearHistory(w.Id); err != nil {
 		t.Fatalf("clear history: %v", err)
@@ -468,14 +570,7 @@ func TestOpenRemovesOrphanedResponseBlobs(t *testing.T) {
 	}
 	workspace, _ := store.EnsureDefaultWorkspace()
 	const referencedRef = "referenced.bin"
-	if _, err := store.InsertHistory(model.HistoryDetail{
-		WorkspaceId: workspace.Id,
-		RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.com"},
-		BodyRef:     referencedRef,
-	}); err != nil {
-		store.Close()
-		t.Fatal(err)
-	}
+	insertLegacyHistoryBlob(t, store, workspace.Id, referencedRef)
 	const orphanedRef = "11111111-1111-4111-8111-111111111111.bin"
 	const freshOrphanRef = "22222222-2222-4222-8222-222222222222.bin"
 	for name, content := range map[string]string{
@@ -531,13 +626,7 @@ func TestClearHistoryPreservesSharedBlobReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, workspaceId := range []string{firstWorkspace.Id, secondWorkspace.Id} {
-		if _, err := s.InsertHistory(model.HistoryDetail{
-			WorkspaceId: workspaceId,
-			RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.com"},
-			BodyRef:     ref,
-		}); err != nil {
-			t.Fatal(err)
-		}
+		insertLegacyHistoryBlob(t, s, workspaceId, ref)
 	}
 	if err := s.ClearHistory(firstWorkspace.Id); err != nil {
 		t.Fatal(err)

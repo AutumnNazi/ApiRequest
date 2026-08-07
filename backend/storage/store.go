@@ -138,6 +138,40 @@ var migrations = []string{
 	`
 	ALTER TABLE cookie ADD COLUMN host_only INTEGER NOT NULL DEFAULT 1;
 	`,
+	// 0008: History ownership is a database invariant, not a caller-order convention.
+	`
+	INSERT INTO setting(key, value)
+	SELECT 'history.response-blobs.legacy-refs.v1', json_group_array(body_ref)
+	FROM (SELECT DISTINCT body_ref FROM history WHERE body_ref IS NOT NULL AND body_ref != '');
+	CREATE TABLE history_next (
+	  id            TEXT PRIMARY KEY,
+	  workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+	  request_snap  TEXT NOT NULL,
+	  status        INTEGER,
+	  duration_ms   INTEGER,
+	  size_bytes    INTEGER,
+	  response_meta TEXT,
+	  body_ref      TEXT,
+	  body_inline   TEXT,
+	  test_results  TEXT,
+	  created_at    INTEGER NOT NULL,
+	  method        TEXT NOT NULL DEFAULT '',
+	  url           TEXT NOT NULL DEFAULT ''
+	);
+	INSERT INTO history_next (
+	  id, workspace_id, request_snap, status, duration_ms, size_bytes, response_meta,
+	  body_ref, body_inline, test_results, created_at, method, url
+	)
+	SELECT h.id, h.workspace_id, h.request_snap, h.status, h.duration_ms, h.size_bytes,
+	       h.response_meta, h.body_ref, h.body_inline, h.test_results, h.created_at,
+	       h.method, h.url
+	FROM history h
+	INNER JOIN workspace w ON w.id = h.workspace_id;
+	DROP TABLE history;
+	ALTER TABLE history_next RENAME TO history;
+	CREATE INDEX idx_history_ws_time ON history(workspace_id, created_at DESC);
+	CREATE INDEX idx_history_ws_cursor ON history(workspace_id, created_at DESC, id DESC);
+	`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录
@@ -179,6 +213,10 @@ func OpenWithVault(dataDir string, vault *secrets.Vault) (*Store, error) {
 	if err := s.migrateHistoryResponseSecrets(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate history response secrets: %w", err)
+	}
+	if err := s.migrateHistoryResponseBlobs(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate history response blobs: %w", err)
 	}
 	if vault.Status().CanStore {
 		if err := s.MigrateSecrets(); err != nil {
@@ -339,6 +377,18 @@ func (s *Store) CopyBlob(ref, destination string) (int64, error) {
 	}
 	committed = true
 	return written, nil
+}
+
+// RemoveBlob removes one validated response artifact. Missing files are already released.
+func (s *Store) RemoveBlob(ref string) error {
+	path, err := s.blobPath(ref)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func replaceFile(tempPath, destination string, rename func(string, string) error) error {
