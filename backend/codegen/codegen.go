@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"apirequest/backend/model"
+	"apirequest/backend/requesturl"
 )
 
 // Generator 代码生成器接口
@@ -60,35 +61,10 @@ func Generate(id string, req model.HttpRequest) (string, error) {
 //   - URL 解析失败（如 {{base}}/path）回退 raw 拼接，保留 {{var}} 供前端模板引擎替换
 //   - 仍然对 Params 的 key/value 做 url.QueryEscape（codegen 输出代码片段需要合法 URL 字面）
 func fullUrl(req model.HttpRequest) string {
-	raw := req.Url
-	existing := map[string]bool{}
-	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
-		for k := range u.Query() {
-			existing[k] = true
-		}
-	}
-	hasQ := strings.Contains(raw, "?")
-	for _, p := range req.Params {
-		if !p.Enabled || p.Key == "" || existing[p.Key] {
-			continue
-		}
-		sep := "?"
-		if hasQ {
-			sep = "&"
-		}
-		raw += sep + url.QueryEscape(p.Key) + "=" + url.QueryEscape(p.Value)
-		hasQ = true
-		existing[p.Key] = true
-	}
+	raw := requesturl.AppendParams(req.Url, req.Params, true)
 	if strings.EqualFold(req.Auth.Type, "apikey") && strings.EqualFold(req.Auth.Params["in"], "query") {
 		key, value := req.Auth.Params["key"], req.Auth.Params["value"]
-		if key != "" && !existing[key] {
-			sep := "?"
-			if hasQ {
-				sep = "&"
-			}
-			raw += sep + url.QueryEscape(key) + "=" + url.QueryEscape(value)
-		}
+		raw = requesturl.SetParam(raw, key, value, true)
 	}
 	return raw
 }

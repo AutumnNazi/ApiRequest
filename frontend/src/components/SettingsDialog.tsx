@@ -1,5 +1,6 @@
 // 应用设置：左侧分类导航 + 右侧内容面板
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   getProxySettings,
   setProxySettings,
@@ -41,6 +42,7 @@ const categories: Array<[Category, string]> = [
 ];
 
 export default function SettingsDialog({ onClose }: Props) {
+  const qc = useQueryClient();
   const locale = useLocale((state) => state.locale);
   const setLocale = useLocale((state) => state.setLocale);
   const [cat, setCat] = useState<Category>('general');
@@ -80,6 +82,7 @@ export default function SettingsDialog({ onClose }: Props) {
       await setTLSSettings(tls);
       await setSyncConfig(dav);
       setDav(await getSyncConfig());
+      await qc.invalidateQueries({ queryKey: ['syncConfig'] });
       setVault(await getVaultStatus());
       setMsg(formatMessage('已保存并生效'));
       window.setTimeout(() => setMsg(''), 1500);

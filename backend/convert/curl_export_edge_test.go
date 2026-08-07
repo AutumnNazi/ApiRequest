@@ -159,3 +159,19 @@ func TestCurlExportApiKeyQuery(t *testing.T) {
 		t.Fatalf("query API key incorrectly exported as header:\n%s", out)
 	}
 }
+
+func TestCurlExportApiKeyQueryOverridesSameNamedParam(t *testing.T) {
+	req := model.HttpRequest{
+		Method: "GET",
+		Url:    "https://x.io/items?api_key=stale&tag=one",
+		Params: []model.KV{{Key: "api_key", Value: "also-stale", Enabled: true}},
+		Auth: model.Auth{Type: "apikey", Params: map[string]string{
+			"in": "query", "key": "api_key", "value": "current",
+		}},
+		Settings: model.DefaultSettings(),
+	}
+	got := fullURL(req)
+	if got != "https://x.io/items?tag=one&api_key=current" {
+		t.Fatalf("fullURL() = %q", got)
+	}
+}

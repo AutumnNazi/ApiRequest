@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -294,7 +295,12 @@ func validateAndOrderSyncNodes(nodes []SyncNode) ([]SyncNode, error) {
 // Sync 执行一次双向同步：拉远端 → 合并 → 写回本地 → 推合并结果。
 // 远端不存在时直接初始化上传。
 func Sync(store *storage.Store, workspaceId string, cfg DavConfig) (*Report, error) {
-	client, err := newDavClient(cfg)
+	return SyncWithClient(store, workspaceId, cfg, nil)
+}
+
+// SyncWithClient executes WebDAV requests through the supplied network policy.
+func SyncWithClient(store *storage.Store, workspaceId string, cfg DavConfig, httpClient *http.Client) (*Report, error) {
+	client, err := newDavClientWithHTTP(cfg, httpClient)
 	if err != nil {
 		return nil, err
 	}

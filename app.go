@@ -51,7 +51,7 @@ func NewApp() *App {
 	engine := httpengine.New()
 	engine.SetBlobsDir(store.BlobsDir())
 	mocks := mock.NewManager()
-	protocols := protocol.NewManager()
+	protocols := protocol.NewManager(engine.NewHTTPClient(0))
 
 	request := binding.NewRequestApi(engine, store)
 	return &App{
@@ -68,10 +68,10 @@ func NewApp() *App {
 		Example:   binding.NewExampleApi(store),
 		Mock:      binding.NewMockApi(store, mocks),
 		Protocol:  binding.NewProtocolApi(protocols),
-		OAuth2:    binding.NewOAuth2Api(),
+		OAuth2:    binding.NewOAuth2Api(engine.NewHTTPClient(30 * time.Second)),
 		Settings:  binding.NewSettingsApi(store, engine),
 		Grpc:      binding.NewGrpcApi(),
-		Graphql:   binding.NewGraphqlApi(),
+		Graphql:   binding.NewGraphqlApi(engine.NewHTTPClient(0)),
 		Sync:      binding.NewSyncApi(store, engine),
 		Dialog:    binding.NewDialogApi(),
 	}

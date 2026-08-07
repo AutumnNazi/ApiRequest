@@ -36,15 +36,19 @@ type davClient struct {
 }
 
 func newDavClient(cfg DavConfig) (*davClient, error) {
+	return newDavClientWithHTTP(cfg, &http.Client{Timeout: 30 * time.Second})
+}
+
+func newDavClientWithHTTP(cfg DavConfig, client *http.Client) (*davClient, error) {
 	raw := strings.TrimRight(strings.TrimSpace(cfg.Url), "/") + "/"
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, model.NewError(model.KindValidation, "invalid WebDAV url: "+cfg.Url)
 	}
-	c := &davClient{
-		base: u,
-		http: &http.Client{Timeout: 30 * time.Second},
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
+	c := &davClient{base: u, http: client}
 	if cfg.Username != "" {
 		c.auth = "Basic " + basicToken(cfg.Username, cfg.Password)
 	}

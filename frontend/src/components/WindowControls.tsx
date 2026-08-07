@@ -8,44 +8,75 @@ import {
 } from '../../wailsjs/runtime/runtime';
 import { noDragRegion } from '../titlebar';
 
+const controlClass =
+  'inline-flex h-10 w-11 shrink-0 items-center justify-center p-0 text-gray-500 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400';
+
 export default function WindowControls() {
   const [maximised, setMaximised] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    void WindowIsMaximised()
-      .then((m) => alive && setMaximised(m))
-      .catch(() => {});
+    const refreshMaximised = () => {
+      void WindowIsMaximised()
+        .then((m) => alive && setMaximised(m))
+        .catch(() => {});
+    };
+    refreshMaximised();
+    window.addEventListener('resize', refreshMaximised);
     return () => {
       alive = false;
+      window.removeEventListener('resize', refreshMaximised);
     };
   }, []);
 
+  const toggleMaximise = () => {
+    WindowToggleMaximise();
+    setMaximised((current) => !current);
+  };
+
   return (
-    <div className="flex items-center -mr-3 h-10" style={noDragRegion}>
+    <div
+      className="-mr-3 flex h-10 items-center"
+      style={noDragRegion}
+      role="group"
+      aria-label="窗口控制"
+    >
       <button
-        className="h-full px-3 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+        type="button"
+        className={`${controlClass} hover:bg-gray-100 hover:text-gray-800`}
         onClick={() => WindowMinimise()}
         title="最小化"
+        aria-label="最小化"
       >
-        ─
+        <span aria-hidden="true" className="block h-px w-3 bg-current" />
       </button>
       <button
-        className="h-full px-3 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-        onClick={() => {
-          WindowToggleMaximise();
-          setMaximised((m) => !m);
-        }}
+        type="button"
+        className={`${controlClass} hover:bg-gray-100 hover:text-gray-800`}
+        onClick={toggleMaximise}
         title={maximised ? '还原' : '最大化'}
+        aria-label={maximised ? '还原' : '最大化'}
       >
-        {maximised ? '❐' : '□'}
+        {maximised ? (
+          <span aria-hidden="true" className="relative block h-3 w-3">
+            <span className="absolute right-0 top-0 h-[9px] w-[9px] border-r border-t border-current" />
+            <span className="absolute bottom-0 left-0 h-[9px] w-[9px] border border-current" />
+          </span>
+        ) : (
+          <span aria-hidden="true" className="block h-3 w-3 border border-current" />
+        )}
       </button>
       <button
-        className="h-full px-3 text-gray-500 hover:bg-red-500 hover:text-white"
+        type="button"
+        className={`${controlClass} hover:bg-red-500 hover:text-white`}
         onClick={() => Quit()}
         title="关闭"
+        aria-label="关闭"
       >
-        ✕
+        <span aria-hidden="true" className="relative block h-[14px] w-[14px]">
+          <span className="absolute left-0 top-1/2 block h-px w-[14px] -translate-y-1/2 rotate-45 bg-current" />
+          <span className="absolute left-0 top-1/2 block h-px w-[14px] -translate-y-1/2 -rotate-45 bg-current" />
+        </span>
       </button>
     </div>
   );

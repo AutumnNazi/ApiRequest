@@ -136,8 +136,6 @@ func (s *Store) DeleteWorkspace(id string) error {
 	if err != nil {
 		return err
 	}
-	for _, ref := range blobRefs {
-		s.removeBlobFile(ref)
-	}
+	s.removeUnreferencedBlobFiles(blobRefs)
 	return nil
 }

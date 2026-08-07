@@ -28,6 +28,7 @@ import {
   cancelRequest,
   upsertNode,
   listNodes,
+  getNode,
   syncNow,
   getSyncConfig,
   onRequestProgress,
@@ -180,6 +181,7 @@ export default function App() {
       } as SendContext);
       setResponse(tabId, res);
       qc.invalidateQueries({ queryKey: ['history', active.workspaceId] });
+      qc.invalidateQueries({ queryKey: ['cookies'] });
       // 脚本可能改了环境/全局变量，刷新 EnvSwitcher 缓存
       qc.invalidateQueries({ queryKey: ['envs', active.workspaceId] });
       qc.invalidateQueries({ queryKey: ['globals', active.workspaceId] });
@@ -208,7 +210,10 @@ export default function App() {
       let parentId = '';
       let existing: Partial<Node> = {};
       if (active.nodeId) {
-        existing = { id: active.nodeId };
+        // 详情按需加载，既保留 parentId，也避免保存请求时清空节点级 auth/脚本/变量。
+        const currentNode = await getNode(active.workspaceId, active.nodeId);
+        existing = currentNode;
+        parentId = currentNode.parentId ?? '';
       } else {
         const nodes = await listNodes(active.workspaceId);
         let col = nodes.find((n) => n.kind === 'collection');
@@ -279,7 +284,7 @@ export default function App() {
         className="flex items-center h-10 px-3 border-b bg-white shrink-0"
         style={dragRegion}
       >
-        <h1 className="font-semibold text-sm px-1">ApiRequest</h1>
+        <h1 className="hidden px-1 text-sm font-semibold sm:block">ApiRequest</h1>
         <div className="flex items-center flex-1 min-w-0" style={noDragRegion}>
           {/* 分组1：工作区 + 环境 */}
           <WorkspaceSwitcher
@@ -289,7 +294,7 @@ export default function App() {
           <EnvSwitcher workspaceId={workspace.id} />
 
           {/* 分组2：协议工具 */}
-          <div className="ml-3 flex items-center gap-1.5 border-l pl-3">
+          <div className="ml-3 hidden items-center gap-1.5 border-l pl-3 lg:flex">
             <button
               className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
               onClick={() => setShowCookies(true)}
@@ -321,7 +326,7 @@ export default function App() {
 
           {/* 分组3：同步（仅 WebDAV 已配置时展示） */}
           {syncEnabled && (
-          <div className="ml-3 flex items-center gap-1.5 border-l pl-3">
+          <div className="ml-3 hidden items-center gap-1.5 border-l pl-3 lg:flex">
             <button
               className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 disabled:opacity-50"
               onClick={handleSync}
@@ -341,7 +346,7 @@ export default function App() {
           )}
 
           {/* 分组4：应用设置（右对齐） */}
-          <div className="ml-auto flex items-center gap-1.5 border-l pl-3">
+          <div className="ml-auto hidden items-center gap-1.5 border-l pl-3 md:flex">
             <button
               className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
               onClick={() => setShowTheme(true)}

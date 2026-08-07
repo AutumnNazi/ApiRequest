@@ -17,3 +17,7 @@ export function ListCookies(arg1) {
 export function UpsertCookie(arg1) {
   return window['go']['binding']['CookieApi']['UpsertCookie'](arg1);
 }
+
+export function UpsertCookies(arg1) {
+  return window['go']['binding']['CookieApi']['UpsertCookies'](arg1);
+}

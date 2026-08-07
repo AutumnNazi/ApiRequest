@@ -17,6 +17,12 @@ type collector struct {
 	msgs []InboundMsg
 }
 
+type protocolRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn protocolRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
 func (c *collector) emit(m InboundMsg) {
 	c.mu.Lock()
 	c.msgs = append(c.msgs, m)
@@ -147,6 +153,36 @@ func TestSSEStream(t *testing.T) {
 	}
 }
 
+func TestSSEUsesInjectedHTTPClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Network-Policy") != "shared" {
+			http.Error(w, "missing shared client", http.StatusTeapot)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ready\n\n"))
+	}))
+	defer server.Close()
+	client := &http.Client{Transport: protocolRoundTripper(func(request *http.Request) (*http.Response, error) {
+		request.Header.Set("X-Network-Policy", "shared")
+		return http.DefaultTransport.RoundTrip(request)
+	})}
+	manager := NewManager(client)
+	messages := &collector{}
+	if err := manager.Open("shared-client", SessionConfig{Protocol: "sse", Url: server.URL}, messages.emit); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.CloseAll()
+	messages.waitFor(t, func(items []InboundMsg) bool {
+		for _, item := range items {
+			if item.Kind == "event" && item.Data == "ready" {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func TestSSEReconnectUsesLastEventIDAndCloseStopsRetries(t *testing.T) {
 	var mu sync.Mutex
 	connections := 0
@@ -222,4 +258,39 @@ func TestUnsupportedProtocol(t *testing.T) {
 	if err := m.Open("s3", SessionConfig{Protocol: "grpc", Url: "x"}, func(InboundMsg) {}); err == nil {
 		t.Error("grpc should be unsupported for now")
 	}
+}
+
+type duplicateTestSession struct{ closed bool }
+
+func (*duplicateTestSession) Send(string) error { return nil }
+func (s *duplicateTestSession) Close() error {
+	s.closed = true
+	return nil
+}
+
+func TestManagerRejectsDuplicateSessionIDBeforeOpening(t *testing.T) {
+	const protocolName = "duplicate-test"
+	opened := 0
+	first := &duplicateTestSession{}
+	openers[protocolName] = func(string, SessionConfig, EmitFunc, *http.Client) (Session, error) {
+		opened++
+		if opened == 1 {
+			return first, nil
+		}
+		return &duplicateTestSession{}, nil
+	}
+	defer delete(openers, protocolName)
+
+	manager := NewManager()
+	config := SessionConfig{Protocol: protocolName, Url: "unused"}
+	if err := manager.Open("same", config, func(InboundMsg) {}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Open("same", config, func(InboundMsg) {}); err == nil {
+		t.Fatal("duplicate session id was accepted")
+	}
+	if opened != 1 || first.closed {
+		t.Fatalf("opened = %d, first closed = %v", opened, first.closed)
+	}
+	manager.CloseAll()
 }

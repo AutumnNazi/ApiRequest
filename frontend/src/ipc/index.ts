@@ -26,6 +26,7 @@ export type ResponseResult = model.ResponseResult;
 export type ResponseBlobInfo = model.ResponseBlobInfo;
 export type ResponseBlobChunk = model.ResponseBlobChunk;
 export type Node = model.Node;
+export type NodeSummary = model.NodeSummary;
 export type Workspace = model.Workspace;
 export type HistorySummary = model.HistorySummary;
 export type HistoryDetail = model.HistoryDetail;
@@ -94,6 +95,10 @@ export const renameWorkspace = (id: string, name: string) =>
   call(() => NodeApi.RenameWorkspace(id, name));
 export const deleteWorkspace = (id: string) => call(() => NodeApi.DeleteWorkspace(id));
 export const listNodes = (workspaceId: string) => call(() => NodeApi.ListNodes(workspaceId));
+export const getNode = (workspaceId: string, nodeId: string) =>
+  call(() => NodeApi.GetNode(workspaceId, nodeId));
+export const renameNode = (workspaceId: string, nodeId: string, name: string) =>
+  call(() => NodeApi.RenameNode(workspaceId, nodeId, name));
 export const upsertNode = (node: Node) => call(() => NodeApi.UpsertNode(node));
 export const deleteNode = (nodeId: string) => call(() => NodeApi.DeleteNode(nodeId));
 export const moveNode = (nodeId: string, newParentId: string, sortOrder: number) =>
@@ -124,6 +129,7 @@ export const setGlobalVariables = (workspaceId: string, vars: Variable[]) =>
 
 export const listCookies = (domain = '') => call(() => CookieApi.ListCookies(domain));
 export const upsertCookie = (c: Cookie) => call(() => CookieApi.UpsertCookie(c));
+export const upsertCookies = (cookies: Cookie[]) => call(() => CookieApi.UpsertCookies(cookies));
 export const deleteCookie = (domain: string, path: string, name: string) =>
   call(() => CookieApi.DeleteCookie(domain, path, name));
 export const clearCookies = (domain = '') => call(() => CookieApi.ClearCookies(domain));

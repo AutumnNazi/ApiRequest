@@ -76,3 +76,38 @@ func TestJavaRustPhpCsharpFullUrlDedup(t *testing.T) {
 		}
 	}
 }
+
+func TestFullUrlPreservesDistinctValuesForSameKey(t *testing.T) {
+	req := model.HttpRequest{
+		Method: "GET",
+		Url:    "https://x.io/items?tag=one",
+		Params: []model.KV{
+			{Key: "tag", Value: "one", Enabled: true},
+			{Key: "tag", Value: "two", Enabled: true},
+		},
+		Auth: model.Auth{Type: "none"}, Settings: model.DefaultSettings(),
+	}
+	out, err := Generate("curl", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out, "tag=one") != 1 || !strings.Contains(out, "tag=two") {
+		t.Fatalf("generated query lost or duplicated values:\n%s", out)
+	}
+}
+
+func TestFullUrlApiKeyOverridesSameNamedQuery(t *testing.T) {
+	req := model.HttpRequest{
+		Method: "GET",
+		Url:    "https://x.io/items?api_key=stale&tag=one",
+		Params: []model.KV{{Key: "api_key", Value: "also-stale", Enabled: true}},
+		Auth: model.Auth{Type: "apikey", Params: map[string]string{
+			"in": "query", "key": "api_key", "value": "current",
+		}},
+		Settings: model.DefaultSettings(),
+	}
+	got := fullUrl(req)
+	if got != "https://x.io/items?tag=one&api_key=current" {
+		t.Fatalf("fullUrl() = %q", got)
+	}
+}

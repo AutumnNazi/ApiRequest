@@ -58,15 +58,20 @@ func (t *Token) Expired() bool {
 
 // TokenManager 按配置指纹缓存 token（docs/auth.md：缓存键 = auth 配置指纹）
 type TokenManager struct {
-	mu    sync.Mutex
-	cache map[string]*Token
+	mu     sync.Mutex
+	cache  map[string]*Token
+	client *http.Client
 	// OpenBrowser 打开系统浏览器（授权码模式；由 platform 注入，测试可替换）
 	OpenBrowser func(url string) error
 }
 
 // NewTokenManager 构造
-func NewTokenManager(openBrowser func(string) error) *TokenManager {
-	return &TokenManager{cache: map[string]*Token{}, OpenBrowser: openBrowser}
+func NewTokenManager(openBrowser func(string) error, clients ...*http.Client) *TokenManager {
+	client := &http.Client{Timeout: 30 * time.Second}
+	if len(clients) > 0 && clients[0] != nil {
+		client = clients[0]
+	}
+	return &TokenManager{cache: map[string]*Token{}, client: client, OpenBrowser: openBrowser}
 }
 
 // fingerprint 配置指纹（不含易变字段）
@@ -282,21 +287,20 @@ func (m *TokenManager) tokenRequest(ctx context.Context, p map[string]string, fo
 		req.SetBasicAuth(p["clientId"], p["clientSecret"])
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := m.client.Do(req)
 	if err != nil {
 		return nil, model.WrapError(model.KindNetwork, err)
 	}
 	defer resp.Body.Close()
 
 	var payload struct {
-		AccessToken  string          `json:"access_token"`
-		RefreshToken string          `json:"refresh_token"`
-		TokenType    string          `json:"token_type"`
-		ExpiresIn    json.Number     `json:"expires_in"`
-		Scope        string          `json:"scope"`
-		Error        string          `json:"error"`
-		ErrorDesc    string          `json:"error_description"`
+		AccessToken  string      `json:"access_token"`
+		RefreshToken string      `json:"refresh_token"`
+		TokenType    string      `json:"token_type"`
+		ExpiresIn    json.Number `json:"expires_in"`
+		Scope        string      `json:"scope"`
+		Error        string      `json:"error"`
+		ErrorDesc    string      `json:"error_description"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, model.NewError(model.KindNetwork, "token endpoint returned non-JSON ("+resp.Status+")")

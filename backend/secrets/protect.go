@@ -403,6 +403,31 @@ func (r *Redactor) kvs(input []model.KV) []model.KV {
 	return out
 }
 
+// ResponseHeaders scrubs reflected secrets and always removes Set-Cookie values from audit data.
+func (r *Redactor) ResponseHeaders(input []model.KV) []model.KV {
+	out := append([]model.KV(nil), input...)
+	for i := range out {
+		out[i].Key = r.String(out[i].Key)
+		out[i].Description = r.String(out[i].Description)
+		if strings.EqualFold(strings.TrimSpace(out[i].Key), "Set-Cookie") {
+			out[i].Value = redactedText
+		} else {
+			out[i].Value = r.String(out[i].Value)
+		}
+	}
+	return out
+}
+
+// TestResults scrubs assertion text before it crosses the history audit seam.
+func (r *Redactor) TestResults(input []model.TestResult) []model.TestResult {
+	out := append([]model.TestResult(nil), input...)
+	for i := range out {
+		out[i].Name = r.String(out[i].Name)
+		out[i].Error = r.String(out[i].Error)
+	}
+	return out
+}
+
 // AuthValues returns sensitive plaintext values for request-scoped log redaction.
 func AuthValues(auth model.Auth) []string {
 	values := []string{}

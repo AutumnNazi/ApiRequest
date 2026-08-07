@@ -10,11 +10,15 @@ export function DeleteWorkspace(arg1:string):Promise<void>;
 
 export function GetDefaultWorkspace():Promise<model.Workspace>;
 
-export function ListNodes(arg1:string):Promise<Array<model.Node>>;
+export function GetNode(arg1:string,arg2:string):Promise<model.Node>;
+
+export function ListNodes(arg1:string):Promise<Array<model.NodeSummary>>;
 
 export function ListWorkspaces():Promise<Array<model.Workspace>>;
 
 export function MoveNode(arg1:string,arg2:string,arg3:number):Promise<void>;
+
+export function RenameNode(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function RenameWorkspace(arg1:string,arg2:string):Promise<void>;
 

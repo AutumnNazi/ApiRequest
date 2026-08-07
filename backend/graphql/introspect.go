@@ -136,6 +136,12 @@ type FieldSummary struct {
 // 不与 httpengine 复用：内省是只读动作，不走集合/历史/重定向等流程；
 // 在这里发起独立的 HTTP POST（application/json）。
 func Introspect(ctx context.Context, cfg IntrospectConfig) (*Result, error) {
+	return IntrospectWithClient(ctx, cfg, http.DefaultClient)
+}
+
+// IntrospectWithClient executes introspection through the application's shared
+// network policy client.
+func IntrospectWithClient(ctx context.Context, cfg IntrospectConfig, client *http.Client) (*Result, error) {
 	if strings.TrimSpace(cfg.Url) == "" {
 		return nil, model.NewError(model.KindValidation, "url is required")
 	}
@@ -156,7 +162,9 @@ func Introspect(ctx context.Context, cfg IntrospectConfig) (*Result, error) {
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{}
+	if client == nil {
+		client = http.DefaultClient
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, model.WrapError(model.KindNetwork, err)

@@ -515,3 +515,92 @@ func TestHistoryCredentialsAreIrreversiblyRedacted(t *testing.T) {
 		t.Fatalf("unsafe history snapshot: %s", raw)
 	}
 }
+
+func TestHistoryRedactsResponseCredentialsBeforePersistence(t *testing.T) {
+	store := openStoreWithMemoryKeyring(t, t.TempDir(), &memoryKeyring{})
+	workspace, _ := store.EnsureDefaultWorkspace()
+	const knownSecret = "known-response-secret"
+	if _, err := store.Vault().Put("test/history-response", knownSecret); err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.InsertHistory(model.HistoryItem{
+		WorkspaceId: workspace.Id,
+		RequestSnap: model.HttpRequest{Method: "POST", Url: "https://example.test/login"},
+		RespHeaders: []model.KV{
+			{Key: "set-cookie", Value: "session=unseen-cookie-secret; HttpOnly", Enabled: true},
+			{Key: "X-Debug", Value: "token=" + knownSecret, Enabled: true},
+		},
+		BodyInline: `{"debug":"` + knownSecret + `"}`,
+		TestResults: []model.TestResult{{
+			Name:  "response excludes " + knownSecret,
+			Pass:  false,
+			Error: "received " + knownSecret,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta, body, tests string
+	if err := store.db.QueryRow(
+		"SELECT response_meta, body_inline, test_results FROM history WHERE id = ?", id,
+	).Scan(&meta, &body, &tests); err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"unseen-cookie-secret", knownSecret} {
+		if strings.Contains(meta+body+tests, secret) {
+			t.Fatalf("history response persisted %q: meta=%s body=%s tests=%s", secret, meta, body, tests)
+		}
+	}
+	detail, err := store.GetHistory(workspace.Id, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := detail.RespHeaders[0].Value; got != "<redacted>" {
+		t.Fatalf("Set-Cookie value = %q", got)
+	}
+	if !strings.Contains(detail.RespHeaders[1].Value, "<redacted>") ||
+		!strings.Contains(detail.BodyInline, "<redacted>") ||
+		!strings.Contains(detail.TestResults[0].Error, "<redacted>") {
+		t.Fatalf("response redaction incomplete: %+v", detail)
+	}
+}
+
+func TestLegacyHistorySetCookieIsRedactedOnReopen(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store, err := OpenWithVault(dir, secrets.NewWithKeyring(dir, adapter))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _ := store.EnsureDefaultWorkspace()
+	const legacySecret = "legacy-history-cookie"
+	meta := `{"headers":[{"key":"Set-Cookie","value":"session=` + legacySecret + `","enabled":true}],"timing":{}}`
+	if _, err := store.db.Exec(`
+		INSERT INTO history (id, workspace_id, request_snap, response_meta, created_at)
+		VALUES ('legacy-history', ?, '{}', ?, 1)`, workspace.Id, meta); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", historyResponseRedactionMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenWithVault(dir, secrets.NewWithKeyring(dir, adapter))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	var raw string
+	if err := reopened.db.QueryRow("SELECT response_meta FROM history WHERE id = 'legacy-history'").Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var migrated responseMeta
+	if err := json.Unmarshal([]byte(raw), &migrated); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(raw, legacySecret) || len(migrated.Headers) != 1 || migrated.Headers[0].Value != "<redacted>" {
+		t.Fatalf("legacy response metadata was not redacted: %s", raw)
+	}
+}

@@ -11,7 +11,10 @@ import (
 	"apirequest/backend/secrets"
 )
 
-const secretMigrationKey = "secrets.migration.v1"
+const (
+	secretMigrationKey       = "secrets.migration.v1"
+	cookieSecretMigrationKey = "secrets.cookie.migration.v1"
+)
 
 type plaintextSecretWriter struct{ secrets.SecretWriter }
 
@@ -271,22 +274,78 @@ func (s *Store) MigrateSecrets() error {
 		return secrets.ErrLocked
 	}
 	done, err := s.GetSetting(secretMigrationKey)
-	if err != nil || done == "1" {
+	if err != nil {
 		return err
 	}
-	if err := s.migrateNodeSecrets(); err != nil {
+	if done != "1" {
+		if err := s.migrateNodeSecrets(); err != nil {
+			return err
+		}
+		if err := s.migrateVariableSecrets("environment", "id", "variables", "environment/"); err != nil {
+			return err
+		}
+		if err := s.migrateVariableSecrets("global_var", "workspace_id", "variables", "workspace/"); err != nil {
+			return err
+		}
+		if err := s.migrateSyncPassword(); err != nil {
+			return err
+		}
+		if err := s.SetSetting(secretMigrationKey, "1"); err != nil {
+			return err
+		}
+	}
+	cookieDone, err := s.GetSetting(cookieSecretMigrationKey)
+	if err != nil || cookieDone == "1" {
 		return err
 	}
-	if err := s.migrateVariableSecrets("environment", "id", "variables", "environment/"); err != nil {
+	if err := s.migrateCookieSecrets(); err != nil {
 		return err
 	}
-	if err := s.migrateVariableSecrets("global_var", "workspace_id", "variables", "workspace/"); err != nil {
+	return s.SetSetting(cookieSecretMigrationKey, "1")
+}
+
+func (s *Store) migrateCookieSecrets() error {
+	rows, err := s.db.Query("SELECT id, value FROM cookie")
+	if err != nil {
 		return err
 	}
-	if err := s.migrateSyncPassword(); err != nil {
+	type storedCookie struct{ id, value string }
+	stored := []storedCookie{}
+	for rows.Next() {
+		var cookie storedCookie
+		if err := rows.Scan(&cookie.id, &cookie.value); err != nil {
+			rows.Close()
+			return err
+		}
+		if cookie.value != "" && !secrets.IsRef(cookie.value) {
+			stored = append(stored, cookie)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
 		return err
 	}
-	return s.SetSetting(secretMigrationKey, "1")
+	rows.Close()
+	if len(stored) == 0 {
+		return nil
+	}
+	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, cookie := range stored {
+			ref, err := writer.PutPlaintext(cookieSecretPrefix+cookie.id+"/value", cookie.value)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec("UPDATE cookie SET value = ? WHERE id = ?", ref, cookie.id); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	})
 }
 
 type storedNodeSecrets struct {

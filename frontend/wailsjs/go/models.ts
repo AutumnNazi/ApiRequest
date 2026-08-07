@@ -378,8 +378,11 @@ export namespace model {
 	    domain?: string;
 	    path?: string;
 	    expires?: number;
+	    maxAge?: number;
 	    httpOnly: boolean;
 	    secure: boolean;
+	    sameSite?: string;
+	    hostOnly: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Cookie(source);
@@ -392,8 +395,11 @@ export namespace model {
 	        this.domain = source["domain"];
 	        this.path = source["path"];
 	        this.expires = source["expires"];
+	        this.maxAge = source["maxAge"];
 	        this.httpOnly = source["httpOnly"];
 	        this.secure = source["secure"];
+	        this.sameSite = source["sameSite"];
+	        this.hostOnly = source["hostOnly"];
 	    }
 	}
 	export class Variable {
@@ -812,6 +818,34 @@ export namespace model {
 		    return a;
 		}
 	}
+	export class NodeSummary {
+	    id: string;
+	    workspaceId: string;
+	    parentId?: string;
+	    kind: string;
+	    name: string;
+	    sortOrder: number;
+	    method?: string;
+	    createdAt: number;
+	    updatedAt: number;
+
+	    static createFrom(source: any = {}) {
+	        return new NodeSummary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.workspaceId = source["workspaceId"];
+	        this.parentId = source["parentId"];
+	        this.kind = source["kind"];
+	        this.name = source["name"];
+	        this.sortOrder = source["sortOrder"];
+	        this.method = source["method"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	
 	export class ResponseBlobChunk {
 	    offset: number;
@@ -1178,4 +1212,3 @@ export namespace sync {
 	}
 
 }
-

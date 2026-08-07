@@ -23,22 +23,23 @@ const (
 type sseSession struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	client *http.Client
 }
 
-func openSSE(id string, cfg SessionConfig, emit EmitFunc) (Session, error) {
+func openSSE(id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	response, err := connectSSE(ctx, cfg, "")
+	response, err := connectSSE(ctx, cfg, "", client)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
-	session := &sseSession{cancel: cancel, done: make(chan struct{})}
+	session := &sseSession{cancel: cancel, done: make(chan struct{}), client: client}
 	emit(systemSSEMessage(id, "open", cfg.Url))
 	go session.run(ctx, id, cfg, emit, response)
 	return session, nil
 }
 
-func connectSSE(ctx context.Context, cfg SessionConfig, lastEventID string) (*http.Response, error) {
+func connectSSE(ctx context.Context, cfg SessionConfig, lastEventID string, client *http.Client) (*http.Response, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.Url, nil)
 	if err != nil {
 		return nil, model.WrapError(model.KindValidation, err)
@@ -53,7 +54,10 @@ func connectSSE(ctx context.Context, cfg SessionConfig, lastEventID string) (*ht
 	if lastEventID != "" {
 		request.Header.Set("Last-Event-ID", lastEventID)
 	}
-	response, err := http.DefaultClient.Do(request)
+	if client == nil {
+		client = http.DefaultClient
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, model.WrapError(model.KindNetwork, err)
 	}
@@ -94,7 +98,7 @@ func (s *sseSession) run(
 		}
 
 		for {
-			next, connectErr := connectSSE(ctx, cfg, lastEventID)
+			next, connectErr := connectSSE(ctx, cfg, lastEventID, s.client)
 			if connectErr == nil {
 				response = next
 				connectFailures = 0

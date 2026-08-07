@@ -5,6 +5,7 @@ package binding
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"time"
 
 	wailsrt "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -137,7 +138,9 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	}
 
 	// 3.5 Cookie Jar：为目标 host 注入存储的 cookie（用户已手写 Cookie 头则不覆盖）
-	attachCookies(a.store, &resolved)
+	if err := attachCookies(a.store, &resolved); err != nil {
+		return zero, model.WrapError(model.KindStorage, fmt.Errorf("load cookies: %w", err))
+	}
 
 	// 4-5. 发送
 	a.emitProgress(sendId, "sending", 0, 0)
@@ -150,7 +153,7 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	}
 
 	// 5.5 响应 Set-Cookie 写回 Jar
-	persistCookies(a.store, resolved.Url, res.Cookies)
+	cookiePersistErr := persistCookies(a.store, resolved.Url, res.Cookies)
 
 	// 6. 测试脚本（继承链 + 请求级）
 	sandbox.SetResponse(&res)
@@ -164,6 +167,9 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	r := sandbox.Result()
 	res.TestResults = r.TestResults
 	res.ScriptLogs = r.Logs
+	if cookiePersistErr != nil {
+		res.ScriptLogs = append(res.ScriptLogs, "[error] persist cookies: "+cookiePersistErr.Error())
+	}
 	if scriptErr != nil {
 		if ae, ok := scriptErr.(*model.AppError); ok {
 			res.ScriptLogs = append(res.ScriptLogs, "[error] "+ae.Detail)
@@ -195,6 +201,8 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	histId, herr := a.store.InsertHistory(histItem)
 	if herr == nil {
 		res.HistoryId = histId
+	} else {
+		res.ScriptLogs = append(res.ScriptLogs, redactor.String("[warning] save history: "+herr.Error()))
 	}
 	return res, nil
 }

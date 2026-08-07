@@ -1,8 +1,10 @@
 // 侧栏：集合树 + 历史 两个页签
-import { useEffect, useMemo, useState, type DragEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   listNodes,
+  getNode,
+  renameNode,
   upsertNode,
   deleteNode,
   moveNode,
@@ -14,6 +16,7 @@ import {
   openNativeDirectory,
   toAppError,
   type Node,
+  type NodeSummary,
   type HistorySummary,
 } from '../ipc';
 import ImportDialog from './ImportDialog';
@@ -24,11 +27,21 @@ import { newDefaultRequest } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 
+// 导出格式选项：value 对应后端 convert.Export(format, ...) 注册名
+const EXPORT_FORMATS = [
+  { value: 'postman', label: 'Postman v2.1' },
+  { value: 'openapi', label: 'OpenAPI 3.0.3' },
+  { value: 'openapi3.1', label: 'OpenAPI 3.1.0' },
+  { value: 'swagger2', label: 'Swagger 2.0' },
+  { value: 'curl', label: 'cURL' },
+];
+
 interface Props {
   workspaceId: string;
 }
 
-export default function Sidebar({ workspaceId }: Props) {
+// memo：App 在编辑请求草稿时频繁重渲染，Sidebar 仅依赖 workspaceId，无需跟着重渲染
+const Sidebar = memo(function Sidebar({ workspaceId }: Props) {
   const [pane, setPane] = useState<'collections' | 'history'>('collections');
   return (
     <div className="flex flex-col h-full border-r bg-gray-50">
@@ -61,7 +74,9 @@ export default function Sidebar({ workspaceId }: Props) {
       </div>
     </div>
   );
-}
+});
+
+export default Sidebar;
 
 // ── 集合树 ──
 
@@ -70,8 +85,8 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
   const openNode = useTabs((s) => s.openNode);
   const [importing, setImporting] = useState(false);
-  const [runnerTarget, setRunnerTarget] = useState<Node | null>(null);
-  const [mockTarget, setMockTarget] = useState<Node | null>(null);
+  const [runnerTarget, setRunnerTarget] = useState<NodeSummary | null>(null);
+  const [mockTarget, setMockTarget] = useState<NodeSummary | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // 拖拽：HTML5 DnD，仅在同级集合/文件夹内重排；跨层级拖入 folder 时复用同 move
   const [dragId, setDragId] = useState<string | null>(null);
@@ -83,7 +98,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
 
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const childrenByParent = useMemo(() => {
-    const grouped = new Map<string, Node[]>();
+    const grouped = new Map<string, NodeSummary[]>();
     for (const node of nodes) {
       const siblings = grouped.get(node.parentId ?? '') ?? [];
       siblings.push(node);
@@ -96,6 +111,22 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   }, [nodes]);
   const childrenOf = (id: string) => childrenByParent.get(id) ?? [];
   const roots = childrenOf('');
+
+  // 统计集合下所有 request 后代数量（含多层文件夹）
+  const countRequests = useMemo(() => {
+    const cache = new Map<string, number>();
+    const calc = (id: string): number => {
+      if (cache.has(id)) return cache.get(id)!;
+      let n = 0;
+      for (const c of childrenOf(id)) {
+        if (c.kind === 'request') n++;
+        else if (c.kind === 'folder') n += calc(c.id);
+      }
+      cache.set(id, n);
+      return n;
+    };
+    return calc;
+  }, [childrenByParent]);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['nodes', workspaceId] });
 
@@ -134,7 +165,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   });
 
   const rename = useMutation({
-    mutationFn: (n: Node) => upsertNode(n),
+    mutationFn: (n: NodeSummary) => renameNode(workspaceId, n.id, n.name),
     onSuccess: invalidate,
   });
 
@@ -163,7 +194,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   };
 
   // folder/request 通用拖拽起点 props
-  const dragProps = (n: Node) => ({
+  const dragProps = (n: NodeSummary) => ({
     draggable: true,
     onDragStart: (e: DragEvent<HTMLDivElement>) => {
       e.stopPropagation();
@@ -177,7 +208,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     },
   });
 
-  const canMoveInto = (parent: Node) => {
+  const canMoveInto = (parent: NodeSummary) => {
     const dragged = dragId ? nodeById.get(dragId) : undefined;
     return !!dragged
       && dragged.kind !== 'collection'
@@ -185,7 +216,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       && !isDescendant(dragged.id, parent.id);
   };
 
-  const moveInto = (parent: Node) => {
+  const moveInto = (parent: NodeSummary) => {
     const dragged = dragId ? nodeById.get(dragId) : undefined;
     if (!dragged || !canMoveInto(parent)) return;
     const siblings = childrenOf(parent.id);
@@ -195,9 +226,21 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     setDragOverId(null);
   };
 
-  const doRename = async (n: Node) => {
+  const doRename = async (n: NodeSummary) => {
     const name = await dialog.prompt('重命名：', { defaultValue: n.name });
-    if (name && name !== n.name) rename.mutate({ ...n, name } as Node);
+    if (name && name !== n.name) rename.mutate({ ...n, name });
+  };
+
+  const openRequest = async (summary: NodeSummary) => {
+    try {
+      const node = await getNode(summary.workspaceId, summary.id);
+      if (node.request) openNode(node.workspaceId, node.id, node.name, node.request);
+    } catch (error) {
+      void dialog.alert(
+        formatMessage('加载请求失败：{detail}', { detail: toAppError(error).detail }),
+        { title: '请求加载失败' },
+      );
+    }
   };
 
   const toggle = (id: string) =>
@@ -238,6 +281,10 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           >
             <span className="flex-1 truncate text-gray-700">
               {collapsed.has(n.id) ? '📁' : '📂'} <Verbatim value={n.name} />
+              {(() => {
+                const n2 = countRequests(n.id);
+                return n2 > 0 ? <span className="ml-1 text-xs text-gray-400">({n2})</span> : null;
+              })()}
             </span>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
@@ -281,6 +328,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           depth={depth}
           onDelete={(id) => del.mutate(id)}
           onRename={() => doRename(n)}
+          onOpen={() => void openRequest(n)}
           onDragStart={(e: DragEvent<HTMLDivElement>) => {
             e.stopPropagation();
             setDragId(n.id);
@@ -376,6 +424,10 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           >
             <span className="font-medium flex-1 truncate">
               {collapsed.has(col.id) ? '📁' : '📂'} <Verbatim value={col.name} />
+              {(() => {
+                const n = countRequests(col.id);
+                return n > 0 ? <span className="ml-1 text-xs text-gray-400">({n})</span> : null;
+              })()}
             </span>
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
@@ -417,27 +469,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             >
               M
             </button>
-            <button
-              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-              title="导出集合"
-              onClick={async (e) => {
-                e.stopPropagation();
-                const fmt = await dialog.prompt('导出格式（postman / openapi / curl）：', { defaultValue: 'postman' });
-                if (!fmt) return;
-                try {
-                  const out = await exportData(col.id, fmt.toLowerCase().trim());
-                  await navigator.clipboard.writeText(out);
-                  const label = fmt.toLowerCase().trim() === 'openapi' ? 'OpenAPI 3.0.3'
-                    : fmt.toLowerCase().trim() === 'curl' ? 'cURL（JSON + shell）'
-                    : 'Postman v2.1';
-                  void dialog.alert(formatMessage('已复制 {label} 到剪贴板', { label }), { title: '导出完成' });
-                } catch (err) {
-                  void dialog.alert(formatMessage('导出失败: {detail}', { detail: toAppError(err).detail }), { title: '导出失败' });
-                }
-              }}
-            >
-              ⇪
-            </button>
+            <ExportButton colId={col.id} count={countRequests(col.id)} />
             <button
               className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
               title="导出为 Git 友好目录镜像"
@@ -475,22 +507,86 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+// 导出按钮：点击展开格式下拉菜单，选择后执行导出并复制到剪贴板
+function ExportButton({ colId, count }: { colId: string; count: number }) {
+  const dialog = useDialog();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as HTMLElement)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const doExport = async (fmt: string) => {
+    setOpen(false);
+    try {
+      const out = await exportData(colId, fmt);
+      await navigator.clipboard.writeText(out);
+      const label = EXPORT_FORMATS.find((f) => f.value === fmt)?.label ?? fmt;
+      void dialog.alert(formatMessage('已复制 {label} 到剪贴板', { label }), { title: '导出完成' });
+    } catch (err) {
+      void dialog.alert(formatMessage('导出失败: {detail}', { detail: toAppError(err).detail }), { title: '导出失败' });
+    }
+  };
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+        title={formatMessage('导出集合')}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      >
+        ⇪
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[140px]">
+          <div className="px-3 py-1 text-xs text-gray-400 border-b mb-1">
+            {formatMessage('选择导出格式')}
+            {count > 0 && <span className="ml-1">· {count} {formatMessage('个请求')}</span>}
+          </div>
+          {EXPORT_FORMATS.map((f) => (
+            <button
+              key={f.value}
+              className="w-full text-left px-3 py-1.5 text-xs whitespace-nowrap hover:bg-blue-50 text-gray-700"
+              onClick={(e) => {
+                e.stopPropagation();
+                void doExport(f.value);
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TreeLeaf({
   node,
   depth,
   onDelete,
   onRename,
+  onOpen,
   onDragStart,
   onDragEnd,
 }: {
-  node: Node;
+  node: NodeSummary;
   depth: number;
   onDelete(id: string): void;
   onRename(): void;
+  onOpen(): void;
   onDragStart?(e: DragEvent<HTMLDivElement>): void;
   onDragEnd?(): void;
 }) {
-  const openNode = useTabs((s) => s.openNode);
   if (node.kind !== 'request') return null;
   return (
     <div
@@ -499,14 +595,14 @@ function TreeLeaf({
       draggable
       onDragStart={(e) => onDragStart?.(e)}
       onDragEnd={onDragEnd}
-      onClick={() => node.request && openNode(node.workspaceId, node.id, node.name, node.request)}
+      onClick={onOpen}
       onDoubleClick={(e) => {
         e.stopPropagation();
         onRename();
       }}
     >
-      <span className={`text-xs font-semibold w-12 shrink-0 ${methodColor(node.request?.method)}`}>
-        {node.request?.method ?? 'GET'}
+      <span className={`text-xs font-semibold w-12 shrink-0 ${methodColor(node.method)}`}>
+        {node.method || 'GET'}
       </span>
       <span className="flex-1 truncate"><Verbatim value={node.name} /></span>
       <button
@@ -622,13 +718,10 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
               </div>
             ))}
             {history.hasNextPage && (
-              <button
-                className="w-full py-2 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-50"
-                disabled={history.isFetchingNextPage}
-                onClick={() => void history.fetchNextPage()}
-              >
-                {history.isFetchingNextPage ? '加载中…' : '加载更多'}
-              </button>
+              <LoadMoreTrigger
+                isFetching={history.isFetchingNextPage}
+                onLoadMore={() => void history.fetchNextPage()}
+              />
             )}
           </div>
         )}
@@ -655,4 +748,26 @@ function methodColor(method?: string): string {
 function formatTime(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// 无限滚动触发器：进入视口时自动加载下一页
+function LoadMoreTrigger({ isFetching, onLoadMore }: { isFetching: boolean; onLoadMore(): void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !isFetching) onLoadMore();
+      },
+      { rootMargin: '100px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [isFetching, onLoadMore]);
+  return (
+    <div ref={ref} className="w-full py-2 text-xs text-center text-gray-400">
+      {isFetching ? '加载中…' : '滚动加载更多'}
+    </div>
+  );
 }

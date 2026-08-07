@@ -50,6 +50,7 @@ body {
 
 /* ── 边框 ── */
 .border, .border-b, .border-t, .border-l, .border-r { border-color: var(--t-br-1); }
+.border-current { border-color: currentColor; }
 .border-gray-100 { border-color: var(--t-br-1) !important; }
 .border-gray-400 { border-color: var(--t-br-2) !important; }
 .hover\:border-gray-400:hover { border-color: var(--t-br-2) !important; }

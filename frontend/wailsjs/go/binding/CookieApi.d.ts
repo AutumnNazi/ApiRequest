@@ -9,3 +9,5 @@ export function DeleteCookie(arg1:string,arg2:string,arg3:string):Promise<void>;
 export function ListCookies(arg1:string):Promise<Array<model.Cookie>>;
 
 export function UpsertCookie(arg1:model.Cookie):Promise<void>;
+
+export function UpsertCookies(arg1:Array<model.Cookie>):Promise<void>;

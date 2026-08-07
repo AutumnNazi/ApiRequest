@@ -2,6 +2,7 @@ package binding
 
 import (
 	"encoding/json"
+	"time"
 
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
@@ -106,5 +107,5 @@ func (a *SyncApi) SyncNow(workspaceId string) (*appsync.Report, error) {
 	if cfg.Url == "" {
 		return nil, model.NewError(model.KindValidation, "WebDAV not configured; set it in Settings first")
 	}
-	return appsync.Sync(a.store, workspaceId, cfg)
+	return appsync.SyncWithClient(a.store, workspaceId, cfg, a.engine.NewHTTPClient(30*time.Second))
 }

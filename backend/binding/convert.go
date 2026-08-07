@@ -5,6 +5,7 @@ import (
 	"apirequest/backend/convert"
 	"apirequest/backend/mirror"
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 )
 
@@ -26,33 +27,9 @@ func (a *ConvertApi) ImportCommit(workspaceId string, res convert.ImportResult) 
 	if workspaceId == "" {
 		return model.Node{}, model.NewError(model.KindValidation, "workspaceId is required")
 	}
-	idMap := map[string]string{}
-
-	root := res.Collection
-	root.Id = ""
-	root.WorkspaceId = workspaceId
-	root.ParentId = ""
-	saved, err := a.store.UpsertNode(root)
+	saved, err := a.store.ImportNodeTree(workspaceId, res.Collection, res.Children)
 	if err != nil {
 		return model.Node{}, model.WrapError(model.KindStorage, err)
-	}
-	idMap[res.Collection.Id] = saved.Id
-
-	// children 按原顺序落库；parentId 经映射表转换（父节点总在子之前出现）
-	for _, n := range res.Children {
-		oldId := n.Id
-		n.Id = ""
-		n.WorkspaceId = workspaceId
-		if mapped, ok := idMap[n.ParentId]; ok {
-			n.ParentId = mapped
-		} else {
-			n.ParentId = saved.Id // 兜底挂到根
-		}
-		created, err := a.store.UpsertNode(n)
-		if err != nil {
-			return model.Node{}, model.WrapError(model.KindStorage, err)
-		}
-		idMap[oldId] = created.Id
 	}
 	return saved, nil
 }
@@ -63,6 +40,7 @@ func (a *ConvertApi) ExportData(collectionId, format string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	collection, nodes = redactExportTree(collection, nodes)
 	out, err := convert.Export(format, collection, nodes)
 	if err != nil {
 		return "", model.WrapError(model.KindImport, err)
@@ -89,10 +67,20 @@ func (a *ConvertApi) ExportMirror(collectionId, dir string) error {
 	if err != nil {
 		return err
 	}
+	collection, nodes = redactExportTree(collection, nodes)
 	if err := mirror.Export(dir, collection, nodes); err != nil {
 		return model.WrapError(model.KindStorage, err)
 	}
 	return nil
+}
+
+func redactExportTree(collection model.Node, nodes []model.Node) (model.Node, []model.Node) {
+	collection = secrets.RedactNode(collection)
+	redacted := make([]model.Node, len(nodes))
+	for i, node := range nodes {
+		redacted[i] = secrets.RedactNode(node)
+	}
+	return collection, redacted
 }
 
 // ImportMirror 从镜像目录导入为新集合（预览语义同 ImportPreview→ImportCommit 的合并版：

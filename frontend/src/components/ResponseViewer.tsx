@@ -1,5 +1,5 @@
 // 响应查看器：状态行 + Body(Pretty/Raw)/Headers 页签 + 分阶段计时
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   upsertExample,
   getResponseBlobInfo,
@@ -37,7 +37,8 @@ const errorKindLabel: Record<string, string> = {
   unknown: '错误',
 };
 
-export default function ResponseViewer({ response, error, sending, progress, nodeId }: Props) {
+// memo：App 在编辑请求草稿时频繁重渲染，ResponseViewer 仅依赖响应数据，无需跟着重渲染
+const ResponseViewer = memo(function ResponseViewer({ response, error, sending, progress, nodeId }: Props) {
   const locale = useLocale((state) => state.locale);
   const [pane, setPane] = useState<'body' | 'preview' | 'headers' | 'tests' | 'timing'>('body');
   const [raw, setRaw] = useState(false);
@@ -420,7 +421,9 @@ export default function ResponseViewer({ response, error, sending, progress, nod
       </div>
     </div>
   );
-}
+});
+
+export default ResponseViewer;
 
 interface BodyRenderSlice {
   visibleText: string;

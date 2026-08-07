@@ -3,6 +3,7 @@ package binding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,14 @@ import (
 	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 )
+
+type failingCookieKeyring struct{}
+
+func (failingCookieKeyring) Set(_, _, _ string) error { return errors.New("keyring write failed") }
+func (failingCookieKeyring) Get(_, _ string) (string, error) {
+	return "", secrets.ErrNotFound
+}
+func (failingCookieKeyring) Delete(_, _ string) error { return nil }
 
 // TestSendRequestPersistsHistory 验证"发送 → 响应 → 落历史"闭环
 func TestSendRequestPersistsHistory(t *testing.T) {
@@ -51,6 +60,83 @@ func TestSendRequestPersistsHistory(t *testing.T) {
 	detail, err := store.GetHistory(w.Id, res.HistoryId)
 	if err != nil || page.Items[0].Id != res.HistoryId || detail.BodyInline != `{"hello":"world"}` {
 		t.Errorf("history mismatch: summary=%+v detail=%+v err=%v", page.Items[0], detail, err)
+	}
+}
+
+func TestSendRequestReportsCookiePersistenceFailureWithoutDiscardingResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "session", Value: "response-secret", HttpOnly: true})
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	store, err := storage.OpenWithVault(dir, secrets.NewWithKeyring(dir, failingCookieKeyring{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	response, err := NewRequestApi(httpengine.New(), store).SendRequest(
+		"cookie-persist-error",
+		model.HttpRequest{Method: "GET", Url: srv.URL, Settings: model.DefaultSettings()},
+		model.SendContext{WorkspaceId: workspace.Id},
+	)
+	if err != nil {
+		t.Fatalf("successful response was discarded: %v", err)
+	}
+	if response.Status != http.StatusNoContent {
+		t.Fatalf("status = %d", response.Status)
+	}
+	if !strings.Contains(strings.Join(response.ScriptLogs, "\n"), "persist cookies") {
+		t.Fatalf("cookie persistence error was hidden: %+v", response.ScriptLogs)
+	}
+}
+
+func TestSendRequestReportsHistoryPersistenceFailureWithoutDiscardingResponse(t *testing.T) {
+	requestStarted := make(chan struct{})
+	releaseResponse := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(requestStarted)
+		<-releaseResponse
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	store, err := storage.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _ := store.EnsureDefaultWorkspace()
+	type result struct {
+		response model.ResponseResult
+		err      error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		response, err := NewRequestApi(httpengine.New(), store).SendRequest(
+			"history-persist-error",
+			model.HttpRequest{Method: "GET", Url: srv.URL, Settings: model.DefaultSettings()},
+			model.SendContext{WorkspaceId: workspace.Id},
+		)
+		resultCh <- result{response: response, err: err}
+	}()
+
+	<-requestStarted
+	if err := store.Close(); err != nil {
+		close(releaseResponse)
+		t.Fatal(err)
+	}
+	close(releaseResponse)
+	resultValue := <-resultCh
+	if resultValue.err != nil {
+		t.Fatalf("successful response was discarded: %v", resultValue.err)
+	}
+	if resultValue.response.Status != http.StatusOK || resultValue.response.HistoryId != "" {
+		t.Fatalf("response = status %d, historyId %q", resultValue.response.Status, resultValue.response.HistoryId)
+	}
+	if !strings.Contains(strings.Join(resultValue.response.ScriptLogs, "\n"), "save history") {
+		t.Fatalf("history persistence error was hidden: %+v", resultValue.response.ScriptLogs)
 	}
 }
 

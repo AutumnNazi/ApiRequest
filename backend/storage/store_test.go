@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"apirequest/backend/model"
 )
@@ -384,6 +385,171 @@ func TestClearHistoryRemovesBlob(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("blob still exists, stat error = %v", err)
+	}
+}
+
+func TestInsertHistoryPrunesOldestWorkspaceRowsAndBlobs(t *testing.T) {
+	s := openTestStore(t)
+	workspace, _ := s.EnsureDefaultWorkspace()
+	otherWorkspace, _ := s.CreateWorkspace("other")
+	const createdAt = int64(123456789)
+	const prunedRef = "pruned-history.bin"
+	prunedPath := filepath.Join(s.BlobsDir(), prunedRef)
+	if err := os.WriteFile(prunedPath, []byte("prune me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < historyRetentionLimit; i++ {
+		ref := ""
+		if i == 0 {
+			ref = prunedRef
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO history (id, workspace_id, request_snap, method, url, response_meta, body_ref, created_at)
+			VALUES (?, ?, '{}', 'GET', ?, '{}', NULLIF(?, ''), ?)`,
+			fmt.Sprintf("h%04d", i), workspace.Id, fmt.Sprintf("https://example.com/%d", i), ref, createdAt); err != nil {
+			tx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO history (id, workspace_id, request_snap, method, url, response_meta, created_at)
+		VALUES ('other-history', ?, '{}', 'GET', 'https://other.example', '{}', ?)`,
+		otherWorkspace.Id, createdAt-1); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.InsertHistory(model.HistoryDetail{
+		Id:          "zz-new-history",
+		WorkspaceId: workspace.Id,
+		RequestSnap: model.HttpRequest{Method: "POST", Url: "https://example.com/new"},
+		CreatedAt:   createdAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM history WHERE workspace_id = ?", workspace.Id).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != historyRetentionLimit {
+		t.Fatalf("workspace history count = %d, want %d", count, historyRetentionLimit)
+	}
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM history WHERE workspace_id = ?", otherWorkspace.Id).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("other workspace history count = %d, want 1", count)
+	}
+	if _, err := s.GetHistory(workspace.Id, "h0000"); err == nil {
+		t.Fatal("oldest history row was retained")
+	}
+	if _, err := s.GetHistory(workspace.Id, "zz-new-history"); err != nil {
+		t.Fatalf("newest history row was pruned: %v", err)
+	}
+	if _, err := os.Stat(prunedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pruned blob still exists: %v", err)
+	}
+}
+
+func TestOpenRemovesOrphanedResponseBlobs(t *testing.T) {
+	dir := t.TempDir()
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _ := store.EnsureDefaultWorkspace()
+	const referencedRef = "referenced.bin"
+	if _, err := store.InsertHistory(model.HistoryDetail{
+		WorkspaceId: workspace.Id,
+		RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.com"},
+		BodyRef:     referencedRef,
+	}); err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
+	const orphanedRef = "11111111-1111-4111-8111-111111111111.bin"
+	const freshOrphanRef = "22222222-2222-4222-8222-222222222222.bin"
+	for name, content := range map[string]string{
+		referencedRef:         "keep me",
+		orphanedRef:           "remove me",
+		freshOrphanRef:        "still in flight",
+		".response-stale.tmp": "remove temp",
+		"unmanaged.bin":       "leave unrelated file",
+	} {
+		if err := os.WriteFile(filepath.Join(store.BlobsDir(), name), []byte(content), 0o600); err != nil {
+			store.Close()
+			t.Fatal(err)
+		}
+	}
+	staleTime := time.Now().Add(-25 * time.Hour)
+	for _, name := range []string{orphanedRef, ".response-stale.tmp"} {
+		if err := os.Chtimes(filepath.Join(store.BlobsDir(), name), staleTime, staleTime); err != nil {
+			store.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if _, err := os.Stat(filepath.Join(reopened.BlobsDir(), referencedRef)); err != nil {
+		t.Fatalf("referenced blob was removed: %v", err)
+	}
+	for _, name := range []string{orphanedRef, ".response-stale.tmp"} {
+		if _, err := os.Stat(filepath.Join(reopened.BlobsDir(), name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("orphan %q still exists: %v", name, err)
+		}
+	}
+	for _, name := range []string{freshOrphanRef, "unmanaged.bin"} {
+		if _, err := os.Stat(filepath.Join(reopened.BlobsDir(), name)); err != nil {
+			t.Fatalf("protected file %q was removed: %v", name, err)
+		}
+	}
+}
+
+func TestClearHistoryPreservesSharedBlobReference(t *testing.T) {
+	s := openTestStore(t)
+	firstWorkspace, _ := s.EnsureDefaultWorkspace()
+	secondWorkspace, _ := s.CreateWorkspace("second")
+	const ref = "shared-history.bin"
+	path := filepath.Join(s.BlobsDir(), ref)
+	if err := os.WriteFile(path, []byte("shared"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, workspaceId := range []string{firstWorkspace.Id, secondWorkspace.Id} {
+		if _, err := s.InsertHistory(model.HistoryDetail{
+			WorkspaceId: workspaceId,
+			RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.com"},
+			BodyRef:     ref,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.ClearHistory(firstWorkspace.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("shared blob was removed: %v", err)
+	}
+	if err := s.ClearHistory(secondWorkspace.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unreferenced shared blob still exists: %v", err)
 	}
 }
 

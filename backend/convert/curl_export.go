@@ -2,11 +2,11 @@ package convert
 
 import (
 	"encoding/json"
-	"net/url"
 	"sort"
 	"strings"
 
 	"apirequest/backend/model"
+	"apirequest/backend/requesturl"
 )
 
 // cURL 集合导出（docs/interop.md §2.3 的对偶方向）。
@@ -247,34 +247,9 @@ func buildCurlCommand(r model.HttpRequest) string {
 // 已存在于 URL query 中的 key 不再追加（避免重复）。
 // 手工拼接保留 raw（不 URL-escape），与文件顶部"保留 {{var}} 给用户自行替换"的设计一致。
 func fullURL(r model.HttpRequest) string {
-	raw := r.Url
-	// 解析 URL 的 query 部分以识别"已存在的 key"（避免与 Params 重复）；不重写 raw query 串。
-	existing := map[string]bool{}
-	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
-		for k := range u.Query() {
-			existing[k] = true
-		}
-	}
-	hasQ := strings.Contains(raw, "?")
-	appendParam := func(key, value string) {
-		if key == "" || existing[key] {
-			return
-		}
-		sep := "?"
-		if hasQ {
-			sep = "&"
-		}
-		raw += sep + key + "=" + value
-		hasQ = true
-		existing[key] = true
-	}
-	for _, p := range r.Params {
-		if p.Enabled {
-			appendParam(p.Key, p.Value)
-		}
-	}
+	raw := requesturl.AppendParams(r.Url, r.Params, false)
 	if strings.EqualFold(r.Auth.Type, "apikey") && strings.EqualFold(r.Auth.Params["in"], "query") {
-		appendParam(r.Auth.Params["key"], r.Auth.Params["value"])
+		raw = requesturl.SetParam(raw, r.Auth.Params["key"], r.Auth.Params["value"], false)
 	}
 	return raw
 }

@@ -69,13 +69,33 @@ func (a *NodeApi) DeleteWorkspace(id string) error {
 	return nil
 }
 
-// ListNodes 列出工作区全部节点
-func (a *NodeApi) ListNodes(workspaceId string) ([]model.Node, error) {
-	nodes, err := a.store.ListNodes(workspaceId)
+// ListNodes lists the lightweight collection-tree projection.
+func (a *NodeApi) ListNodes(workspaceId string) ([]model.NodeSummary, error) {
+	nodes, err := a.store.ListNodeSummaries(workspaceId)
 	if err != nil {
 		return nil, model.WrapError(model.KindStorage, err)
 	}
 	return nodes, nil
+}
+
+// GetNode loads one full editable node after checking workspace ownership.
+func (a *NodeApi) GetNode(workspaceId, nodeId string) (model.Node, error) {
+	node, err := a.store.GetNode(workspaceId, nodeId)
+	if err != nil {
+		return node, model.WrapError(model.KindStorage, err)
+	}
+	return node, nil
+}
+
+// RenameNode updates only the node name.
+func (a *NodeApi) RenameNode(workspaceId, nodeId, name string) error {
+	if workspaceId == "" || nodeId == "" || name == "" {
+		return model.NewError(model.KindValidation, "workspaceId, nodeId, and name are required")
+	}
+	if err := a.store.RenameNode(workspaceId, nodeId, name); err != nil {
+		return model.WrapError(model.KindStorage, err)
+	}
+	return nil
 }
 
 // UpsertNode 新增或更新节点

@@ -3,6 +3,7 @@
 package protocol
 
 import (
+	"net/http"
 	"sync"
 
 	"apirequest/backend/model"
@@ -37,7 +38,7 @@ type Session interface {
 }
 
 // opener 各协议的打开函数
-type opener func(id string, cfg SessionConfig, emit EmitFunc) (Session, error)
+type opener func(id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error)
 
 var openers = map[string]opener{}
 
@@ -48,10 +49,22 @@ func registerOpener(protocol string, fn opener) { openers[protocol] = fn }
 type Manager struct {
 	mu       sync.Mutex
 	sessions map[string]Session
+	opening  map[string]struct{}
+	client   *http.Client
 }
 
 // NewManager 构造
-func NewManager() *Manager { return &Manager{sessions: map[string]Session{}} }
+func NewManager(clients ...*http.Client) *Manager {
+	client := http.DefaultClient
+	if len(clients) > 0 && clients[0] != nil {
+		client = clients[0]
+	}
+	return &Manager{
+		sessions: map[string]Session{},
+		opening:  map[string]struct{}{},
+		client:   client,
+	}
+}
 
 // Open 打开会话。sessionId 由前端生成。
 func (m *Manager) Open(sessionId string, cfg SessionConfig, emit EmitFunc) error {
@@ -59,11 +72,23 @@ func (m *Manager) Open(sessionId string, cfg SessionConfig, emit EmitFunc) error
 	if !ok {
 		return model.NewError(model.KindValidation, "unsupported protocol: "+cfg.Protocol)
 	}
-	s, err := fn(sessionId, cfg, emit)
+	m.mu.Lock()
+	_, active := m.sessions[sessionId]
+	_, opening := m.opening[sessionId]
+	if active || opening {
+		m.mu.Unlock()
+		return model.NewError(model.KindValidation, "session already exists: "+sessionId)
+	}
+	m.opening[sessionId] = struct{}{}
+	m.mu.Unlock()
+
+	s, err := fn(sessionId, cfg, emit, m.client)
+	m.mu.Lock()
+	delete(m.opening, sessionId)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
-	m.mu.Lock()
 	m.sessions[sessionId] = s
 	m.mu.Unlock()
 	return nil

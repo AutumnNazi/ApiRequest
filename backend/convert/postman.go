@@ -36,11 +36,11 @@ type pmItem struct {
 }
 
 type pmRequest struct {
-	Method string      `json:"method"`
-	Url    pmUrl       `json:"url"`
-	Header []pmKV      `json:"header,omitempty"`
-	Body   *pmBody     `json:"body,omitempty"`
-	Auth   *pmAuth     `json:"auth,omitempty"`
+	Method string  `json:"method"`
+	Url    pmUrl   `json:"url"`
+	Header []pmKV  `json:"header,omitempty"`
+	Body   *pmBody `json:"body,omitempty"`
+	Auth   *pmAuth `json:"auth,omitempty"`
 }
 
 // pmUrl 可能是字符串或对象：自定义 UnmarshalJSON 兼容两者
@@ -103,13 +103,13 @@ type pmBodyOpts struct {
 }
 
 type pmAuth struct {
-	Type   string  `json:"type"`
-	Basic  []pmKV  `json:"basic,omitempty"`
-	Bearer []pmKV  `json:"bearer,omitempty"`
-	Apikey []pmKV  `json:"apikey,omitempty"`
-	Digest []pmKV  `json:"digest,omitempty"`
-	Oauth1 []pmKV  `json:"oauth1,omitempty"`
-	Awsv4  []pmKV  `json:"awsv4,omitempty"`
+	Type   string `json:"type"`
+	Basic  []pmKV `json:"basic,omitempty"`
+	Bearer []pmKV `json:"bearer,omitempty"`
+	Apikey []pmKV `json:"apikey,omitempty"`
+	Digest []pmKV `json:"digest,omitempty"`
+	Oauth1 []pmKV `json:"oauth1,omitempty"`
+	Awsv4  []pmKV `json:"awsv4,omitempty"`
 }
 
 type pmEvent struct {
@@ -348,8 +348,10 @@ func (postmanExporter) Export(collection model.Node, children []model.Node) (str
 	col.Event = exportEvents(collection.PreScript, collection.TestScript)
 
 	byParent := map[string][]model.Node{}
+	byId := map[string]model.Node{collection.Id: collection}
 	for _, n := range children {
 		byParent[n.ParentId] = append(byParent[n.ParentId], n)
+		byId[n.Id] = n
 	}
 	var build func(parentId string) []pmItem
 	build = func(parentId string) []pmItem {
@@ -357,7 +359,11 @@ func (postmanExporter) Export(collection model.Node, children []model.Node) (str
 		for _, n := range byParent[parentId] {
 			it := pmItem{Name: n.Name, Vars: exportVars(n.Variables)}
 			if n.Kind == "request" && n.Request != nil {
-				r := exportRequest(*n.Request)
+				request := *n.Request
+				if request.Auth.Type == "" || request.Auth.Type == "inherit" {
+					request.Auth = resolveAuth(n, byId, collection)
+				}
+				r := exportRequest(request)
 				it.Request = &r
 				it.Event = exportEvents(n.Request.PreScript, n.Request.TestScript)
 			} else {

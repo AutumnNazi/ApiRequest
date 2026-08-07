@@ -28,6 +28,7 @@ import (
 
 	"apirequest/backend/auth"
 	"apirequest/backend/model"
+	"apirequest/backend/requesturl"
 )
 
 // authProviderTwoPhase 判断该类型是否为两段式认证
@@ -197,6 +198,18 @@ func (e *Engine) currentTransport() *http.Transport {
 	e.transportMu.RLock()
 	defer e.transportMu.RUnlock()
 	return e.transport
+}
+
+type engineRoundTripper struct{ engine *Engine }
+
+func (transport engineRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport.engine.currentTransport().RoundTrip(request)
+}
+
+// NewHTTPClient returns a client that observes later proxy and TLS changes.
+// A zero timeout is appropriate for streaming protocols that use contexts.
+func (e *Engine) NewHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{Transport: engineRoundTripper{engine: e}, Timeout: timeout}
 }
 
 // Send 执行请求。ctx 取消即中止（对应 CancelRequest）。
@@ -515,11 +528,7 @@ func (e *Engine) buildRequest(ctx context.Context, req model.HttpRequest) (*http
 	}
 	// 合并编辑器 params 到 query（URL 中已有的保留）
 	q := u.Query()
-	for _, p := range req.Params {
-		if p.Enabled && p.Key != "" {
-			q.Add(p.Key, p.Value)
-		}
-	}
+	requesturl.AddParams(q, req.Params)
 	u.RawQuery = q.Encode()
 
 	body, err := prepareBody(req.Body)
@@ -739,10 +748,24 @@ func convertCookies(cs []*http.Cookie) []model.Cookie {
 		}
 		out = append(out, model.Cookie{
 			Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path,
-			Expires: exp, HttpOnly: c.HttpOnly, Secure: c.Secure,
+			Expires: exp, MaxAge: c.MaxAge, HttpOnly: c.HttpOnly, Secure: c.Secure,
+			SameSite: sameSiteString(c.SameSite), HostOnly: c.Domain == "",
 		})
 	}
 	return out
+}
+
+func sameSiteString(value http.SameSite) string {
+	switch value {
+	case http.SameSiteStrictMode:
+		return "strict"
+	case http.SameSiteLaxMode:
+		return "lax"
+	case http.SameSiteNoneMode:
+		return "none"
+	default:
+		return ""
+	}
 }
 
 func filepathBase(p string) string {

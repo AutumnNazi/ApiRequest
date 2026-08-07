@@ -9,6 +9,12 @@ import (
 	"testing"
 )
 
+type testRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn testRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
 // 用一个最小 GraphQL introspection mock 验证 Introspect 解析
 func TestIntrospect(t *testing.T) {
 	// 模拟 GraphQL 服务器：收到 query 后回 __schema
@@ -105,5 +111,23 @@ func TestIntrospectRejectsOversizedResponse(t *testing.T) {
 	if _, err := Introspect(context.Background(), IntrospectConfig{Url: srv.URL}); err == nil ||
 		!strings.Contains(err.Error(), "response too large") {
 		t.Fatalf("oversized response error = %v", err)
+	}
+}
+
+func TestIntrospectUsesInjectedHTTPClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Network-Policy") != "shared" {
+			http.Error(w, "missing shared client", http.StatusTeapot)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"__schema":{"types":[]}}}`))
+	}))
+	defer server.Close()
+	client := &http.Client{Transport: testRoundTripper(func(request *http.Request) (*http.Response, error) {
+		request.Header.Set("X-Network-Policy", "shared")
+		return http.DefaultTransport.RoundTrip(request)
+	})}
+	if _, err := IntrospectWithClient(context.Background(), IntrospectConfig{Url: server.URL}, client); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"mime"
@@ -113,6 +114,25 @@ func TestSendPostJsonAndQueryMerge(t *testing.T) {
 	}
 	if res.Status != 201 {
 		t.Errorf("status = %d, want 201", res.Status)
+	}
+}
+
+func TestBuildRequestDoesNotDuplicateExactURLParam(t *testing.T) {
+	req, err := New().buildRequest(context.Background(), model.HttpRequest{
+		Method: "GET",
+		Url:    "https://example.test/items?tag=one",
+		Params: []model.KV{
+			{Key: "tag", Value: "one", Enabled: true},
+			{Key: "tag", Value: "two", Enabled: true},
+		},
+		Settings: model.DefaultSettings(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := req.URL.Query()["tag"]
+	if len(values) != 2 || values[0] != "one" || values[1] != "two" {
+		t.Fatalf("tag values = %v, want [one two]", values)
 	}
 }
 
@@ -501,6 +521,34 @@ func TestSetTLSConcurrentBuildClient(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestHTTPClientUsesCurrentTLSSettings(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	engine := New()
+	client := engine.NewHTTPClient(time.Second)
+	if response, err := client.Get(server.URL); err == nil {
+		response.Body.Close()
+		t.Fatal("client trusted the test certificate before custom CA was configured")
+	}
+
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	if err := os.WriteFile(caPath, certificate, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.SetTLS(TLSSettings{CaCertPath: caPath}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("existing shared client did not observe updated TLS settings: %v", err)
+	}
+	response.Body.Close()
 }
 
 func TestSetTLSRejectsOversizedMaterial(t *testing.T) {

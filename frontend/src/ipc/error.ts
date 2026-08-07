@@ -18,6 +18,11 @@ export interface AppError {
 }
 
 export function toAppError(e: unknown): AppError {
+  // 已经是 AppError 对象（call() 包装器抛出的）
+  if (e && typeof e === 'object' && 'kind' in e && 'detail' in e
+    && typeof (e as AppError).kind === 'string' && typeof (e as AppError).detail === 'string') {
+    return e as AppError;
+  }
   const text = typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
   try {
     const parsed = JSON.parse(text);

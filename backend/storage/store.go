@@ -11,9 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"apirequest/backend/secrets"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
@@ -132,6 +134,10 @@ var migrations = []string{
 	  (SELECT updated_at FROM workspace WHERE workspace.id = global_var.workspace_id), 0
 	);
 	`,
+	// 0007: Preserve RFC 6265 host-only semantics. Existing rows default to the safer exact-host scope.
+	`
+	ALTER TABLE cookie ADD COLUMN host_only INTEGER NOT NULL DEFAULT 1;
+	`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录
@@ -170,11 +176,19 @@ func OpenWithVault(dataDir string, vault *secrets.Vault) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.migrateHistoryResponseSecrets(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate history response secrets: %w", err)
+	}
 	if vault.Status().CanStore {
 		if err := s.MigrateSecrets(); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("migrate legacy secrets: %w", err)
 		}
+	}
+	if err := s.cleanupOrphanedBlobs(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("clean orphaned response blobs: %w", err)
 	}
 	return s, nil
 }
@@ -406,6 +420,79 @@ func (s *Store) removeBlobFile(ref string) {
 		return
 	}
 	os.Remove(path)
+}
+
+func (s *Store) removeUnreferencedBlobFiles(refs []string) {
+	seen := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		if ref == "" {
+			continue
+		}
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		var marker int
+		err := s.db.QueryRow("SELECT 1 FROM history WHERE body_ref = ? LIMIT 1", ref).Scan(&marker)
+		if errors.Is(err, sql.ErrNoRows) {
+			s.removeBlobFile(ref)
+		}
+	}
+}
+
+// cleanupOrphanedBlobs removes completed or temporary response files that have
+// no History Detail owner. The grace period avoids racing another process that
+// has renamed a response file but has not inserted its History Detail yet.
+func (s *Store) cleanupOrphanedBlobs() error {
+	const orphanGracePeriod = 24 * time.Hour
+	rows, err := s.db.Query("SELECT DISTINCT body_ref FROM history WHERE body_ref IS NOT NULL AND body_ref != ''")
+	if err != nil {
+		return err
+	}
+	referenced := map[string]struct{}{}
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			rows.Close()
+			return err
+		}
+		referenced[ref] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	entries, err := os.ReadDir(s.blobsDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !isManagedResponseBlobName(entry.Name()) {
+			continue
+		}
+		if _, ok := referenced[entry.Name()]; ok {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() || time.Since(info.ModTime()) < orphanGracePeriod {
+			continue
+		}
+		_ = os.Remove(filepath.Join(s.blobsDir, entry.Name()))
+	}
+	return nil
+}
+
+func isManagedResponseBlobName(name string) bool {
+	if strings.HasPrefix(name, ".response-") && strings.HasSuffix(name, ".tmp") {
+		return len(name) > len(".response-.tmp")
+	}
+	if !strings.HasSuffix(name, ".bin") {
+		return false
+	}
+	_, err := uuid.Parse(strings.TrimSuffix(name, ".bin"))
+	return err == nil
 }
 
 // Close 关闭底层连接

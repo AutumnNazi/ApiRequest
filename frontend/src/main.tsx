@@ -14,6 +14,8 @@ const queryClient = new QueryClient({
       // 本地 IPC 无网络抖动，失败即真错误，不重试
       retry: false,
       refetchOnWindowFocus: false,
+      // mutation 会主动 invalidate；有限 staleTime 也能兜住遗漏的跨面板更新。
+      staleTime: 30_000,
     },
   },
 });

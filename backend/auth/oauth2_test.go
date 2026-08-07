@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+type oauthRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn oauthRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
 // fakeTokenServer 模拟 token 端点
 func fakeTokenServer(t *testing.T, expectGrant string, expiresIn int) *httptest.Server {
 	t.Helper()
@@ -105,6 +111,28 @@ func TestTokenErrorSurface(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "invalid_client") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestTokenRequestUsesInjectedHTTPClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Network-Policy") != "shared" {
+			http.Error(w, "missing shared client", http.StatusTeapot)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "AT-shared"})
+	}))
+	defer server.Close()
+	client := &http.Client{Transport: oauthRoundTripper(func(request *http.Request) (*http.Response, error) {
+		request.Header.Set("X-Network-Policy", "shared")
+		return http.DefaultTransport.RoundTrip(request)
+	})}
+	manager := NewTokenManager(nil, client)
+	token, err := manager.GetToken(context.Background(), map[string]string{
+		"grantType": "client_credentials", "tokenUrl": server.URL, "clientId": "client",
+	})
+	if err != nil || token.AccessToken != "AT-shared" {
+		t.Fatalf("token = %+v, err = %v", token, err)
 	}
 }
 

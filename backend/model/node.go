@@ -22,6 +22,20 @@ type Node struct {
 	UpdatedAt int64 `json:"updatedAt"`
 }
 
+// NodeSummary is the collection-tree projection. It excludes request bodies,
+// inherited configuration, scripts, variables, and credential fields.
+type NodeSummary struct {
+	Id          string  `json:"id"`
+	WorkspaceId string  `json:"workspaceId"`
+	ParentId    string  `json:"parentId,omitempty"`
+	Kind        string  `json:"kind"`
+	Name        string  `json:"name"`
+	SortOrder   float64 `json:"sortOrder"`
+	Method      string  `json:"method,omitempty"`
+	CreatedAt   int64   `json:"createdAt"`
+	UpdatedAt   int64   `json:"updatedAt"`
+}
+
 // Variable 变量项（环境/集合/全局共用）
 type Variable struct {
 	Key     string `json:"key"`

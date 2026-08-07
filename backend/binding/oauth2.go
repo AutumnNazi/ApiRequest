@@ -2,6 +2,7 @@ package binding
 
 import (
 	"context"
+	"net/http"
 
 	wailsrt "github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -15,15 +16,19 @@ type OAuth2Api struct {
 }
 
 // NewOAuth2Api 构造。浏览器打开延迟到调用时（ctx 由 startup 注入）
-func NewOAuth2Api() *OAuth2Api {
+func NewOAuth2Api(clients ...*http.Client) *OAuth2Api {
 	api := &OAuth2Api{}
+	client := http.DefaultClient
+	if len(clients) > 0 && clients[0] != nil {
+		client = clients[0]
+	}
 	api.manager = auth.NewTokenManager(func(url string) error {
 		if api.ctx == nil {
 			return nil
 		}
 		wailsrt.BrowserOpenURL(api.ctx, url)
 		return nil
-	})
+	}, client)
 	return api
 }
 

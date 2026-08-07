@@ -15,6 +15,12 @@ import (
 	"apirequest/backend/storage"
 )
 
+type syncRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn syncRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
 // startDav 起内存 WebDAV 服务器（可选 Basic auth）
 func startDav(t *testing.T, user, pass string) *httptest.Server {
 	t.Helper()
@@ -423,6 +429,32 @@ func TestAuthFailure(t *testing.T) {
 	_, err := Sync(store, wsId, DavConfig{Url: srv.URL, Username: "u", Password: "wrong"})
 	if err == nil || !contains([]byte(err.Error()), "auth failed") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestSyncUsesInjectedHTTPClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Network-Policy") != "shared" {
+			http.Error(w, "missing shared client", http.StatusTeapot)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			http.NotFound(w, r)
+		case http.MethodPut, "MKCOL":
+			w.WriteHeader(http.StatusCreated)
+		default:
+			http.Error(w, "unsupported", http.StatusMethodNotAllowed)
+		}
+	}))
+	defer server.Close()
+	client := &http.Client{Transport: syncRoundTripper(func(request *http.Request) (*http.Response, error) {
+		request.Header.Set("X-Network-Policy", "shared")
+		return http.DefaultTransport.RoundTrip(request)
+	})}
+	store, workspaceID := newDevice(t)
+	if _, err := SyncWithClient(store, workspaceID, DavConfig{Url: server.URL}, client); err != nil {
+		t.Fatal(err)
 	}
 }
 

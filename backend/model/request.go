@@ -87,8 +87,11 @@ type Cookie struct {
 	Domain   string `json:"domain,omitempty"`
 	Path     string `json:"path,omitempty"`
 	Expires  int64  `json:"expires,omitempty"` // Unix ms，0 = session
+	MaxAge   int    `json:"maxAge,omitempty"`  // < 0 = 删除，0 = 未指定，> 0 = 秒
 	HttpOnly bool   `json:"httpOnly"`
 	Secure   bool   `json:"secure"`
+	SameSite string `json:"sameSite,omitempty"`
+	HostOnly bool   `json:"hostOnly"`
 }
 
 // Timing 分阶段计时（毫秒）

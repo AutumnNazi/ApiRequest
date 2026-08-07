@@ -80,8 +80,9 @@ type oeResponse struct {
 }
 
 type oeDoc struct {
-	Openapi string `json:"openapi"`
-	Info    struct {
+	Openapi           string `json:"openapi"`
+	JsonSchemaDialect string `json:"jsonSchemaDialect,omitempty"`
+	Info              struct {
 		Title       string `json:"title"`
 		Description string `json:"description,omitempty"`
 		Version     string `json:"version"`

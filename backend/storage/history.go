@@ -18,6 +18,79 @@ type responseMeta struct {
 	Timing  model.Timing `json:"timing"`
 }
 
+const historyResponseRedactionMigrationKey = "history.response-redaction.v1"
+
+// historyRetentionLimit bounds each workspace independently. Stable ordering by
+// created_at and id matches ListHistory cursor semantics.
+const historyRetentionLimit = 1000
+
+// migrateHistoryResponseSecrets removes structured response credentials written by older builds.
+// Malformed legacy metadata is left untouched so one corrupt history row cannot block startup.
+func (s *Store) migrateHistoryResponseSecrets() error {
+	done, err := s.GetSetting(historyResponseRedactionMigrationKey)
+	if err != nil || done == "1" {
+		return err
+	}
+	rows, err := s.db.Query("SELECT id, COALESCE(response_meta, '') FROM history")
+	if err != nil {
+		return err
+	}
+	type update struct{ id, meta string }
+	updates := []update{}
+	redactor := secrets.NewRedactor(nil)
+	for rows.Next() {
+		var id, raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			rows.Close()
+			return err
+		}
+		var meta responseMeta
+		if raw == "" || json.Unmarshal([]byte(raw), &meta) != nil {
+			continue
+		}
+		redactedHeaders := redactor.ResponseHeaders(meta.Headers)
+		changed := false
+		for i := range meta.Headers {
+			if meta.Headers[i].Value != redactedHeaders[i].Value {
+				changed = true
+				break
+			}
+		}
+		if !changed {
+			continue
+		}
+		meta.Headers = redactedHeaders
+		data, err := json.Marshal(meta)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		updates = append(updates, update{id: id, meta: string(data)})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, item := range updates {
+		if _, err := tx.Exec("UPDATE history SET response_meta = ? WHERE id = ?", item.meta, item.id); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO setting(key, value) VALUES (?, '1')
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, historyResponseRedactionMigrationKey); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // InsertHistory writes one redacted detail record and returns its generated id.
 func (s *Store) InsertHistory(item model.HistoryDetail) (string, error) {
 	if item.Id == "" {
@@ -28,6 +101,9 @@ func (s *Store) InsertHistory(item model.HistoryDetail) (string, error) {
 	}
 	historyRedactor := secrets.NewRedactor(s.vault, secrets.AuthValues(item.RequestSnap.Auth)...)
 	item.RequestSnap = historyRedactor.Request(item.RequestSnap)
+	item.RespHeaders = historyRedactor.ResponseHeaders(item.RespHeaders)
+	item.BodyInline = historyRedactor.String(item.BodyInline)
+	item.TestResults = historyRedactor.TestResults(item.TestResults)
 	snapshot, err := json.Marshal(item.RequestSnap)
 	if err != nil {
 		return "", err
@@ -44,7 +120,12 @@ func (s *Store) InsertHistory(item model.HistoryDetail) (string, error) {
 		}
 		tests = sql.NullString{String: string(data), Valid: true}
 	}
-	_, err = s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	_, err = tx.Exec(`
 		INSERT INTO history (id, workspace_id, request_snap, method, url, status, duration_ms,
 		                     size_bytes, response_meta, body_ref, body_inline, test_results, created_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -53,7 +134,57 @@ func (s *Store) InsertHistory(item model.HistoryDetail) (string, error) {
 		sql.NullString{String: item.BodyRef, Valid: item.BodyRef != ""},
 		sql.NullString{String: item.BodyInline, Valid: item.BodyInline != ""},
 		tests, item.CreatedAt)
-	return item.Id, err
+	if err != nil {
+		return item.Id, err
+	}
+	prunedRefs, err := pruneHistoryTx(tx, item.WorkspaceId, historyRetentionLimit)
+	if err != nil {
+		return item.Id, err
+	}
+	if err := tx.Commit(); err != nil {
+		return item.Id, err
+	}
+	s.removeUnreferencedBlobFiles(prunedRefs)
+	return item.Id, nil
+}
+
+func pruneHistoryTx(tx *sql.Tx, workspaceId string, limit int) ([]string, error) {
+	if limit <= 0 {
+		return nil, errors.New("history retention limit must be positive")
+	}
+	const staleIds = `
+		SELECT id FROM history
+		WHERE workspace_id = ?
+		ORDER BY created_at DESC, id DESC
+		LIMIT -1 OFFSET ?`
+	rows, err := tx.Query(`
+		SELECT COALESCE(body_ref, '') FROM history
+		WHERE workspace_id = ? AND id IN (`+staleIds+`)`, workspaceId, workspaceId, limit)
+	if err != nil {
+		return nil, err
+	}
+	var refs []string
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if _, err := tx.Exec(`
+		DELETE FROM history
+		WHERE workspace_id = ? AND id IN (`+staleIds+`)`, workspaceId, workspaceId, limit); err != nil {
+		return nil, err
+	}
+	return refs, nil
 }
 
 // ListHistory returns only bounded summary projections.
@@ -206,8 +337,6 @@ func (s *Store) ClearHistory(workspaceId string) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	for _, ref := range refs {
-		s.removeBlobFile(ref)
-	}
+	s.removeUnreferencedBlobFiles(refs)
 	return nil
 }
