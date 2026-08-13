@@ -210,25 +210,41 @@ func OpenWithVault(dataDir string, vault *secrets.Vault) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := s.migrateHistoryResponseSecrets(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate history response secrets: %w", err)
-	}
-	if err := s.migrateHistoryResponseBlobs(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate history response blobs: %w", err)
-	}
 	if vault.Status().CanStore {
 		if err := s.MigrateSecrets(); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("migrate legacy secrets: %w", err)
 		}
 	}
+	if err := s.MigrateAuditSecrets(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.migrateHistoryResponseBlobs(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate history response blobs: %w", err)
+	}
 	if err := s.cleanupOrphanedBlobs(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("clean orphaned response blobs: %w", err)
 	}
 	return s, nil
+}
+
+// MigrateAuditSecrets redacts legacy history and example payloads. It is
+// exported so unlocking the fallback Vault can finish rows whose references
+// were intentionally left untouched while the Vault was locked.
+func (s *Store) MigrateAuditSecrets() error {
+	if err := s.migrateHistoryRequestSecrets(); err != nil {
+		return fmt.Errorf("migrate history request secrets: %w", err)
+	}
+	if err := s.migrateHistoryResponseSecrets(); err != nil {
+		return fmt.Errorf("migrate history response secrets: %w", err)
+	}
+	if err := s.migrateExampleSecrets(); err != nil {
+		return fmt.Errorf("migrate example secrets: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) migrate() error {

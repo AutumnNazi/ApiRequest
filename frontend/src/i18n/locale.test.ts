@@ -19,4 +19,16 @@ describe('English localization boundaries', () => {
       'Delete collection "保存" and all its requests?',
     );
   });
+
+  it('translates application close messages', () => {
+    useLocale.getState().setLocale('en');
+
+    expect(formatMessage('仍有未保存的请求草稿，确认退出应用？')).toBe(
+      'There are unsaved request drafts. Quit the application?',
+    );
+    expect(formatMessage('退出应用失败: {detail}', { detail: 'disk full' })).toBe(
+      'Failed to quit the application: disk full',
+    );
+    expect(translate('退出失败')).toBe('Quit failed');
+  });
 });

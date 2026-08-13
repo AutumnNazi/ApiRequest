@@ -12,14 +12,76 @@ import (
 )
 
 const (
-	secretMigrationKey       = "secrets.migration.v1"
-	cookieSecretMigrationKey = "secrets.cookie.migration.v1"
+	secretMigrationKey        = "secrets.migration.v2"
+	headerSecretMigrationKey  = "secrets.header.migration.v1"
+	requestValueMigrationKey  = "secrets.request-values.migration.v1"
+	cookieSecretMigrationKey  = "secrets.cookie.migration.v2"
+	secretRefNormalizationKey = "secrets.reference-normalization.v1"
 )
 
 type plaintextSecretWriter struct{ secrets.SecretWriter }
 
 func (w plaintextSecretWriter) Put(logicalKey, value string) (string, error) {
 	return w.SecretWriter.PutPlaintext(logicalKey, value)
+}
+
+// migrationSecretWriter preserves references owned by the expected logical
+// key, while re-keying reference-looking legacy user input as plaintext. The
+// deterministic identifier avoids depending on a locked or unavailable Vault.
+type migrationSecretWriter struct {
+	secrets.SecretWriter
+	vault   *secrets.Vault
+	pending *bool
+}
+
+func (w migrationSecretWriter) Put(logicalKey, value string) (string, error) {
+	if !secrets.IsRef(value) {
+		return w.SecretWriter.Put(logicalKey, value)
+	}
+	status := w.vault.Status()
+	promoteFileRef := status.KeyringAvailable && secrets.IsFileRef(value)
+	if resolved, err := w.vault.Resolve(value); err == nil {
+		if promoteFileRef {
+			// A keyring may become available after an encrypted-file fallback was
+			// created. Copy confirmed file-backed credentials to the preferred
+			// Adapter so they remain readable after the old file is locked again.
+			ref, putErr := w.SecretWriter.PutPlaintext(logicalKey, resolved)
+			if putErr != nil {
+				return "", putErr
+			}
+			if !secrets.IsKeyringRef(ref) {
+				return "", fmt.Errorf("promote encrypted-file secret: system keychain unavailable")
+			}
+			return ref, nil
+		}
+		// Older builds may have used a different logical-key shape. A value that
+		// resolves successfully is a genuine reference and remains valid.
+		return value, nil
+	} else if errors.Is(err, secrets.ErrLocked) &&
+		((secrets.IsFileRef(value) && status.FileExists && !status.FileUnlocked) ||
+			(secrets.IsKeyringRef(value) && !status.KeyringAvailable)) {
+		// The source Adapter is unavailable, so a mismatched reference cannot be
+		// distinguished from canonical reference-looking user text yet. Preserve
+		// it and leave normalization pending for a future Adapter recovery.
+		if w.pending != nil {
+			*w.pending = true
+		}
+		return value, nil
+	} else if !errors.Is(err, secrets.ErrNotFound) && !errors.Is(err, secrets.ErrInvalidRef) && !errors.Is(err, secrets.ErrLocked) {
+		if w.pending != nil {
+			*w.pending = true
+		}
+		return value, nil
+	}
+	return w.SecretWriter.PutPlaintext(logicalKey, value)
+}
+
+func newMigrationSecretWriter(writer secrets.SecretWriter, vault *secrets.Vault, pending ...*bool) migrationSecretWriter {
+	w := migrationSecretWriter{SecretWriter: writer, vault: vault}
+	if len(pending) > 0 {
+		w.pending = pending[0]
+	}
+	return w
 }
 
 func protectNode(writer secrets.SecretWriter, node model.Node) (model.Node, error) {
@@ -261,6 +323,18 @@ func deleteRemovedSecretReferences(writer secrets.SecretWriter, oldRefs, newRefs
 	sort.Strings(refs)
 	for _, ref := range refs {
 		if err := writer.Delete(ref); err != nil {
+			if errors.Is(err, secrets.ErrLocked) && secrets.IsKeyringRef(ref) {
+				replacedAcrossAdapter := false
+				for newRef := range newSet {
+					if secrets.IsFileRef(newRef) && secrets.ReferencesShareIdentifier(ref, newRef) {
+						replacedAcrossAdapter = true
+						break
+					}
+				}
+				if replacedAcrossAdapter {
+					continue
+				}
+			}
 			return err
 		}
 	}
@@ -277,6 +351,7 @@ func (s *Store) MigrateSecrets() error {
 	if err != nil {
 		return err
 	}
+	legacyMigrationRan := done != "1"
 	if done != "1" {
 		if err := s.migrateNodeSecrets(); err != nil {
 			return err
@@ -290,21 +365,202 @@ func (s *Store) MigrateSecrets() error {
 		if err := s.migrateSyncPassword(); err != nil {
 			return err
 		}
+		// migrateNodeSecrets now includes all structured request credentials.
+		// Mark the narrower migrations so the same rows are not scanned again
+		// during this or a later startup.
+		if err := s.SetSetting(headerSecretMigrationKey, "1"); err != nil {
+			return err
+		}
+		if err := s.SetSetting(requestValueMigrationKey, "1"); err != nil {
+			return err
+		}
 		if err := s.SetSetting(secretMigrationKey, "1"); err != nil {
 			return err
 		}
 	}
+	headerDone, err := s.GetSetting(headerSecretMigrationKey)
+	if err != nil {
+		return err
+	}
+	if headerDone != "1" {
+		legacyMigrationRan = true
+		if err := s.migrateHeaderSecrets(); err != nil {
+			return err
+		}
+	}
+	requestValuesDone, err := s.GetSetting(requestValueMigrationKey)
+	if err != nil {
+		return err
+	}
+	if requestValuesDone != "1" {
+		legacyMigrationRan = true
+		if err := s.migrateRequestValueSecrets(); err != nil {
+			return err
+		}
+	}
 	cookieDone, err := s.GetSetting(cookieSecretMigrationKey)
-	if err != nil || cookieDone == "1" {
+	if err != nil {
 		return err
 	}
-	if err := s.migrateCookieSecrets(); err != nil {
+	if cookieDone != "1" {
+		legacyMigrationRan = true
+		if err := s.migrateCookieSecrets(); err != nil {
+			return err
+		}
+		if err := s.SetSetting(cookieSecretMigrationKey, "1"); err != nil {
+			return err
+		}
+	}
+	normalized, err := s.GetSetting(secretRefNormalizationKey)
+	if err != nil {
 		return err
 	}
-	return s.SetSetting(cookieSecretMigrationKey, "1")
+	status := s.vault.Status()
+	if legacyMigrationRan || normalized != "1" || (status.KeyringAvailable && status.FileUnlocked) {
+		if _, err := s.db.Exec("DELETE FROM setting WHERE key = ?", secretRefNormalizationKey); err != nil {
+			return err
+		}
+		pending, err := s.normalizeStoredSecretReferences()
+		if err != nil || pending {
+			return err
+		}
+		return s.SetSetting(secretRefNormalizationKey, "1")
+	}
+	return nil
 }
 
-func (s *Store) migrateCookieSecrets() error {
+func (s *Store) normalizeStoredSecretReferences() (bool, error) {
+	pending := false
+	if err := s.migrateNodeSecrets(&pending); err != nil {
+		return pending, err
+	}
+	if err := s.migrateVariableSecrets("environment", "id", "variables", "environment/", &pending); err != nil {
+		return pending, err
+	}
+	if err := s.migrateVariableSecrets("global_var", "workspace_id", "variables", "workspace/", &pending); err != nil {
+		return pending, err
+	}
+	if err := s.migrateSyncPassword(&pending); err != nil {
+		return pending, err
+	}
+	if err := s.migrateCookieSecrets(&pending); err != nil {
+		return pending, err
+	}
+	return pending, nil
+}
+
+func (s *Store) migrateRequestValueSecrets() error {
+	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		writer = newMigrationSecretWriter(writer, s.vault)
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		rows, err := tx.Query("SELECT id, COALESCE(request_data, '') FROM node")
+		if err != nil {
+			return err
+		}
+		type storedRequest struct{ id, raw string }
+		stored := []storedRequest{}
+		for rows.Next() {
+			var row storedRequest
+			if err := rows.Scan(&row.id, &row.raw); err != nil {
+				rows.Close()
+				return err
+			}
+			if row.raw != "" {
+				stored = append(stored, row)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for _, row := range stored {
+			var request model.HttpRequest
+			if err := json.Unmarshal([]byte(row.raw), &request); err != nil {
+				return fmt.Errorf("decode node %s structured request values: %w", row.id, err)
+			}
+			protected, err := secrets.ProtectRequest(writer, request, "node/"+row.id+"/request")
+			if err != nil {
+				return err
+			}
+			data, err := json.Marshal(protected)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec("UPDATE node SET request_data = ? WHERE id = ?", string(data), row.id); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO setting(key, value) VALUES (?, '1')
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, requestValueMigrationKey); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+}
+
+func (s *Store) migrateHeaderSecrets() error {
+	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		writer = newMigrationSecretWriter(writer, s.vault)
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		rows, err := tx.Query("SELECT id, COALESCE(request_data, '') FROM node")
+		if err != nil {
+			return err
+		}
+		type storedRequest struct{ id, raw string }
+		stored := []storedRequest{}
+		for rows.Next() {
+			var row storedRequest
+			if err := rows.Scan(&row.id, &row.raw); err != nil {
+				rows.Close()
+				return err
+			}
+			if row.raw != "" {
+				stored = append(stored, row)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for _, row := range stored {
+			var request model.HttpRequest
+			if err := json.Unmarshal([]byte(row.raw), &request); err != nil {
+				return fmt.Errorf("decode node %s request headers: %w", row.id, err)
+			}
+			protected, err := secrets.ProtectHeaders(writer, request.Headers, "node/"+row.id+"/request")
+			if err != nil {
+				return err
+			}
+			request.Headers = protected
+			data, err := json.Marshal(request)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec("UPDATE node SET request_data = ? WHERE id = ?", string(data), row.id); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO setting(key, value) VALUES (?, '1')
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, headerSecretMigrationKey); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+}
+
+func (s *Store) migrateCookieSecrets(pending ...*bool) error {
 	rows, err := s.db.Query("SELECT id, value FROM cookie")
 	if err != nil {
 		return err
@@ -317,7 +573,7 @@ func (s *Store) migrateCookieSecrets() error {
 			rows.Close()
 			return err
 		}
-		if cookie.value != "" && !secrets.IsRef(cookie.value) {
+		if cookie.value != "" {
 			stored = append(stored, cookie)
 		}
 	}
@@ -330,13 +586,14 @@ func (s *Store) migrateCookieSecrets() error {
 		return nil
 	}
 	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		writer = newMigrationSecretWriter(writer, s.vault, pending...)
 		tx, err := s.db.Begin()
 		if err != nil {
 			return err
 		}
 		defer tx.Rollback()
 		for _, cookie := range stored {
-			ref, err := writer.PutPlaintext(cookieSecretPrefix+cookie.id+"/value", cookie.value)
+			ref, err := writer.Put(cookieSecretPrefix+cookie.id+"/value", cookie.value)
 			if err != nil {
 				return err
 			}
@@ -352,7 +609,7 @@ type storedNodeSecrets struct {
 	id, requestData, auth, variables string
 }
 
-func (s *Store) migrateNodeSecrets() error {
+func (s *Store) migrateNodeSecrets(pending ...*bool) error {
 	rows, err := s.db.Query("SELECT id, COALESCE(request_data,''), COALESCE(auth,''), COALESCE(variables,'') FROM node")
 	if err != nil {
 		return err
@@ -374,6 +631,7 @@ func (s *Store) migrateNodeSecrets() error {
 
 	for _, row := range stored {
 		if err := s.withSecretWrite(func(writer secrets.SecretWriter) error {
+			writer = newMigrationSecretWriter(writer, s.vault, pending...)
 			var request model.HttpRequest
 			var auth model.Auth
 			variables := []model.Variable{}
@@ -428,7 +686,7 @@ func (s *Store) migrateNodeSecrets() error {
 	return nil
 }
 
-func (s *Store) migrateVariableSecrets(table, idColumn, valueColumn, prefix string) error {
+func (s *Store) migrateVariableSecrets(table, idColumn, valueColumn, prefix string, pending ...*bool) error {
 	query := fmt.Sprintf("SELECT %s, %s FROM %s", idColumn, valueColumn, table)
 	rows, err := s.db.Query(query)
 	if err != nil {
@@ -451,6 +709,7 @@ func (s *Store) migrateVariableSecrets(table, idColumn, valueColumn, prefix stri
 	rows.Close()
 	for _, row := range stored {
 		if err := s.withSecretWrite(func(writer secrets.SecretWriter) error {
+			writer = newMigrationSecretWriter(writer, s.vault, pending...)
 			variables := []model.Variable{}
 			if err := json.Unmarshal([]byte(row.raw), &variables); err != nil {
 				return err
@@ -477,7 +736,7 @@ func (s *Store) migrateVariableSecrets(table, idColumn, valueColumn, prefix stri
 	return nil
 }
 
-func (s *Store) migrateSyncPassword() error {
+func (s *Store) migrateSyncPassword(pending ...*bool) error {
 	raw, err := s.GetSetting("sync.webdav")
 	if err != nil || raw == "" {
 		return err
@@ -487,11 +746,12 @@ func (s *Store) migrateSyncPassword() error {
 		return err
 	}
 	password, _ := cfg["password"].(string)
-	if password == "" || secrets.IsRef(password) {
+	if password == "" {
 		return nil
 	}
 	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
-		ref, err := writer.PutPlaintext("setting/sync.webdav/password", password)
+		writer = newMigrationSecretWriter(writer, s.vault, pending...)
+		ref, err := writer.Put("setting/sync.webdav/password", password)
 		if err != nil {
 			return err
 		}

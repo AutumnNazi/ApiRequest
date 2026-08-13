@@ -44,6 +44,8 @@ func Startup(ctx context.Context, apis ...any) {
 		switch a := api.(type) {
 		case *RequestApi:
 			a.ctx = ctx
+		case *LifecycleApi:
+			a.startup(ctx)
 		case *RunnerApi:
 			a.startup(ctx)
 		case *MockApi:
@@ -138,7 +140,7 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	resolveInheritedAuth(&req, ec.ancestors)
 	resolved := template.ResolveRequest(req, ec.scope)
 	redactor := secrets.NewRedactor(a.store.Vault(), ec.secretValues...)
-	for _, value := range secrets.AuthValues(resolved.Auth) {
+	for _, value := range secrets.RequestCredentialValues(resolved) {
 		redactor.Add(value)
 	}
 
@@ -160,6 +162,9 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 		a.blobMu.Lock()
 		a.liveBlobs[res.Body.BlobRef] = sendCtx.WorkspaceId
 		a.blobMu.Unlock()
+	}
+	for _, value := range secrets.HeaderValues(res.Headers) {
+		redactor.Add(value)
 	}
 
 	// 5.5 响应 Set-Cookie 写回 Jar
@@ -191,11 +196,12 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 		res.ScriptLogs = append(res.ScriptLogs, "[error] persist variables: "+perr.Error())
 	}
 	res.ScriptLogs = redactor.Strings(res.ScriptLogs)
+	res.TestResults = redactor.TestResults(res.TestResults)
 
 	// 8. 落历史（存已解析请求快照；大响应仅作为 live Blob 返回，不进入审计历史）
 	histItem := model.HistoryItem{
 		WorkspaceId: sendCtx.WorkspaceId,
-		RequestSnap: redactor.Request(resolved),
+		RequestSnap: resolved,
 		Status:      res.Status,
 		DurationMs:  int64(res.Timing.TotalMs),
 		SizeBytes:   res.SizeBytes,

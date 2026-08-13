@@ -2,7 +2,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listEnvironments, getGlobalVariables } from '../ipc';
-import { Verbatim } from '../i18n/locale';
+import { Verbatim, formatMessage } from '../i18n/locale';
 
 /** 当前生效变量表（激活环境 > 全局）。
  *  注：不含集合级变量——集合变量由脚本运行时通过 pm.collectionVariables 写入，
@@ -32,6 +32,28 @@ export function useActiveVariables(workspaceId: string): Map<string, string> {
 
 const VAR_RE = /\{\{\s*([^}]+?)\s*\}\}/g;
 
+interface VarRef {
+  name: string;
+  value?: string;
+  dynamic: boolean;
+}
+
+function scanText(text: string, vars: Map<string, string>): VarRef[] {
+  const seen = new Set<string>();
+  const out: VarRef[] = [];
+  for (const m of text.matchAll(VAR_RE)) {
+    const name = m[1];
+    if (seen.has(name)) continue;
+    seen.add(name);
+    if (name.startsWith('$')) {
+      out.push({ name, dynamic: true });
+    } else {
+      out.push({ name, value: vars.get(name), dynamic: false });
+    }
+  }
+  return out;
+}
+
 interface Props {
   text: string;
   vars: Map<string, string>;
@@ -39,49 +61,68 @@ interface Props {
 
 /** URL/文本中变量引用的解析结果提示条；无变量时不渲染 */
 export default function VarPreview({ text, vars }: Props) {
-  const refs = useMemo(() => {
-    const seen = new Set<string>();
-    const out: { name: string; value?: string; dynamic: boolean }[] = [];
-    for (const m of text.matchAll(VAR_RE)) {
-      const name = m[1];
-      if (seen.has(name)) continue;
-      seen.add(name);
-      if (name.startsWith('$')) {
-        out.push({ name, dynamic: true });
-      } else {
-        out.push({ name, value: vars.get(name), dynamic: false });
-      }
-    }
-    return out;
-  }, [text, vars]);
+  const refs = useMemo(() => scanText(text, vars), [text, vars]);
 
   if (refs.length === 0) return null;
 
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-0.5 px-3 py-1 text-xs border-b bg-gray-50">
       {refs.map((r) => (
-        <span key={r.name} className="font-mono">
-          {r.dynamic ? (
-            <span className="text-purple-600" title="动态变量，发送时生成">
-              {'{{'}<Verbatim value={r.name} />{'}}'}
-            </span>
-          ) : r.value !== undefined ? (
-            <>
-              <span className="text-green-700">{'{{'}<Verbatim value={r.name} />{'}}'}</span>
-              <span className="text-gray-400"> = </span>
-              <span className="text-gray-600" title={r.value} data-i18n-verbatim>
-                {r.value ? <Verbatim value={r.value.length > 30 ? r.value.slice(0, 30) + '…' : r.value} /> : '(空)'}
-              </span>
-            </>
-          ) : (
-            <span
-              className="text-red-500 underline decoration-wavy decoration-red-300"
-              title="未在激活环境/全局变量中定义（集合级变量发送时仍会解析）"
-            >
-              {'{{'}<Verbatim value={r.name} />{'}}'}
-            </span>
-          )}
+        <VarRefChip key={r.name + (r.dynamic ? '$' : '')} r={r} />
+      ))}
+    </div>
+  );
+}
+
+function VarRefChip({ r }: { r: VarRef }) {
+  return (
+    <span className="font-mono">
+      {r.dynamic ? (
+        <span className="text-purple-600" title={formatMessage('动态变量，发送时生成')}>
+          {'{{'}<Verbatim value={r.name} />{'}}'}
         </span>
+      ) : r.value !== undefined ? (
+        <>
+          <span className="text-green-700">{'{{'}<Verbatim value={r.name} />{'}}'}</span>
+          <span className="text-gray-400"> = </span>
+          <span className="text-gray-600" title={r.value} data-i18n-verbatim>
+            {r.value ? <Verbatim value={r.value.length > 30 ? r.value.slice(0, 30) + '…' : r.value} /> : formatMessage('(空)')}
+          </span>
+        </>
+      ) : (
+        <span
+          className="text-red-500 underline decoration-wavy decoration-red-300"
+          title={formatMessage('未在激活环境/全局变量中定义（集合级变量发送时仍会解析）')}
+        >
+          {'{{'}<Verbatim value={r.name} />{'}}'}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** 多文本合并扫描：URL + body 等片段统一去重显示一条提示条。 */
+export function VarPreviewMulti({ texts, vars }: { texts: string[]; vars: Map<string, string> }) {
+  const refs = useMemo(() => {
+    const seen = new Set<string>();
+    const out: VarRef[] = [];
+    for (const text of texts) {
+      for (const r of scanText(text, vars)) {
+        const key = r.name + (r.dynamic ? '$' : '');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(r);
+      }
+    }
+    return out;
+  }, [texts, vars]);
+
+  if (refs.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-0.5 px-3 py-1 text-xs border-b bg-gray-50">
+      {refs.map((r) => (
+        <VarRefChip key={r.name + (r.dynamic ? '$' : '')} r={r} />
       ))}
     </div>
   );

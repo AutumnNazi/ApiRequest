@@ -1,16 +1,16 @@
 export namespace auth {
-	
+
 	export class Token {
 	    accessToken: string;
 	    refreshToken?: string;
 	    tokenType?: string;
 	    expiresAt?: number;
 	    scope?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Token(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.accessToken = source["accessToken"];
@@ -24,16 +24,16 @@ export namespace auth {
 }
 
 export namespace binding {
-	
+
 	export class MockStatus {
 	    collectionId: string;
 	    addr: string;
 	    routes: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new MockStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.collectionId = source["collectionId"];
@@ -44,11 +44,11 @@ export namespace binding {
 	export class ProxySettings {
 	    mode: string;
 	    url?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ProxySettings(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mode = source["mode"];
@@ -57,7 +57,6 @@ export namespace binding {
 	}
 
 }
-
 export namespace codegen {
 	
 	export class Target {
@@ -123,6 +122,7 @@ export namespace graphql {
 	    description?: string;
 	    args?: string;
 	    returnType: string;
+	    returnKind: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new FieldSummary(source);
@@ -134,6 +134,7 @@ export namespace graphql {
 	        this.description = source["description"];
 	        this.args = source["args"];
 	        this.returnType = source["returnType"];
+	        this.returnKind = source["returnKind"];
 	    }
 	}
 	export class IntrospectConfig {
@@ -817,6 +818,22 @@ export namespace model {
 		    }
 		    return a;
 		}
+	}
+	export class NodeMove {
+	    id: string;
+	    parentId?: string;
+	    sortOrder: number;
+
+	    static createFrom(source: any = {}) {
+	        return new NodeMove(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.parentId = source["parentId"];
+	        this.sortOrder = source["sortOrder"];
+	    }
 	}
 	export class NodeSummary {
 	    id: string;

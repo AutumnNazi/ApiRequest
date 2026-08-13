@@ -4,14 +4,13 @@ import {
   WindowMinimise,
   WindowToggleMaximise,
   WindowIsMaximised,
-  Quit,
 } from '../../wailsjs/runtime/runtime';
 import { noDragRegion } from '../titlebar';
 
 const controlClass =
   'inline-flex h-10 w-11 shrink-0 items-center justify-center p-0 text-gray-500 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400';
 
-export default function WindowControls() {
+export default function WindowControls({ onClose }: { onClose(): void }) {
   const [maximised, setMaximised] = useState(false);
 
   useEffect(() => {
@@ -37,6 +36,7 @@ export default function WindowControls() {
   return (
     <div
       className="-mr-3 flex h-10 items-center"
+      data-no-drag
       style={noDragRegion}
       role="group"
       aria-label="窗口控制"
@@ -69,7 +69,7 @@ export default function WindowControls() {
       <button
         type="button"
         className={`${controlClass} hover:bg-red-500 hover:text-white`}
-        onClick={() => Quit()}
+        onClick={onClose}
         title="关闭"
         aria-label="关闭"
       >

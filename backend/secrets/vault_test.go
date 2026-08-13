@@ -14,10 +14,11 @@ import (
 type fakeKeyring struct {
 	values      map[string]string
 	unavailable bool
+	failSet     bool
 }
 
 func (f *fakeKeyring) Set(_, account, value string) error {
-	if f.unavailable {
+	if f.unavailable || f.failSet {
 		return errors.New("keyring unavailable")
 	}
 	if f.values == nil {
@@ -73,6 +74,76 @@ func TestKeyringRoundTripAndStableReference(t *testing.T) {
 	}
 	if got := vault.RedactString("token=rotated-secret"); got != "token=<redacted>" {
 		t.Fatalf("redacted = %q", got)
+	}
+}
+
+func TestStatusRediscoversRecoveredKeyring(t *testing.T) {
+	adapter := &fakeKeyring{}
+	vault := NewWithKeyring(t.TempDir(), adapter)
+	ref, err := vault.Put("node/n1/auth/token", "recoverable-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	adapter.failSet = true
+	if _, err := vault.Put("node/n2/auth/token", "transient-write"); !errors.Is(err, ErrLocked) {
+		t.Fatalf("transient keyring failure error = %v", err)
+	}
+	adapter.failSet = false
+
+	if status := vault.Status(); status.Mode != "keyring" || !status.KeyringAvailable || !status.CanStore {
+		t.Fatalf("recovered keyring status = %+v", status)
+	}
+	if value, err := vault.Resolve(ref); err != nil || value != "recoverable-secret" {
+		t.Fatalf("recovered keyring value = %q, err = %v", value, err)
+	}
+	recoveredRef, err := vault.Put("node/n2/auth/token", "recovered-write")
+	if err != nil || !IsKeyringRef(recoveredRef) {
+		t.Fatalf("recovered keyring write = %q, err = %v", recoveredRef, err)
+	}
+}
+
+func TestKeyringReadFailureFallsBackToUnlockedFile(t *testing.T) {
+	adapter := &fakeKeyring{}
+	vault := NewWithKeyring(t.TempDir(), adapter)
+	if err := vault.Unlock("fallback-after-keyring-read-failure"); err != nil {
+		t.Fatal(err)
+	}
+	adapter.unavailable = true
+
+	ref, err := vault.Put("node/n1/auth/token", "file-fallback-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsFileRef(ref) {
+		t.Fatalf("fallback ref = %q", ref)
+	}
+	if value, err := vault.Resolve(ref); err != nil || value != "file-fallback-secret" {
+		t.Fatalf("fallback value = %q, err = %v", value, err)
+	}
+}
+
+func TestKeyringResolveFailureUpdatesStatusAndRecovers(t *testing.T) {
+	adapter := &fakeKeyring{}
+	vault := NewWithKeyring(t.TempDir(), adapter)
+	ref, err := vault.Put("node/n1/auth/token", "recover-after-read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.unavailable = true
+	if _, err := vault.Resolve(ref); !errors.Is(err, ErrLocked) {
+		t.Fatalf("keyring outage resolve error = %v", err)
+	}
+	if status := vault.Status(); status.KeyringAvailable || status.CanStore {
+		t.Fatalf("keyring outage status = %+v", status)
+	}
+
+	adapter.unavailable = false
+	if status := vault.Status(); !status.KeyringAvailable || !status.CanStore {
+		t.Fatalf("recovered keyring status = %+v", status)
+	}
+	if value, err := vault.Resolve(ref); err != nil || value != "recover-after-read" {
+		t.Fatalf("recovered keyring value = %q, err = %v", value, err)
 	}
 }
 
@@ -238,13 +309,105 @@ func TestProtectResolveAndRedactDomainValues(t *testing.T) {
 		t.Fatalf("resolved vars = %+v, err = %v", resolvedVars, err)
 	}
 
-	request := model.HttpRequest{Auth: auth}
+	request := model.HttpRequest{
+		Auth: auth,
+		Params: []model.KV{
+			{Key: "api_token", Value: "query-secret", Enabled: true},
+			{Key: "page", Value: "1", Enabled: true},
+		},
+		Headers: []model.KV{
+			{Key: "Authorization", Value: "Bearer header-secret", Enabled: true},
+			{Key: "X-Custom-Token", Value: "disabled-secret", Enabled: false},
+			{Key: "X-Trace", Value: "public-trace", Enabled: true},
+		},
+		Body: model.Body{Kind: "formdata", Items: []model.FormItem{
+			{Key: "password", Type: "text", Value: "form-secret", Enabled: true},
+			{Key: "password", Type: "file", Path: "C:/fixtures/password.txt", Enabled: true},
+		}},
+	}
+	protectedRequest, err := ProtectRequest(vault, request, "node/n1/request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsRef(protectedRequest.Headers[0].Value) || !IsRef(protectedRequest.Headers[1].Value) {
+		t.Fatalf("sensitive headers were not protected: %+v", protectedRequest.Headers)
+	}
+	if protectedRequest.Headers[2].Value != "public-trace" {
+		t.Fatalf("public header was protected: %+v", protectedRequest.Headers)
+	}
+	if !IsRef(protectedRequest.Params[0].Value) || protectedRequest.Params[1].Value != "1" ||
+		!IsRef(protectedRequest.Body.Items[0].Value) || protectedRequest.Body.Items[1].Path != "C:/fixtures/password.txt" {
+		t.Fatalf("structured request values were not protected correctly: %+v", protectedRequest)
+	}
+	if refs := RequestReferences(protectedRequest); len(refs) != 6 {
+		t.Fatalf("request refs = %+v, want auth and header references", refs)
+	}
+	resolvedRequest, err := ResolveRequest(vault, protectedRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolvedRequest.Headers[0].Value != "Bearer header-secret" || resolvedRequest.Headers[1].Value != "disabled-secret" {
+		t.Fatalf("resolved headers = %+v", resolvedRequest.Headers)
+	}
+	if resolvedRequest.Params[0].Value != "query-secret" || resolvedRequest.Body.Items[0].Value != "form-secret" {
+		t.Fatalf("resolved structured values = %+v", resolvedRequest)
+	}
 	redacted := RedactRequest(request)
 	if redacted.Auth.Params["clientSecret"] != redactedText || redacted.Auth.Params["access_token"] != redactedText {
 		t.Fatalf("redacted request = %+v", redacted)
 	}
 	if redacted.Auth.Params["clientId"] != "public-client" {
 		t.Fatalf("public auth parameter was redacted: %+v", redacted)
+	}
+	if redacted.Headers[0].Value != redactedText || redacted.Headers[1].Value != redactedText || redacted.Headers[2].Value != "public-trace" {
+		t.Fatalf("header redaction = %+v", redacted.Headers)
+	}
+	if redacted.Params[0].Value != redactedText || redacted.Params[1].Value != "1" ||
+		redacted.Body.Items[0].Value != redactedText || redacted.Body.Items[1].Path != "C:/fixtures/password.txt" {
+		t.Fatalf("structured value redaction = %+v", redacted)
+	}
+}
+
+func TestRequestHeaderSecretsKeepDuplicateOccurrencesIndependent(t *testing.T) {
+	vault := NewWithKeyring(t.TempDir(), &fakeKeyring{})
+	request := model.HttpRequest{Headers: []model.KV{
+		{Key: "X-Api-Token", Value: "first-secret", Enabled: true},
+		{Key: "x-api-token", Value: "second-secret", Enabled: false},
+	}}
+	protected, err := ProtectRequest(vault, request, "node/n1/request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if protected.Headers[0].Value == protected.Headers[1].Value {
+		t.Fatalf("duplicate headers share reference %q", protected.Headers[0].Value)
+	}
+
+	omitted := OmitNodeSecrets(model.Node{Request: &request})
+	if omitted.Request.Headers[0].Value != "" || omitted.Request.Headers[1].Value != "" {
+		t.Fatalf("omitted headers = %+v", omitted.Request.Headers)
+	}
+	RestoreOmittedNodeSecrets(&omitted, model.Node{Request: &request})
+	if omitted.Request.Headers[0].Value != "first-secret" || omitted.Request.Headers[1].Value != "second-secret" {
+		t.Fatalf("restored duplicate headers = %+v", omitted.Request.Headers)
+	}
+}
+
+func TestRequestStructuredSecretsRestoreDuplicateOccurrences(t *testing.T) {
+	request := model.HttpRequest{
+		Params: []model.KV{
+			{Key: "token", Value: "first-query", Enabled: true},
+			{Key: "TOKEN", Value: "second-query", Enabled: false},
+		},
+		Body: model.Body{Items: []model.FormItem{
+			{Key: "secret", Type: "text", Value: "first-form", Enabled: true},
+			{Key: "SECRET", Type: "text", Value: "second-form", Enabled: false},
+		}},
+	}
+	omitted := OmitNodeSecrets(model.Node{Request: &request})
+	RestoreOmittedNodeSecrets(&omitted, model.Node{Request: &request})
+	if omitted.Request.Params[0].Value != "first-query" || omitted.Request.Params[1].Value != "second-query" ||
+		omitted.Request.Body.Items[0].Value != "first-form" || omitted.Request.Body.Items[1].Value != "second-form" {
+		t.Fatalf("restored structured values = %+v", omitted.Request)
 	}
 }
 
@@ -269,12 +432,74 @@ func TestReferenceLikePublicValuesAreNotResolvedOrOwned(t *testing.T) {
 	}
 }
 
+func TestVaultReferenceRequiresCanonicalIdentifier(t *testing.T) {
+	for _, value := range []string{
+		"secret://file/literal-user-value",
+		"secret://keyring/not/base64/path",
+		"secret://file/",
+	} {
+		if IsRef(value) {
+			t.Fatalf("non-canonical value was accepted as Vault reference: %q", value)
+		}
+	}
+	vault := NewWithKeyring(t.TempDir(), &fakeKeyring{})
+	ref, err := vault.Put("test/canonical-reference", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsRef(ref) {
+		t.Fatalf("generated reference was rejected: %q", ref)
+	}
+	if !ReferenceMatchesLogicalKey(ref, "test/canonical-reference") {
+		t.Fatalf("generated reference does not match its logical key: %q", ref)
+	}
+	if ReferenceMatchesLogicalKey(ref, "test/different-reference") {
+		t.Fatalf("reference matched a different logical key: %q", ref)
+	}
+}
+
+func TestReferencesShareIdentifierOnlyAcrossAdapters(t *testing.T) {
+	vault := NewWithKeyring(t.TempDir(), &fakeKeyring{})
+	keyringReference, err := vault.Put("test/shared-reference", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileEquivalent := fileRef + strings.TrimPrefix(keyringReference, keyringRef)
+	if !ReferencesShareIdentifier(keyringReference, fileEquivalent) {
+		t.Fatalf("references should share identifier: %q %q", keyringReference, fileEquivalent)
+	}
+	if ReferencesShareIdentifier(keyringReference, keyringReference) {
+		t.Fatal("same Adapter reference reported as cross-Adapter replacement")
+	}
+}
+
 func TestRequestScopedRedactor(t *testing.T) {
 	vault := NewWithKeyring(t.TempDir(), &fakeKeyring{})
 	redactor := NewRedactor(vault, "abc123")
 	got := redactor.String("Authorization: Bearer abc123")
 	if got != "Authorization: Bearer <redacted>" {
 		t.Fatalf("redacted = %q", got)
+	}
+}
+
+func TestRedactorHandlesOverlappingAndShortCredentialsDeterministically(t *testing.T) {
+	redactor := NewRedactor(nil, "abc", "abcdef", "x")
+	const input = "long=abcdef short=abc tiny=x"
+	for i := 0; i < 100; i++ {
+		if got := redactor.String(input); got != "long=<redacted> short=<redacted> tiny=<redacted>" {
+			t.Fatalf("redaction pass %d = %q", i, got)
+		}
+	}
+}
+
+func TestRedactorHandlesOverlappingCredentialsAcrossVaultAndRequest(t *testing.T) {
+	vault := NewWithKeyring(t.TempDir(), &fakeKeyring{})
+	if _, err := vault.Put("test/overlapping-vault-value", "abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	redactor := NewRedactor(vault, "abc")
+	if got := redactor.String("long=abcdef short=abc"); got != "long=<redacted> short=<redacted>" {
+		t.Fatalf("cross-source redaction = %q", got)
 	}
 }
 

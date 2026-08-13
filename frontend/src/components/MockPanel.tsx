@@ -8,7 +8,7 @@ import {
   toAppError,
   type MockLogEntry,
 } from '../ipc';
-import { Verbatim } from '../i18n/locale';
+import { Verbatim, formatMessage } from '../i18n/locale';
 
 interface Props {
   collectionId: string;
@@ -63,7 +63,7 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
           <h2 className="font-semibold text-sm">Mock · <Verbatim value={collectionName} /></h2>
           <span
             className={`w-2 h-2 rounded-full ${addr ? 'bg-green-500' : 'bg-gray-300'}`}
-            title={addr ? '运行中' : '已停止'}
+            title={addr ? formatMessage('运行中') : formatMessage('已停止')}
           />
           <button
             className={`ml-auto text-sm rounded px-4 py-1 ${
@@ -74,7 +74,7 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
             disabled={busy}
             onClick={toggle}
           >
-            {addr ? '停止' : '启动'}
+            {addr ? formatMessage('停止') : formatMessage('启动')}
           </button>
           <button className="text-gray-400 hover:text-gray-700" onClick={onClose}>
             ×
@@ -88,7 +88,7 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
               className="text-xs text-green-700 hover:underline"
               onClick={() => navigator.clipboard.writeText(addr)}
             >
-              复制
+              {formatMessage('复制')}
             </button>
           </div>
         )}
@@ -100,8 +100,8 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
           {logs.length === 0 ? (
             <div className="h-full flex items-center justify-center text-gray-400 text-sm px-8 text-center">
               {addr
-                ? '等待请求…向上方地址发请求即返回对应示例'
-                : '启动后，此集合中带"示例"的请求会按路径/方法提供 mock 响应'}
+                ? formatMessage('等待请求…向上方地址发请求即返回对应示例')
+                : formatMessage('启动后，此集合中带"示例"的请求会按路径/方法提供 mock 响应')}
             </div>
           ) : (
             <table className="w-full text-xs">

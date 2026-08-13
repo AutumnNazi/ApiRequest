@@ -8,7 +8,9 @@ import {
   toAppError,
   type InboundMsg,
 } from '../ipc';
-import { Verbatim } from '../i18n/locale';
+import { Verbatim, formatMessage } from '../i18n/locale';
+import { useRecentTargets } from '../hooks/useRecentTargets';
+import RecentTargets from './RecentTargets';
 
 interface Props {
   onClose(): void;
@@ -23,6 +25,12 @@ export default function WsPanel({ onClose }: Props) {
   const [error, setError] = useState('');
   const sessionIdRef = useRef('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { recents, recall } = useRecentTargets('protocol:recent:ws');
+
+  const pickRecent = (value: string) => {
+    setUrl(value);
+    setError('');
+  };
 
   useEffect(() => {
     const unsub = onProtoMessage((m) => {
@@ -47,11 +55,15 @@ export default function WsPanel({ onClose }: Props) {
 
   const connect = async () => {
     setError('');
+    const resolvedUrl = url.trim();
+    if (!resolvedUrl) return;
+    setUrl(resolvedUrl);
     const id = `ws-${Date.now()}`;
     sessionIdRef.current = id;
     try {
-      await openSession(id, { protocol, url });
+      await openSession(id, { protocol, url: resolvedUrl });
       setConnected(true);
+      recall(resolvedUrl);
     } catch (e) {
       // 失败时回滚 sessionId，避免下次连接复用同一 id 导致后端冲突
       sessionIdRef.current = '';
@@ -113,7 +125,7 @@ export default function WsPanel({ onClose }: Props) {
             disabled={!connected && !url.trim()}
             onClick={connected ? disconnect : connect}
           >
-            {connected ? '断开' : '连接'}
+            {connected ? formatMessage('断开') : formatMessage('连接')}
           </button>
           <button className="text-gray-400 hover:text-gray-700 ml-1" onClick={onClose}>
             ×
@@ -122,10 +134,12 @@ export default function WsPanel({ onClose }: Props) {
 
         {error && <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600"><Verbatim value={error} /></div>}
 
+        <RecentTargets recents={recents} current={url} onPick={pickRecent} />
+
         {/* 消息时间线 */}
         <div className="flex-1 overflow-auto p-3 space-y-1.5 flex flex-col">
           {messages.length === 0 && (
-            <div className="m-auto text-gray-400 text-sm">连接后消息将显示在此处</div>
+            <div className="m-auto text-gray-400 text-sm">{formatMessage('连接后消息将显示在此处')}</div>
           )}
           {messages.map((m, i) => (
             <div
@@ -154,7 +168,7 @@ export default function WsPanel({ onClose }: Props) {
           <div className="flex gap-2 p-3 border-t">
             <textarea
               className="flex-1 border rounded px-2 py-1.5 text-sm font-mono resize-none h-16"
-              placeholder="输入消息，Ctrl+Enter 发送"
+              placeholder={formatMessage('输入消息，Ctrl+Enter 发送')}
               value={outgoing}
               onChange={(e) => setOutgoing(e.target.value)}
               disabled={!connected}
@@ -167,7 +181,7 @@ export default function WsPanel({ onClose }: Props) {
               disabled={!connected || !outgoing.trim()}
               onClick={send}
             >
-              发送
+              {formatMessage('发送')}
             </button>
           </div>
         )}

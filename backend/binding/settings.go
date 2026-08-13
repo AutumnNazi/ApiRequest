@@ -41,13 +41,21 @@ func (a *SettingsApi) UnlockVault(password string) (secrets.Status, error) {
 	if err := a.store.MigrateSecrets(); err != nil {
 		return a.store.Vault().Status(), model.WrapError(model.KindStorage, err)
 	}
+	if err := a.store.MigrateAuditSecrets(); err != nil {
+		return a.store.Vault().Status(), model.WrapError(model.KindStorage, err)
+	}
 	return a.store.Vault().Status(), nil
 }
 
-// LockVault clears the encrypted-file key and decrypted cache from memory.
-func (a *SettingsApi) LockVault() secrets.Status {
+// LockVault promotes any runtime fallback references before clearing the
+// encrypted-file key, so a recovered keyring never leaves freshly-saved
+// credentials unreadable after the user locks the fallback Vault.
+func (a *SettingsApi) LockVault() (secrets.Status, error) {
+	if err := a.store.MigrateSecrets(); err != nil {
+		return a.store.Vault().Status(), model.WrapError(model.KindStorage, err)
+	}
 	a.store.Vault().Lock()
-	return a.store.Vault().Status()
+	return a.store.Vault().Status(), nil
 }
 
 func (a *SettingsApi) loadTLS() httpengine.TLSSettings {

@@ -40,7 +40,8 @@ func TestIntrospect(t *testing.T) {
         {"kind": "OBJECT", "name": "Query", "fields": [
           {"name": "user", "description": "find a user", "type": {"kind": "OBJECT", "name": "User"}, "args": [
             {"name": "id", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}}
-          ]}
+          ]},
+          {"name": "health", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "Boolean"}}, "args": []}
         ]},
         {"kind": "OBJECT", "name": "User", "fields": [
           {"name": "id", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}},
@@ -66,18 +67,21 @@ func TestIntrospect(t *testing.T) {
 	if !strings.Contains(res.SchemaJSON, `"name":"Query"`) {
 		t.Errorf("schema json missing Query type:\n%s", res.SchemaJSON)
 	}
-	if len(res.Queries) != 1 || res.Queries[0].Name != "user" {
+	if len(res.Queries) != 2 || res.Queries[0].Name != "user" {
 		t.Errorf("queries = %+v", res.Queries)
 	}
 	if res.Queries[0].ReturnType != "User" {
 		t.Errorf("return = %s", res.Queries[0].ReturnType)
 	}
+	if res.Queries[0].ReturnKind != "OBJECT" || res.Queries[1].ReturnKind != "SCALAR" {
+		t.Errorf("return kinds = %+v", res.Queries)
+	}
 	if len(res.Mutations) != 1 || res.Mutations[0].Name != "createUser" {
 		t.Errorf("mutations = %+v", res.Mutations)
 	}
-	// 非空类型渲染
-	if !strings.Contains(res.Queries[0].Args, `"type"`) {
-		t.Errorf("args json missing: %s", res.Queries[0].Args)
+	// 参数摘要必须给前端可直接拼入 operation 的 GraphQL 类型字符串。
+	if res.Queries[0].Args != `[{"name":"id","type":"ID!"}]` {
+		t.Errorf("args json = %s", res.Queries[0].Args)
 	}
 }
 

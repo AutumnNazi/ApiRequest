@@ -45,7 +45,7 @@ export default function CodegenDialog({ request, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">生成代码</h2>
+          <h2 className="font-semibold text-sm">{formatMessage('生成代码')}</h2>
           <select
             className="border rounded px-2 py-1 text-xs"
             value={target}
@@ -61,7 +61,7 @@ export default function CodegenDialog({ request, onClose }: Props) {
             className="ml-auto text-xs border rounded px-3 py-1 hover:bg-gray-50"
             onClick={copy}
           >
-            {copied ? '已复制 ✓' : '复制'}
+            {copied ? formatMessage('已复制 ✓') : formatMessage('复制')}
           </button>
           <button className="text-gray-400 hover:text-gray-700" onClick={onClose}>
             ×

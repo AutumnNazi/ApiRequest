@@ -33,6 +33,24 @@ func (curlGen) Generate(req model.HttpRequest) string {
 			b.WriteString(" \\\n  -H 'Content-Type: " + ct + "'")
 		}
 		b.WriteString(" \\\n  -d '" + shellQuote(text) + "'")
+	} else if req.Body.Kind == "formdata" {
+		for _, item := range req.Body.Items {
+			if !item.Enabled || item.Key == "" {
+				continue
+			}
+			value := item.Value
+			if item.Type == "file" {
+				value = "@" + item.Path
+				b.WriteString(" \\\n  -F '" + shellQuote(item.Key+"="+value) + "'")
+			} else {
+				b.WriteString(" \\\n  --form-string '" + shellQuote(item.Key+"="+value) + "'")
+			}
+		}
+	} else if req.Body.Kind == "binary" && req.Body.Path != "" {
+		b.WriteString(" \\\n  --data-binary '@" + shellQuote(req.Body.Path) + "'")
+		if !hasHeader(req, "Content-Type") {
+			b.WriteString(" \\\n  -H 'Content-Type: application/octet-stream'")
+		}
 	}
 	if !req.Settings.VerifyTLS {
 		b.WriteString(" \\\n  -k")

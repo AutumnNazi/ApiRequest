@@ -1,6 +1,7 @@
 // 可拖拽分割条：分隔上下（horizontal）或左右（vertical）两个面板。
 // 通过 onRatio 回调向上反馈比例（0~1），由父层持久化。
 import { useCallback, useEffect, useRef } from 'react';
+import { formatMessage } from '../i18n/locale';
 
 interface Props {
   orientation: 'horizontal' | 'vertical';
@@ -56,13 +57,13 @@ export default function Splitter({ orientation, onRatio, ratio }: Props) {
     <div
       onMouseDown={onMouseDown}
       className="w-1.5 shrink-0 cursor-col-resize hover:bg-blue-400/60 active:bg-blue-500 transition-colors"
-      title="拖动调整侧栏宽度"
+      title={formatMessage('拖动调整侧栏宽度')}
     />
   ) : (
     <div
       onMouseDown={onMouseDown}
       className="h-1.5 shrink-0 cursor-row-resize hover:bg-blue-400/60 active:bg-blue-500 transition-colors"
-      title="拖动调整编辑区与响应区高度"
+      title={formatMessage('拖动调整编辑区与响应区高度')}
     />
   );
 }

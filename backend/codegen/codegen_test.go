@@ -53,6 +53,34 @@ func TestCurlGen(t *testing.T) {
 	}
 }
 
+func TestCurlGenPreservesMultipartFilesAndBinaryBodies(t *testing.T) {
+	form := sampleReq()
+	form.Body = model.Body{Kind: "formdata", Items: []model.FormItem{
+		{Key: "note", Type: "text", Value: "hello", Enabled: true},
+		{Key: "asset", Type: "file", Path: "/tmp/a'b.bin", Enabled: true},
+	}}
+	out, err := Generate("curl", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--form-string 'note=hello'", `-F 'asset=@/tmp/a'\''b.bin'`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("multipart curl missing %q in:\n%s", want, out)
+		}
+	}
+
+	binary := sampleReq()
+	binary.Body = model.Body{Kind: "binary", Path: "/tmp/data.bin"}
+	out, err = Generate("curl", binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "--data-binary '@/tmp/data.bin'") ||
+		!strings.Contains(out, "Content-Type: application/octet-stream") {
+		t.Errorf("binary curl is incomplete:\n%s", out)
+	}
+}
+
 func TestFetchGen(t *testing.T) {
 	out, err := Generate("javascript-fetch", sampleReq())
 	if err != nil {

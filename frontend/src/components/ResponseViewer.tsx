@@ -23,6 +23,7 @@ interface Props {
 }
 
 const BODY_RENDER_CHAR_LIMIT = 500_000;
+const JSON_SYNTAX_CHAR_LIMIT = 100_000;
 const BLOB_CHUNK_SIZE = 256 << 10;
 const BODY_INSPECT_BYTE_LIMIT = BODY_RENDER_CHAR_LIMIT * 4;
 const IMAGE_PREVIEW_BYTE_LIMIT = 16 << 20;
@@ -43,6 +44,8 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   const [pane, setPane] = useState<'body' | 'preview' | 'headers' | 'tests' | 'timing'>('body');
   const [raw, setRaw] = useState(false);
   const [search, setSearch] = useState('');
+  // 当前命中的序号（整数下标，-1=无）；搜索词变化时重置
+  const [searchIndex, setSearchIndex] = useState(-1);
   const [exampleSaved, setExampleSaved] = useState(false);
   const [blobBytes, setBlobBytes] = useState<Uint8Array>(() => new Uint8Array());
   const [blobSize, setBlobSize] = useState(0);
@@ -225,31 +228,59 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
     return () => URL.revokeObjectURL(url);
   }, [completeImageBytes, contentType]);
 
-  const pretty = useMemo(() => {
+  const { pretty, isJsonBody } = useMemo(() => {
     const source = sourceText;
-    if (!source) return '';
+    if (!source) return { pretty: '', isJsonBody: false };
     // 大 JSON 的 parse + stringify 也会阻塞主线程，并可能把文本再膨胀数倍。
-    if (raw || source.length > BODY_RENDER_CHAR_LIMIT) return source;
-    try {
-      return JSON.stringify(JSON.parse(source), null, 2);
-    } catch {
-      return source;
+    if (raw || source.length > BODY_RENDER_CHAR_LIMIT || binaryBody) {
+      return { pretty: source, isJsonBody: false };
     }
-  }, [sourceText, raw]);
+    try {
+      return { pretty: JSON.stringify(JSON.parse(source), null, 2), isJsonBody: true };
+    } catch {
+      return { pretty: source, isJsonBody: false };
+    }
+  }, [sourceText, raw, binaryBody]);
 
   const renderedBody = useMemo(() => sliceBodyForRender(pretty), [pretty]);
 
   const previewable = contentType.includes('html') || contentType.startsWith('image/');
 
+  useEffect(() => {
+    if (!previewable) setPane((current) => (current === 'preview' ? 'body' : current));
+  }, [previewable]);
+
   const matchCount = useMemo(() => {
     if (!search) return 0;
     let n = 0;
-    let i = -1;
+    let i = 0;
     const lower = renderedBody.visibleText.toLowerCase();
     const q = search.toLowerCase();
-    while ((i = lower.indexOf(q, i + 1)) !== -1) n++;
+    let hit = lower.indexOf(q);
+    while (hit !== -1 && n < 2000) {
+      n++;
+      i = hit + q.length;
+      hit = lower.indexOf(q, i);
+    }
     return n;
   }, [renderedBody.visibleText, search]);
+
+  // 搜索词/响应体变化时重置当前命中；Enter 向前跳、Shift+Enter 向后
+  const searchNav = (dir: 1 | -1) => {
+    if (!search || matchCount === 0) return;
+    setSearchIndex((cur) => {
+      if (cur === -1) return dir === 1 ? 0 : matchCount - 1;
+      const next = cur + dir;
+      if (next < 0) return matchCount - 1;
+      if (next >= matchCount) return 0;
+      return next;
+    });
+  };
+
+  // 搜索词或响应体变化时重置当前命中位置
+  useEffect(() => {
+    setSearchIndex(-1);
+  }, [search, renderedBody.visibleText]);
 
   if (sending) {
     return <SendingProgress progress={progress} />;
@@ -259,7 +290,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
       <div className="p-4">
         <div className="border border-red-200 bg-red-50 rounded p-3 text-sm">
           <div className="font-medium text-red-700 mb-1">
-            {errorKindLabel[error.kind] ?? '错误'}
+            {formatMessage(errorKindLabel[error.kind] ?? '错误')}
           </div>
           <div className="text-red-600 font-mono break-all">
             <Verbatim value={error.detail} />
@@ -269,7 +300,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
     );
   }
   if (!response) {
-    return <Center>发送请求后在此查看响应</Center>;
+    return <Center>{formatMessage('发送请求后在此查看响应')}</Center>;
   }
 
   const statusColor =
@@ -281,8 +312,8 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
     tests.length > 0
       ? formatMessage('测试 ({passed}/{total})', { passed: passCount, total: tests.length })
       : (response.scriptLogs ?? []).length > 0
-        ? '测试 (日志)'
-        : '测试';
+        ? formatMessage('测试 (日志)')
+        : formatMessage('测试');
 
   return (
     <div className="flex flex-col h-full">
@@ -302,9 +333,9 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
           <button
             className="ml-auto text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-0.5"
             onClick={saveAsExample}
-            title="保存为示例（供 Mock Server 使用）"
+            title={formatMessage('保存为示例（供 Mock Server 使用）')}
           >
-            {exampleSaved ? '已保存 ✓' : '保存为示例'}
+            {exampleSaved ? formatMessage('已保存 ✓') : formatMessage('保存为示例')}
           </button>
         )}
       </div>
@@ -317,7 +348,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
             ...(previewable ? ([['preview', 'Preview']] as const) : []),
             ['headers', `Headers (${response.headers.length})`],
             ['tests', testsLabel],
-            ['timing', '计时'],
+            ['timing', formatMessage('计时')],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -336,13 +367,18 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
           <>
             <input
               className="ml-auto mb-1 border rounded px-2 py-0.5 text-xs w-40 outline-none focus:border-blue-400"
-              placeholder="搜索 body…"
+              placeholder={formatMessage('搜索 body…')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') searchNav(e.shiftKey ? -1 : 1);
+              }}
+              title={formatMessage('Enter 跳转下一处，Shift+Enter 上一处')}
             />
             {search && (
               <span className="pb-2 text-xs text-gray-400 self-center">
-                {matchCount} 处{renderedBody.omittedChars > 0 ? '（当前片段）' : ''}
+                {matchCount > 0 && searchIndex >= 0 ? `${searchIndex + 1}/${matchCount} ` : ''}
+                {matchCount}{formatMessage(' 处')}{renderedBody.omittedChars > 0 ? formatMessage('（当前片段）') : ''}
               </span>
             )}
             <button
@@ -350,6 +386,13 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
               onClick={() => setRaw(!raw)}
             >
               {raw ? 'Pretty' : 'Raw'}
+            </button>
+            <button
+              className="pb-2 text-xs text-gray-500 hover:text-gray-800"
+              title={formatMessage('复制响应体')}
+              onClick={() => void navigator.clipboard.writeText(renderedBody.visibleText).catch(() => {})}
+            >
+              {formatMessage('复制')}
             </button>
           </>
         )}
@@ -361,7 +404,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
             {response.body?.blobRef && (
               <div className="m-3 mb-0 border border-yellow-200 bg-yellow-50 rounded px-3 py-2 text-xs flex flex-wrap items-center gap-2">
                 <span className="text-yellow-800">
-                  已加载 {formatSize(blobBytes.byteLength)} / {formatSize(blobSize || response.sizeBytes)}
+                  {formatMessage('已加载 ')}{formatSize(blobBytes.byteLength)} / {formatSize(blobSize || response.sizeBytes)}
                 </span>
                 {!blobEof && blobBytes.byteLength < BODY_INSPECT_BYTE_LIMIT && (
                   <button
@@ -369,24 +412,30 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
                     disabled={loadingChunk}
                     onClick={() => void loadNextChunk()}
                   >
-                    {loadingChunk ? '加载中…' : '加载下一块'}
+                    {loadingChunk ? formatMessage('加载中…') : formatMessage('加载下一块')}
                   </button>
                 )}
                 {!blobEof && blobBytes.byteLength >= BODY_INSPECT_BYTE_LIMIT && (
-                  <span className="text-gray-500">已达到片段读取上限</span>
+                  <span className="text-gray-500">{formatMessage('已达到片段读取上限')}</span>
                 )}
                 <button
                   className="text-blue-600 hover:underline disabled:opacity-50"
                   disabled={saving}
                   onClick={() => void saveBlobAs()}
                 >
-                  {saving ? '保存中…' : '另存为…'}
+                  {saving ? formatMessage('保存中…') : formatMessage('另存为…')}
                 </button>
                 {saveMessage && <span className="text-gray-600"><Verbatim value={saveMessage} /></span>}
                 {blobError && <span className="basis-full text-red-600"><Verbatim value={blobError} /></span>}
               </div>
             )}
-            <HighlightedBody body={renderedBody} query={search} />
+            <HighlightedBody
+              body={renderedBody}
+              query={search}
+              isJson={isJsonBody && renderedBody.visibleText.length <= JSON_SYNTAX_CHAR_LIMIT}
+              currentHit={searchIndex}
+              onHitScroll={(el) => el?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
+            />
           </div>
         )}
         {pane === 'preview' && (
@@ -401,18 +450,30 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
           />
         )}
         {pane === 'headers' && (
-          <table className="w-full text-sm m-3">
-            <tbody>
-              {response.headers.map((h, i) => (
-                <tr key={i} className="border-b border-gray-100">
-                  <td className="p-1 pr-4 font-medium text-gray-700 whitespace-nowrap align-top">
-                    <Verbatim value={h.key} />
-                  </td>
-                  <td className="p-1 font-mono text-xs break-all"><Verbatim value={h.value} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="m-3">
+            <button
+              className="mb-2 text-xs text-gray-500 hover:text-gray-800"
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(response.headers.map((h) => `${h.key}: ${h.value}`).join('\n'))
+                  .catch(() => {})
+              }
+            >
+              {formatMessage('复制全部')}
+            </button>
+            <table className="w-full text-sm">
+              <tbody>
+                {response.headers.map((h, i) => (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="p-1 pr-4 font-medium text-gray-700 whitespace-nowrap align-top">
+                      <Verbatim value={h.key} />
+                    </td>
+                    <td className="p-1 font-mono text-xs break-all"><Verbatim value={h.value} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {pane === 'tests' && (
           <TestsPane tests={tests} logs={response.scriptLogs ?? []} />
@@ -439,49 +500,158 @@ function sliceBodyForRender(text: string): BodyRenderSlice {
   return { visibleText: text.slice(0, end), omittedChars: text.length - end };
 }
 
+// JSON token 着色类映射（Tailwind 内联色，避免主题样式冲突）
+const JSON_CLASS: Record<string, string> = {
+  key: 'text-purple-600',
+  string: 'text-green-700',
+  number: 'text-orange-600',
+  bool: 'text-blue-600',
+  null: 'text-blue-600',
+  punct: 'text-gray-400',
+};
+
+// 轻量 JSON 分词：字符串/数字/布尔/null/标点；不依赖外部库。
+// 返回带 cls 的分片（key 通过"字符串后紧跟冒号"判定）。
+function tokenizeJson(text: string): { s: string; cls: string }[] {
+  const out: { s: string; cls: string }[] = [];
+  const re = /"(?:\\.|[^"\\])*"|true(?=\s*(?:[,\]}]|$))|false(?=\s*(?:[,\]}]|$))|null(?=\s*(?:[,\]}]|$))|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]|\s+|[^"{}[\],:\s]+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const tok = m[0];
+    if (tok === '"' || tok === '{' || tok === '}' || tok === '[' || tok === ']' || tok === ',' || tok === ':') {
+      out.push({ s: tok, cls: 'punct' });
+    } else if (tok.startsWith('"')) {
+      // 向后看：跳过空白后是否为 ':' → key，否则为字符串值
+      const rest = text.slice(re.lastIndex);
+      const after = rest.match(/^\s*:/);
+      out.push({ s: tok, cls: after ? 'key' : 'string' });
+    } else if (/^-?\d/.test(tok)) {
+      out.push({ s: tok, cls: 'number' });
+    } else if (tok === 'true' || tok === 'false') {
+      out.push({ s: tok, cls: 'bool' });
+    } else if (tok === 'null') {
+      out.push({ s: tok, cls: 'null' });
+    } else {
+      // 空白或异常字符：原样保留，不着色
+      out.push({ s: tok, cls: 'plain' });
+    }
+  }
+  return out;
+}
+
 // HighlightedBody 只接收有界片段，搜索高亮不会意外把截断区重新带回 DOM。
-function HighlightedBody({ body, query }: { body: BodyRenderSlice; query: string }) {
+function HighlightedBody({
+  body,
+  query,
+  isJson,
+  currentHit,
+  onHitScroll,
+}: {
+  body: BodyRenderSlice;
+  query: string;
+  isJson: boolean;
+  /** 当前命中的序号（0 起）；用于视觉强调并滚动到该处（由 onHitScroll 实现） */
+  currentHit?: number;
+  onHitScroll?: (el: HTMLElement | null) => void;
+}) {
   const { visibleText, omittedChars } = body;
-  const parts = useMemo(() => {
-    if (!query) return null;
+  // 预先计算搜索命中区间，JSON 着色时用区间叠加高亮，避免正则双重切分不一致。
+  const hitRanges = useMemo(() => {
+    if (!query) return [] as [number, number][];
     const q = query.toLowerCase();
     const lower = visibleText.toLowerCase();
-    const out: { s: string; hit: boolean }[] = [];
+    const out: [number, number][] = [];
     let i = 0;
     let hit = lower.indexOf(q);
-    // 上限保护：超过 2000 处只高亮前 2000
     let count = 0;
     while (hit !== -1 && count < 2000) {
-      if (hit > i) out.push({ s: visibleText.slice(i, hit), hit: false });
-      out.push({ s: visibleText.slice(hit, hit + query.length), hit: true });
+      out.push([hit, hit + query.length]);
       i = hit + query.length;
       hit = lower.indexOf(q, i);
       count++;
     }
-    out.push({ s: visibleText.slice(i), hit: false });
     return out;
   }, [visibleText, query]);
+
+  // 当前命中的 <mark> 引用：命中序号有效且文本变化后滚动定位。
+  const currentMarkRef = useRef<HTMLElement | null>(null);
+  const focusTarget = useMemo(() => {
+    if (!query || currentHit == null || currentHit < 0 || currentHit >= hitRanges.length) return null;
+    return hitRanges[currentHit];
+  }, [query, currentHit, hitRanges]);
+  useEffect(() => {
+    if (focusTarget && onHitScroll) onHitScroll(currentMarkRef.current);
+  }, [focusTarget, onHitScroll]);
+
+  const segments = useMemo(() => {
+    // 统一先分词：JSON 走语法着色，否则整体当作一个 plain 片段
+    const toks = isJson ? tokenizeJson(visibleText) : [{ s: visibleText, cls: 'plain' }];
+    if (hitRanges.length === 0) return toks.map((t) => ({ ...t, hit: false, hitIdx: -1 }));
+    // 按命中区间切分每个 token，命中部分标记 hit.idx（当前命中高亮用）
+    const out: { s: string; cls: string; hit: boolean; hitIdx: number }[] = [];
+    let offset = 0;
+    let firstHit = 0;
+    for (const t of toks) {
+      const start = offset;
+      const end = offset + t.s.length;
+      offset = end;
+      // 收集与 token 相交的命中区间
+      while (firstHit < hitRanges.length && hitRanges[firstHit][1] <= start) firstHit++;
+      const local: { hs: number; he: number; idx: number }[] = [];
+      for (let k = firstHit; k < hitRanges.length; k++) {
+        const [hs, he] = hitRanges[k];
+        if (hs >= end) break;
+        if (he > start && hs < end) local.push({ hs, he, idx: k });
+      }
+      if (local.length === 0) {
+        out.push({ s: t.s, cls: t.cls, hit: false, hitIdx: -1 });
+        continue;
+      }
+      let pos = start;
+      for (const { hs, he, idx } of local) {
+        const cs = Math.max(hs, start);
+        const ce = Math.min(he, end);
+        if (cs > pos) out.push({ s: visibleText.slice(pos, cs), cls: t.cls, hit: false, hitIdx: -1 });
+        out.push({ s: visibleText.slice(cs, ce), cls: t.cls, hit: true, hitIdx: idx });
+        pos = ce;
+      }
+      if (pos < end) out.push({ s: visibleText.slice(pos, end), cls: t.cls, hit: false, hitIdx: -1 });
+    }
+    return out;
+  }, [visibleText, hitRanges, isJson]);
 
   return (
     <>
       {omittedChars > 0 && (
         <div className="m-3 mb-0 border border-orange-200 bg-orange-50 rounded px-3 py-2 text-xs text-orange-800">
-          响应体过大，仅渲染前 {visibleText.length.toLocaleString()} 个字符，另有{' '}
-          {omittedChars.toLocaleString()} 个字符未显示。
+          {formatMessage('响应体过大，仅渲染前 ')}{visibleText.length.toLocaleString()}{formatMessage(' 个字符，另有')}{' '}
+          {omittedChars.toLocaleString()}{formatMessage(' 个字符未显示。')}
         </div>
       )}
       <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all">
-        {parts
-          ? parts.map((p, i) =>
-              p.hit ? (
-                <mark key={i} className="bg-yellow-200 rounded-sm">
-                  <Verbatim value={p.s} />
-                </mark>
-              ) : (
-                <Verbatim key={i} value={p.s} />
-              ),
-            )
-          : <Verbatim value={visibleText} />}
+        {segments.map((p, i) =>
+          p.hit ? (
+            <mark
+              key={i}
+              ref={currentHit != null && p.hitIdx === currentHit ? (el) => { currentMarkRef.current = el; } : undefined}
+              className={
+                currentHit != null && p.hitIdx === currentHit
+                  ? 'bg-orange-300 rounded-sm'
+                  : 'bg-yellow-200 rounded-sm'
+              }
+            >
+              <span className={isJson ? JSON_CLASS[p.cls] : undefined}>
+                <Verbatim value={p.s} />
+              </span>
+            </mark>
+          ) : isJson ? (
+            <span key={i} className={isJson ? JSON_CLASS[p.cls] : undefined}>
+              <Verbatim value={p.s} />
+            </span>
+          ) : (
+            <Verbatim key={i} value={p.s} />
+          ),
+        )}
       </pre>
     </>
   );
@@ -508,7 +678,7 @@ function PreviewPane({
   if (contentType.startsWith('image/')) {
     if (!hasBlob && contentType.includes('svg') && text) {
       if (text.length > BODY_RENDER_CHAR_LIMIT) {
-        return <Center>响应体过大，Preview 暂不渲染（请使用 Body 片段查看）</Center>;
+        return <Center>{formatMessage('响应体过大，Preview 暂不渲染（请使用 Body 片段查看）')}</Center>;
       }
       return (
         <div className="p-4 flex justify-center">
@@ -539,19 +709,19 @@ function PreviewPane({
             disabled={loading}
             onClick={onLoadImage}
           >
-            {loading ? '加载图片中…' : '加载图片预览'}
+            {loading ? formatMessage('加载图片中…') : formatMessage('加载图片预览')}
           </button>
           {error && <span className="text-xs text-red-600"><Verbatim value={error} /></span>}
         </div>
       );
     }
-    return <Center>图片数据不可用</Center>;
+    return <Center>{formatMessage('图片数据不可用')}</Center>;
   }
   if (hasBlob) {
-    return <Center>大型 HTML 响应不加载到 Preview，请使用 Body 片段或另存为查看</Center>;
+    return <Center>{formatMessage('大型 HTML 响应不加载到 Preview，请使用 Body 片段或另存为查看')}</Center>;
   }
   if (text.length > BODY_RENDER_CHAR_LIMIT) {
-    return <Center>响应体过大，Preview 暂不渲染（请使用 Body 片段查看）</Center>;
+    return <Center>{formatMessage('响应体过大，Preview 暂不渲染（请使用 Body 片段查看）')}</Center>;
   }
   // HTML：沙箱 iframe，禁脚本
   return (
@@ -572,7 +742,7 @@ function TestsPane({
   logs: string[];
 }) {
   if (tests.length === 0 && logs.length === 0) {
-    return <Center>此请求没有测试脚本；在编辑器"脚本"页签中添加</Center>;
+    return <Center>{formatMessage('此请求没有测试脚本；在编辑器"脚本"页签中添加')}</Center>;
   }
   return (
     <div className="p-3 space-y-3 text-sm">
@@ -600,7 +770,7 @@ function TestsPane({
       )}
       {logs.length > 0 && (
         <div>
-          <div className="text-xs text-gray-500 mb-1">控制台输出</div>
+          <div className="text-xs text-gray-500 mb-1">{formatMessage('控制台输出')}</div>
           <pre className="bg-gray-50 border rounded p-2 text-xs font-mono whitespace-pre-wrap break-all">
             <Verbatim value={logs.join('\n')} />
           </pre>
@@ -613,10 +783,10 @@ function TestsPane({
 function TimingBars({ t }: { t: ResponseResult['timing'] }) {
   const stages: [string, number][] = [
     ['DNS', t.dnsMs],
-    ['连接', t.connectMs],
+    [formatMessage('连接'), t.connectMs],
     ['TLS', t.tlsMs],
-    ['首字节 (TTFB)', t.ttfbMs],
-    ['下载', t.downloadMs],
+    [formatMessage('首字节 (TTFB)'), t.ttfbMs],
+    [formatMessage('下载'), t.downloadMs],
   ];
   const max = Math.max(t.totalMs, 1);
   return (
@@ -634,7 +804,7 @@ function TimingBars({ t }: { t: ResponseResult['timing'] }) {
         </div>
       ))}
       <div className="flex items-center gap-2 pt-1 border-t">
-        <span className="w-28 font-medium">总计</span>
+        <span className="w-28 font-medium">{formatMessage('总计')}</span>
         <span className="text-gray-700">{t.totalMs.toFixed(1)} ms</span>
       </div>
     </div>
@@ -644,10 +814,10 @@ function TimingBars({ t }: { t: ResponseResult['timing'] }) {
 function SendingProgress({ progress }: { progress?: RequestProgress }) {
   const phase = progress?.phase ?? 'sending';
   const labels: Record<RequestProgress['phase'], string> = {
-    sending: '正在建立连接…',
-    ttfb: '已收到响应头，等待响应体…',
-    downloading: '正在下载响应…',
-    done: '请求完成',
+    sending: formatMessage('正在建立连接…'),
+    ttfb: formatMessage('已收到响应头，等待响应体…'),
+    downloading: formatMessage('正在下载响应…'),
+    done: formatMessage('请求完成'),
   };
   const received = progress?.bytesReceived ?? 0;
   const total = progress?.totalBytes ?? 0;

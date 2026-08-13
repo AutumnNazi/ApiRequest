@@ -33,7 +33,7 @@ export default function ThemeDialog({ onClose }: Props) {
   const startCustomize = (base: ThemeDefinition) => {
     const id = duplicate(base.id);
     if (!id) {
-      void dialog.alert('自定义主题已达上限（12 个）');
+      void dialog.alert(formatMessage('自定义主题已达上限（12 个）'));
       return;
     }
     select(id);
@@ -47,9 +47,9 @@ export default function ThemeDialog({ onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">主题</h2>
+          <h2 className="font-semibold text-sm">{formatMessage('主题')}</h2>
           <span className="ml-2 text-xs text-gray-400">
-            预设即点即用；「自定义」基于所选主题创建可编辑副本
+            {formatMessage('预设即点即用；「自定义」基于所选主题创建可编辑副本')}
           </span>
           <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={onClose}>
             ×
@@ -87,7 +87,7 @@ export default function ThemeDialog({ onClose }: Props) {
           {editing && (
             <div className="mt-4 border rounded p-3 space-y-3">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">名称</span>
+                <span className="text-sm text-gray-600">{formatMessage('名称')}</span>
                 <input
                   className="border rounded px-2 py-1 text-sm flex-1"
                   value={editing.name}
@@ -97,7 +97,7 @@ export default function ThemeDialog({ onClose }: Props) {
                   className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
                   onClick={() => setEditingId(null)}
                 >
-                  收起
+                  {formatMessage('收起')}
                 </button>
               </div>
               <div className="grid grid-cols-3 gap-x-4 gap-y-2">
@@ -111,12 +111,12 @@ export default function ThemeDialog({ onClose }: Props) {
                         updateCustom(editing.id, { palette: { [key]: e.target.value } })
                       }
                     />
-                    <span className="flex-1">{label}</span>
+                    <span className="flex-1">{formatMessage(label)}</span>
                   </label>
                 ))}
               </div>
               <div className="flex items-center gap-2 text-xs text-gray-500">
-                <span>基调</span>
+                <span>{formatMessage('基调')}</span>
                 {(['light', 'dark'] as const).map((m) => (
                   <label key={m} className="flex items-center gap-1">
                     <input
@@ -124,10 +124,10 @@ export default function ThemeDialog({ onClose }: Props) {
                       checked={editing.palette.mode === m}
                       onChange={() => updateCustom(editing.id, { palette: { mode: m } })}
                     />
-                    {m === 'light' ? '亮色' : '暗色'}
+                    {m === 'light' ? formatMessage('亮色') : formatMessage('暗色')}
                   </label>
                 ))}
-                <span className="ml-auto text-gray-400">改动实时生效并自动保存</span>
+                <span className="ml-auto text-gray-400">{formatMessage('改动实时生效并自动保存')}</span>
               </div>
             </div>
           )}
@@ -180,7 +180,7 @@ function ThemeCard({
         {active && <span className="text-blue-600 mr-1">✓</span>}
         <button
           className="text-gray-400 hover:text-gray-700 px-1"
-          title="以此为底自定义"
+          title={formatMessage('以此为底自定义')}
           onClick={(e) => {
             e.stopPropagation();
             onCustomize();
@@ -191,7 +191,7 @@ function ThemeCard({
         {onEdit && (
           <button
             className="text-gray-400 hover:text-gray-700 px-1"
-            title="编辑"
+            title={formatMessage('编辑')}
             onClick={(e) => {
               e.stopPropagation();
               onEdit();
@@ -203,7 +203,7 @@ function ThemeCard({
         {onRemove && (
           <button
             className="text-gray-400 hover:text-red-500 px-1"
-            title="删除"
+            title={formatMessage('删除')}
             onClick={(e) => {
               e.stopPropagation();
               onRemove();

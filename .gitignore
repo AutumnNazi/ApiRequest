@@ -3,3 +3,4 @@ node_modules
 frontend/dist/*
 !frontend/dist/gitkeep
 .sandbox-appdata/
+frontend/vite*.log

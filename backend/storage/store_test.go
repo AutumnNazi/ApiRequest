@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,12 +224,57 @@ func TestWorkspaceAndNodeCrud(t *testing.T) {
 	}
 
 	// 软删除集合应级联到子请求
-	if err := s.DeleteNode(col.Id); err != nil {
+	if err := s.DeleteNode(w.Id, col.Id); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	nodes, _ = s.ListNodes(w.Id)
 	if len(nodes) != 0 {
 		t.Errorf("after cascade delete len = %d, want 0", len(nodes))
+	}
+}
+
+func TestDeleteNodeRequiresMatchingWorkspace(t *testing.T) {
+	s := openTestStore(t)
+	owner, _ := s.EnsureDefaultWorkspace()
+	other, err := s.CreateWorkspace("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := s.UpsertNode(model.Node{WorkspaceId: owner.Id, Kind: "collection", Name: "owned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteNode(other.Id, node.Id); err == nil {
+		t.Fatal("cross-workspace delete succeeded")
+	}
+	if _, err := s.GetNode(owner.Id, node.Id); err != nil {
+		t.Fatalf("cross-workspace delete changed the owner node: %v", err)
+	}
+}
+
+func TestUpsertNodeRejectsADeletedRootRequest(t *testing.T) {
+	s := openTestStore(t)
+	workspace, _ := s.EnsureDefaultWorkspace()
+	node, err := s.UpsertNode(model.Node{
+		WorkspaceId: workspace.Id,
+		Kind:        "request",
+		Name:        "saved request",
+		Request:     &model.HttpRequest{Method: "GET", Url: "https://before.example"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteNode(workspace.Id, node.Id); err != nil {
+		t.Fatal(err)
+	}
+	node.Name = "restored request"
+	node.Request.Url = "https://after.example"
+	if _, err := s.UpsertNode(node); err == nil || !strings.Contains(err.Error(), "deleted") {
+		t.Fatalf("upsert deleted node error = %v", err)
+	}
+	if _, err := s.GetNode(workspace.Id, node.Id); err == nil {
+		t.Fatal("deleted node was unexpectedly restored")
 	}
 }
 
@@ -248,17 +294,92 @@ func TestMoveNodeRejectsInvalidTrees(t *testing.T) {
 		{"request parent", req.Id, req.Id},
 		{"folder into descendant", folder.Id, child.Id},
 		{"collection below root", col.Id, folder.Id},
-		{"request at root", req.Id, ""},
 		{"folder at root", folder.Id, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := s.MoveNode(tc.id, tc.parent, 1); err == nil {
+			if err := s.MoveNode(w.Id, tc.id, tc.parent, 1); err == nil {
 				t.Fatal("MoveNode succeeded, want validation error")
 			}
 		})
 	}
-	if err := s.MoveNode(req.Id, col.Id, 2); err != nil {
+	if err := s.MoveNode(w.Id, req.Id, col.Id, 2); err != nil {
 		t.Fatalf("valid move: %v", err)
+	}
+	if err := s.MoveNode(w.Id, req.Id, "", 3); err != nil {
+		t.Fatalf("request at root: %v", err)
+	}
+}
+
+func TestUpsertNodeRejectsUnknownKindAndAllowsRootRequest(t *testing.T) {
+	s := openTestStore(t)
+	w, _ := s.EnsureDefaultWorkspace()
+
+	if _, err := s.UpsertNode(model.Node{WorkspaceId: w.Id, Kind: "unknown", Name: "invalid"}); err == nil {
+		t.Fatal("unknown node kind was accepted")
+	}
+	root, err := s.UpsertNode(model.Node{
+		WorkspaceId: w.Id,
+		Kind:        "request",
+		Name:        "root request",
+		Request:     &model.HttpRequest{Method: "GET", Url: "https://example.test"},
+	})
+	if err != nil {
+		t.Fatalf("root request rejected: %v", err)
+	}
+	if root.ParentId != "" {
+		t.Fatalf("root request parent = %q", root.ParentId)
+	}
+}
+
+func TestMoveNodesRollsBackTheWholeBatch(t *testing.T) {
+	s := openTestStore(t)
+	w, _ := s.EnsureDefaultWorkspace()
+	col, _ := s.UpsertNode(model.Node{WorkspaceId: w.Id, Kind: "collection", Name: "collection"})
+	req, _ := s.UpsertNode(model.Node{WorkspaceId: w.Id, ParentId: col.Id, Kind: "request", Name: "request"})
+
+	err := s.MoveNodes(w.Id, []model.NodeMove{
+		{Id: req.Id, ParentId: "", SortOrder: 1},
+		{Id: col.Id, ParentId: req.Id, SortOrder: 2},
+	})
+	if err == nil {
+		t.Fatal("invalid batch move succeeded")
+	}
+	stored, err := s.GetNode(w.Id, req.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ParentId != col.Id {
+		t.Fatalf("partial batch move persisted: parent = %q", stored.ParentId)
+	}
+}
+
+func TestMoveNodesRejectsCrossWorkspaceRootMove(t *testing.T) {
+	s := openTestStore(t)
+	owner, _ := s.EnsureDefaultWorkspace()
+	other, err := s.CreateWorkspace("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := s.UpsertNode(model.Node{
+		WorkspaceId: other.Id,
+		Kind:        "request",
+		Name:        "other request",
+		SortOrder:   7,
+		Request:     &model.HttpRequest{Method: "GET", Url: "https://example.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.MoveNodes(owner.Id, []model.NodeMove{{Id: node.Id, ParentId: "", SortOrder: 1}}); err == nil {
+		t.Fatal("cross-workspace root move succeeded")
+	}
+	stored, err := s.GetNode(other.Id, node.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SortOrder != 7 {
+		t.Fatalf("cross-workspace move changed sort order to %v", stored.SortOrder)
 	}
 }
 

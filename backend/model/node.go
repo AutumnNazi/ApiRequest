@@ -36,6 +36,13 @@ type NodeSummary struct {
 	UpdatedAt   int64   `json:"updatedAt"`
 }
 
+// NodeMove describes one entry in an atomic collection-tree move.
+type NodeMove struct {
+	Id        string  `json:"id"`
+	ParentId  string  `json:"parentId,omitempty"`
+	SortOrder float64 `json:"sortOrder"`
+}
+
 // Variable 变量项（环境/集合/全局共用）
 type Variable struct {
 	Key     string `json:"key"`

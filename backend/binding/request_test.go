@@ -94,6 +94,69 @@ func TestSendRequestReportsCookiePersistenceFailureWithoutDiscardingResponse(t *
 	}
 }
 
+func TestSendRequestRedactsCookieJarValuesFromScriptOutput(t *testing.T) {
+	const cookieSecret = "jar-cookie-secret"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(r.Header.Get("Cookie")))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	vault := secrets.NewWithKeyring(dir, nil)
+	if err := vault.Unlock("cookie-jar-redaction-test"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.OpenWithVault(dir, vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	if err := store.UpsertCookie(model.Cookie{
+		Name: "session", Value: cookieSecret, Domain: "127.0.0.1", Path: "/", HostOnly: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := NewRequestApi(httpengine.New(), store).SendRequest(
+		"cookie-jar-redaction",
+		model.HttpRequest{
+			Method:     "GET",
+			Url:        srv.URL,
+			TestScript: `console.log(pm.response.text()); pm.test(pm.response.text(), function () { pm.expect(false).to.equal(true); });`,
+			Settings:   model.DefaultSettings(),
+		},
+		model.SendContext{WorkspaceId: workspace.Id},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Body.Text != "session="+cookieSecret {
+		t.Fatalf("echoed response body = %q", response.Body.Text)
+	}
+	scriptRaw, err := json.Marshal(struct {
+		Logs  []string           `json:"logs"`
+		Tests []model.TestResult `json:"tests"`
+	}{Logs: response.ScriptLogs, Tests: response.TestResults})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(scriptRaw), cookieSecret) {
+		t.Fatalf("cookie Jar secret leaked in script output: %s", scriptRaw)
+	}
+	detail, err := store.GetHistory(workspace.Id, response.HistoryId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historyRaw, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(historyRaw), cookieSecret) {
+		t.Fatalf("cookie Jar secret leaked in history: %s", historyRaw)
+	}
+}
+
 func TestSendRequestReportsHistoryPersistenceFailureWithoutDiscardingResponse(t *testing.T) {
 	requestStarted := make(chan struct{})
 	releaseResponse := make(chan struct{})

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Verbatim } from '../i18n/locale';
+import { Verbatim, formatMessage } from '../i18n/locale';
 
 interface State { err: Error | null }
 
@@ -25,7 +25,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
         <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-6">
           <div className="max-w-lg text-center">
             <div className="text-3xl mb-3">⚠️</div>
-            <div className="text-lg font-semibold mb-2">界面渲染出现未捕获错误</div>
+            <div className="text-lg font-semibold mb-2">{formatMessage('界面渲染出现未捕获错误')}</div>
             <pre className="mt-3 px-4 py-3 bg-slate-100 dark:bg-slate-800 rounded text-xs text-left overflow-auto max-h-48 whitespace-pre-wrap break-words">
               <Verbatim value={this.state.err.message} />
             </pre>
@@ -34,13 +34,13 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
                 onClick={this.reset}
                 className="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm"
               >
-                重试
+                {formatMessage('重试')}
               </button>
               <button
                 onClick={() => location.reload()}
                 className="px-4 py-2 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-sm"
               >
-                刷新页面
+                {formatMessage('刷新页面')}
               </button>
             </div>
           </div>

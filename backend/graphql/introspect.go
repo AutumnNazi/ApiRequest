@@ -130,6 +130,8 @@ type FieldSummary struct {
 	Args string `json:"args,omitempty"`
 	// ReturnType 返回类型字符串（"User!" / "[User!]!" 等）
 	ReturnType string `json:"returnType"`
+	// ReturnKind is the unwrapped named kind (SCALAR/ENUM/OBJECT/etc.).
+	ReturnKind string `json:"returnKind"`
 }
 
 // Introspect 让后端发起内省请求并把 schema 整理为补全输入。
@@ -228,9 +230,20 @@ func IntrospectWithClient(ctx context.Context, cfg IntrospectConfig, client *htt
 			fs := FieldSummary{
 				Name: f.Name, Description: f.Description,
 				ReturnType: typeRefToString(f.Type),
+				ReturnKind: namedTypeKind(f.Type),
 			}
 			if len(f.Args) > 0 {
-				argsJSON, _ := json.Marshal(f.Args)
+				args := make([]struct {
+					Name string `json:"name"`
+					Type string `json:"type"`
+				}, 0, len(f.Args))
+				for _, arg := range f.Args {
+					args = append(args, struct {
+						Name string `json:"name"`
+						Type string `json:"type"`
+					}{Name: arg.Name, Type: typeRefToString(arg.Type)})
+				}
+				argsJSON, _ := json.Marshal(args)
 				fs.Args = string(argsJSON)
 			}
 			out = append(out, fs)
@@ -247,6 +260,16 @@ func IntrospectWithClient(ctx context.Context, cfg IntrospectConfig, client *htt
 		res.Subscriptions = ops(shell.Data.Schema.SubscriptionType.Name)
 	}
 	return res, nil
+}
+
+func namedTypeKind(t *TypeRef) string {
+	for t != nil && (t.Kind == "NON_NULL" || t.Kind == "LIST") {
+		t = t.OfType
+	}
+	if t == nil {
+		return ""
+	}
+	return t.Kind
 }
 
 // typeRefToString 把 TypeRef 渲染为 GraphQL 字符串（如 [Int!]!）

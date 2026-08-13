@@ -1,8 +1,10 @@
 package binding
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +112,79 @@ func TestFullLifecycle(t *testing.T) {
 	}
 	if len(detail.TestResults) != 2 {
 		t.Errorf("history testResults = %+v", detail.TestResults)
+	}
+}
+
+func TestScriptChangesToExistingSecretVariablesAreRedacted(t *testing.T) {
+	const rotatedSecret = "rotated-script-secret"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	store, err := storage.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	env, err := store.UpsertEnvironment(model.Environment{
+		WorkspaceId: workspace.Id,
+		Name:        "secret-env",
+		IsActive:    true,
+		Variables: []model.Variable{
+			{Key: "token", Value: "old-script-secret", Type: "secret", Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetActiveEnvironment(workspace.Id, env.Id); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := NewRequestApi(httpengine.New(), store).SendRequest(
+		"script-secret-rotation",
+		model.HttpRequest{
+			Method: "GET",
+			Url:    srv.URL,
+			TestScript: `
+				pm.environment.set('token', '` + rotatedSecret + `');
+				console.log('token=' + pm.environment.get('token'));
+				pm.test('token=' + pm.environment.get('token'), function () { pm.expect(false).to.equal(true); });
+			`,
+			Settings: model.DefaultSettings(),
+		},
+		model.SendContext{WorkspaceId: workspace.Id, EnvironmentId: env.Id},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptRaw, err := json.Marshal(struct {
+		Logs  []string           `json:"logs"`
+		Tests []model.TestResult `json:"tests"`
+	}{Logs: response.ScriptLogs, Tests: response.TestResults})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(scriptRaw), rotatedSecret) {
+		t.Fatalf("rotated secret leaked in script output: %s", scriptRaw)
+	}
+
+	updated, err := store.GetEnvironment(env.Id)
+	if err != nil || len(updated.Variables) != 1 || updated.Variables[0].Value != rotatedSecret {
+		t.Fatalf("rotated secret was not persisted: %+v, err = %v", updated.Variables, err)
+	}
+	detail, err := store.GetHistory(workspace.Id, response.HistoryId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historyRaw, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(historyRaw), rotatedSecret) {
+		t.Fatalf("rotated secret leaked in history: %s", historyRaw)
 	}
 }
 

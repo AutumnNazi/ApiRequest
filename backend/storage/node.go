@@ -389,11 +389,16 @@ func (s *Store) validateNodeOwnership(n model.Node) error {
 		return errors.New("workspace not found")
 	}
 	var existingWorkspace, existingKind string
-	err := s.db.QueryRow("SELECT workspace_id, kind FROM node WHERE id = ?", n.Id).Scan(&existingWorkspace, &existingKind)
+	var existingDeletedAt sql.NullInt64
+	err := s.db.QueryRow("SELECT workspace_id, kind, deleted_at FROM node WHERE id = ?", n.Id).
+		Scan(&existingWorkspace, &existingKind, &existingDeletedAt)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	if err == nil {
+		if existingDeletedAt.Valid {
+			return errors.New("node has been deleted")
+		}
 		if existingWorkspace != n.WorkspaceId {
 			return errors.New("node belongs to a different workspace")
 		}
@@ -401,14 +406,20 @@ func (s *Store) validateNodeOwnership(n model.Node) error {
 			return errors.New("node kind cannot be changed")
 		}
 	}
+	if n.Kind != "collection" && n.Kind != "folder" && n.Kind != "request" {
+		return errors.New("node kind is invalid")
+	}
 	if n.Kind == "collection" {
 		if n.ParentId != "" {
 			return errors.New("collection must stay at root")
 		}
 		return nil
 	}
+	if n.Kind == "folder" && n.ParentId == "" {
+		return errors.New("folder nodes require a parent")
+	}
 	if n.ParentId == "" {
-		return errors.New("folder and request nodes require a parent")
+		return nil // request 可放在根级
 	}
 	if n.ParentId == n.Id {
 		return errors.New("node cannot be its own parent")
@@ -440,44 +451,88 @@ func (s *Store) NodeBelongsToWorkspace(nodeId, workspaceId string) (bool, error)
 }
 
 // DeleteNode 软删除节点及其全部后代
-func (s *Store) DeleteNode(nodeId string) error {
-	_, err := s.db.Exec(`
+func (s *Store) DeleteNode(workspaceId, nodeId string) error {
+	if workspaceId == "" || nodeId == "" {
+		return errors.New("workspace id and node id are required")
+	}
+	result, err := s.db.Exec(`
 		WITH RECURSIVE sub(id) AS (
-		  SELECT id FROM node WHERE id = ?
+		  SELECT id FROM node WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
 		  UNION ALL
 		  SELECT n.id FROM node n JOIN sub ON n.parent_id = sub.id
+		  WHERE n.workspace_id = ? AND n.deleted_at IS NULL
 		)
 		UPDATE node SET deleted_at = ? WHERE id IN (SELECT id FROM sub)`,
-		nodeId, nowMs())
-	return err
+		nodeId, workspaceId, workspaceId, nowMs())
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return errors.New("node not found in workspace")
+	}
+	return nil
 }
 
 // MoveNode 改父与排序，并保证树不会跨工作区、出现无效父级或循环引用。
-func (s *Store) MoveNode(nodeId, newParentId string, sortOrder float64) error {
+func (s *Store) MoveNode(workspaceId, nodeId, newParentId string, sortOrder float64) error {
+	return s.MoveNodes(workspaceId, []model.NodeMove{{Id: nodeId, ParentId: newParentId, SortOrder: sortOrder}})
+}
+
+// MoveNodes atomically moves multiple tree nodes. Any invalid entry rolls the whole batch back.
+func (s *Store) MoveNodes(workspaceId string, moves []model.NodeMove) error {
+	if workspaceId == "" {
+		return errors.New("workspace id is required")
+	}
+	if len(moves) == 0 {
+		return nil
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	seen := make(map[string]struct{}, len(moves))
+	for _, move := range moves {
+		if move.Id == "" {
+			return errors.New("node id is required")
+		}
+		if _, duplicate := seen[move.Id]; duplicate {
+			return errors.New("duplicate node in move batch")
+		}
+		seen[move.Id] = struct{}{}
+		if err := moveNodeTx(tx, workspaceId, move); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
 
-	var workspaceId, kind string
-	if err := tx.QueryRow("SELECT workspace_id, kind FROM node WHERE id = ? AND deleted_at IS NULL", nodeId).Scan(&workspaceId, &kind); err != nil {
+func moveNodeTx(tx *sql.Tx, workspaceId string, move model.NodeMove) error {
+	var kind string
+	if err := tx.QueryRow("SELECT kind FROM node WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL", move.Id, workspaceId).Scan(&kind); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return errors.New("node not found")
+			return errors.New("node not found in workspace")
 		}
 		return err
 	}
-	if kind == "collection" && newParentId != "" {
+	if kind != "collection" && kind != "folder" && kind != "request" {
+		return errors.New("node kind is invalid")
+	}
+	if kind == "collection" && move.ParentId != "" {
 		return errors.New("collection must stay at root")
 	}
-	if kind != "collection" && newParentId == "" {
-		return errors.New("only collections may stay at root")
+	if kind == "folder" && move.ParentId == "" {
+		return errors.New("folder must have a parent")
 	}
 
-	parentId := sql.NullString{String: newParentId, Valid: newParentId != ""}
-	if newParentId != "" {
+	parentId := sql.NullString{String: move.ParentId, Valid: move.ParentId != ""}
+	if move.ParentId != "" {
 		var parentWorkspace, parentKind string
-		if err := tx.QueryRow("SELECT workspace_id, kind FROM node WHERE id = ? AND deleted_at IS NULL", newParentId).Scan(&parentWorkspace, &parentKind); err != nil {
+		if err := tx.QueryRow("SELECT workspace_id, kind FROM node WHERE id = ? AND deleted_at IS NULL", move.ParentId).Scan(&parentWorkspace, &parentKind); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return errors.New("parent node not found")
 			}
@@ -494,7 +549,7 @@ func (s *Store) MoveNode(nodeId, newParentId string, sortOrder float64) error {
 			SELECT id FROM node WHERE id = ? AND deleted_at IS NULL
 			UNION ALL
 			SELECT n.id FROM node n JOIN sub ON n.parent_id = sub.id WHERE n.deleted_at IS NULL
-		) SELECT EXISTS(SELECT 1 FROM sub WHERE id = ?)`, nodeId, newParentId).Scan(&createsCycle); err != nil {
+		) SELECT EXISTS(SELECT 1 FROM sub WHERE id = ?)`, move.Id, move.ParentId).Scan(&createsCycle); err != nil {
 			return err
 		}
 		if createsCycle {
@@ -502,9 +557,9 @@ func (s *Store) MoveNode(nodeId, newParentId string, sortOrder float64) error {
 		}
 	}
 	if _, err := tx.Exec(
-		"UPDATE node SET parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ?",
-		parentId, sortOrder, nowMs(), nodeId); err != nil {
+		"UPDATE node SET parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ? AND workspace_id = ?",
+		parentId, move.SortOrder, nowMs(), move.Id, workspaceId); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }

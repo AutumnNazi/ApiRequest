@@ -69,9 +69,9 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
 
   const requestClose = async () => {
     if (running && runIdRef.current) {
-      const confirmed = await dialog.confirm('Runner 正在运行，是否取消并关闭？', {
-        title: '取消 Runner',
-        confirmLabel: '取消并关闭',
+      const confirmed = await dialog.confirm(formatMessage('Runner 正在运行，是否取消并关闭？'), {
+        title: formatMessage('取消 Runner'),
+        confirmLabel: formatMessage('取消并关闭'),
       });
       if (!confirmed) return;
       try {
@@ -106,7 +106,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
       >
         <div className="flex items-center px-4 py-3 border-b">
           <h2 className="font-semibold text-sm">Runner · <Verbatim value={collectionName} /></h2>
-          <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={() => void requestClose()} aria-label="关闭 Runner">
+          <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={() => void requestClose()} aria-label={formatMessage('关闭 Runner')}>
             ×
           </button>
         </div>
@@ -116,7 +116,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
           {!running && !report && (
             <div className="space-y-3 text-sm">
               <div className="flex items-center gap-3">
-                <label className="text-gray-600 w-24">迭代次数</label>
+                <label className="text-gray-600 w-24">{formatMessage('迭代次数')}</label>
                 <input
                   type="number"
                   min={1}
@@ -126,17 +126,17 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                   onChange={(e) => setIterations(Number(e.target.value) || 1)}
                   disabled={!!dataFile}
                 />
-                {dataFile && <span className="text-xs text-gray-400">由数据文件行数决定</span>}
+                {dataFile && <span className="text-xs text-gray-400">{formatMessage('由数据文件行数决定')}</span>}
               </div>
               <div className="flex items-center gap-3">
-                <label className="text-gray-600 w-24">数据文件</label>
+                <label className="text-gray-600 w-24">{formatMessage('数据文件')}</label>
                 <button className="border rounded px-2 py-1 text-xs hover:bg-gray-50" onClick={() => void pickFile()}>
-                  选择 CSV / JSON…
+                  {formatMessage('选择 CSV / JSON…')}
                 </button>
                 {dataFilePath && <span className="min-w-0 truncate text-xs text-gray-400" title={dataFilePath} data-i18n-verbatim><Verbatim value={dataFilePath} /></span>}
                 {dataFile && (
                   <button className="text-xs text-red-500" onClick={() => { setDataFile(''); setDataFilePath(''); }}>
-                    清除
+                    {formatMessage('清除')}
                   </button>
                 )}
               </div>
@@ -146,7 +146,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                   checked={stopOnError}
                   onChange={(e) => setStopOnError(e.target.checked)}
                 />
-                失败时停止
+                {formatMessage('失败时停止')}
               </label>
             </div>
           )}
@@ -168,7 +168,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                       iteration: progress.iteration,
                       requestName: progress.requestName,
                     })} />
-                  : '启动中…'}
+                  : formatMessage('启动中…')}
               </div>
             </div>
           )}
@@ -183,23 +183,23 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
           {report && (
             <div className="space-y-3">
               <div className="flex gap-4 text-sm">
-                <span className="text-green-600 font-medium">✓ {report.passed} 通过</span>
+                <span className="text-green-600 font-medium">✓ {report.passed} {formatMessage('通过')}</span>
                 <span className={report.failed > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}>
-                  ✗ {report.failed} 失败
+                  ✗ {report.failed} {formatMessage('失败')}
                 </span>
-                {report.skipped > 0 && <span className="text-gray-400">− {report.skipped} 跳过</span>}
+                {report.skipped > 0 && <span className="text-gray-400">− {report.skipped} {formatMessage('跳过')}</span>}
                 <span className="text-gray-400 ml-auto">
-                  {(report.durationMs / 1000).toFixed(1)}s{report.canceled ? '（已取消）' : ''}
+                  {(report.durationMs / 1000).toFixed(1)}s{report.canceled ? formatMessage('（已取消）') : ''}
                 </span>
               </div>
               <table className="w-full text-xs border rounded">
                 <thead className="bg-gray-50 text-gray-500">
                   <tr className="text-left">
-                    <th className="p-2 font-normal w-10">轮</th>
-                    <th className="p-2 font-normal">请求</th>
-                    <th className="p-2 font-normal w-14">状态码</th>
-                    <th className="p-2 font-normal w-16">耗时</th>
-                    <th className="p-2 font-normal">测试</th>
+                    <th className="p-2 font-normal w-10">{formatMessage('轮')}</th>
+                    <th className="p-2 font-normal">{formatMessage('请求')}</th>
+                    <th className="p-2 font-normal w-14">{formatMessage('状态码')}</th>
+                    <th className="p-2 font-normal w-16">{formatMessage('耗时')}</th>
+                    <th className="p-2 font-normal">{formatMessage('测试')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -243,7 +243,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                 });
               }}
             >
-              取消
+              {formatMessage('取消')}
             </button>
           ) : (
             <>
@@ -253,17 +253,17 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                   onClick={async () => {
                     const text = await exportReport(report.runId);
                     await navigator.clipboard.writeText(text);
-                    void dialog.alert('报告 JSON 已复制到剪贴板');
+                    void dialog.alert(formatMessage('报告 JSON 已复制到剪贴板'));
                   }}
                 >
-                  导出报告
+                  {formatMessage('导出报告')}
                 </button>
               )}
               <button
                 className="bg-blue-600 text-white rounded px-4 py-1.5 text-sm hover:bg-blue-700"
                 onClick={start}
               >
-                {report ? '重新运行' : '开始运行'}
+                {report ? formatMessage('重新运行') : formatMessage('开始运行')}
               </button>
             </>
           )}

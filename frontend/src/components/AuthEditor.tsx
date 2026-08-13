@@ -5,7 +5,6 @@ import type { Auth } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
 
 const AUTH_TYPES: [string, string][] = [
-  ['inherit', '继承父级'],
   ['none', 'No Auth'],
   ['basic', 'Basic Auth'],
   ['bearer', 'Bearer Token'],
@@ -64,7 +63,7 @@ interface Props {
 }
 
 export default function AuthEditor({ auth, onChange }: Props) {
-  const type = auth?.type ?? 'inherit';
+  const type = auth?.type ?? 'none';
   const params = auth?.params ?? {};
   const fields = FIELDS[type] ?? [];
   const [tokenState, setTokenState] = useState<'idle' | 'fetching' | 'ok' | 'error'>('idle');
@@ -105,7 +104,7 @@ export default function AuthEditor({ auth, onChange }: Props) {
   return (
     <div className="space-y-3 max-w-lg">
       <div className="flex items-center gap-2">
-        <label className="text-sm text-gray-600 w-20">认证类型</label>
+        <label className="text-sm text-gray-600 w-20">{formatMessage('认证类型')}</label>
         <select
           className="border rounded px-2 py-1 text-sm flex-1"
           value={type}
@@ -116,28 +115,31 @@ export default function AuthEditor({ auth, onChange }: Props) {
         >
           {AUTH_TYPES.map(([value, label]) => (
             <option key={value} value={value}>
-              {label}
+              {formatMessage(label)}
             </option>
           ))}
         </select>
       </div>
-      {fields.map(([key, label, secret]) => (
-        <div key={key} className="flex items-center gap-2">
-          <label className="text-sm text-gray-600 w-20 shrink-0">{label.split('（')[0]}</label>
-          <input
-            className="border rounded px-2 py-1 text-sm flex-1 font-mono"
-            type={secret ? 'password' : 'text'}
-            placeholder={label.includes('（') ? label.slice(label.indexOf('（') + 1, -1) : ''}
-            value={params[key] ?? ''}
-            onChange={(e) =>
-              onChange({ type, params: { ...params, [key]: e.target.value } } as Auth)
-            }
-          />
-        </div>
-      ))}
-      {type === 'inherit' && (
-        <p className="text-xs text-gray-400">使用最近一级集合/文件夹上配置的认证。</p>
-      )}
+      {fields.map(([key, label, secret]) => {
+        const t = formatMessage(label);
+        const openIdx = t.search(/[（(]/);
+        const labelText = openIdx >= 0 ? t.slice(0, openIdx) : t;
+        const placeholderText = openIdx >= 0 ? t.slice(openIdx + 1, -1) : '';
+        return (
+          <div key={key} className="flex items-center gap-2">
+            <label className="text-sm text-gray-600 w-20 shrink-0">{labelText}</label>
+            <input
+              className="border rounded px-2 py-1 text-sm flex-1 font-mono"
+              type={secret ? 'password' : 'text'}
+              placeholder={placeholderText}
+              value={params[key] ?? ''}
+              onChange={(e) =>
+                onChange({ type, params: { ...params, [key]: e.target.value } } as Auth)
+              }
+            />
+          </div>
+        );
+      })}
       {type === 'oauth2' && (
         <div className="space-y-2 pt-1">
           <div className="flex items-center gap-2">
@@ -146,7 +148,7 @@ export default function AuthEditor({ auth, onChange }: Props) {
               disabled={tokenState === 'fetching' || !params.tokenUrl}
               onClick={fetchToken}
             >
-              {tokenState === 'fetching' ? '获取中…' : '获取 Token'}
+              {tokenState === 'fetching' ? formatMessage('获取中…') : formatMessage('获取 Token')}
             </button>
             {params.accessToken && (
               <>
@@ -154,7 +156,7 @@ export default function AuthEditor({ auth, onChange }: Props) {
                   <Verbatim value={params.accessToken.slice(0, 24)} />…
                 </span>
                 <button className="text-xs text-red-500 hover:underline" onClick={clearToken}>
-                  清除
+                  {formatMessage('清除')}
                 </button>
               </>
             )}
@@ -167,7 +169,7 @@ export default function AuthEditor({ auth, onChange }: Props) {
         </div>
       )}
       {fields.length > 0 && (
-        <p className="text-xs text-gray-400">{'支持 {{变量}} 占位，发送时解析。'}</p>
+        <p className="text-xs text-gray-400">{formatMessage('字段值可用 {变量名} 引用环境/全局变量，发送时自动替换。')}</p>
       )}
     </div>
   );

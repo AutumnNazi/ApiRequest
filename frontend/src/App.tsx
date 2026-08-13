@@ -1,5 +1,5 @@
 // 主应用：三栏布局（侧栏 / 多标签编辑区 / 响应区），发送与保存动作在此编排
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Sidebar from './components/Sidebar';
 import RequestEditor from './components/RequestEditor';
@@ -11,7 +11,10 @@ import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import { useDialog } from './components/DialogProvider';
 import { usePersistentState } from './hooks/usePersistentState';
 import { dragRegion, noDragRegion } from './titlebar';
+import { WindowMaximise, WindowUnmaximise, WindowIsMaximised } from '../wailsjs/runtime/runtime';
 import { formatMessage, useLocale, Verbatim } from './i18n/locale';
+import { collectVarRefs } from './utils/varRefs';
+import { ensureHttpScheme, splitRequestAuthHeader } from './utils/request';
 
 // 仅在打开时加载，降低初始渲染的脚本体积。
 const CookieManager = lazy(() => import('./components/CookieManager'));
@@ -20,7 +23,7 @@ const SettingsDialog = lazy(() => import('./components/SettingsDialog'));
 const GrpcPanel = lazy(() => import('./components/GrpcPanel'));
 const GraphqlPanel = lazy(() => import('./components/GraphqlPanel'));
 const ThemeDialog = lazy(() => import('./components/ThemeDialog'));
-import { useTabs, type Tab } from './stores/tabs';
+import { flushWorkspaceSessions, useTabs, type Tab } from './stores/tabs';
 import {
   getDefaultWorkspace,
   renameWorkspace,
@@ -28,15 +31,27 @@ import {
   cancelRequest,
   releaseResponseBlob,
   upsertNode,
-  listNodes,
   getNode,
   syncNow,
   getSyncConfig,
   onRequestProgress,
+  onApplicationCloseRequest,
+  requestApplicationQuit,
   toAppError,
   type Node,
   type SendContext,
+  type Environment,
+  type Variable,
+  type Body,
 } from './ipc';
+
+function findTab(tabId: string): Tab | undefined {
+  for (const session of Object.values(useTabs.getState().sessions)) {
+    const tab = session.tabs.find((candidate) => candidate.id === tabId);
+    if (tab) return tab;
+  }
+  return undefined;
+}
 
 export default function App() {
   const qc = useQueryClient();
@@ -45,6 +60,7 @@ export default function App() {
   const sessions = useTabs((s) => s.sessions);
   const openBlank = useTabs((s) => s.openBlank);
   const close = useTabs((s) => s.close);
+  const reorderTabs = useTabs((s) => s.reorderTabs);
   const setActive = useTabs((s) => s.setActive);
   const setSending = useTabs((s) => s.setSending);
   const setResponse = useTabs((s) => s.setResponse);
@@ -85,6 +101,13 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const [syncFailed, setSyncFailed] = useState(false);
+  // Tab 右键菜单：{x, y, tabId} 定位与目标；null 表示菜单关闭
+  const [tabCtx, setTabCtx] = useState<{ x: number; y: number; tabId: string } | null>(null);
+  // Tab 拖拽排序：记录被拖拽的源 tab id
+  const [dragTabId, setDragTabId] = useState<string | null>(null);
+  const closingRef = useRef(false);
+  const sendingTabsRef = useRef<Set<string>>(new Set());
+  const savingTabsRef = useRef<Set<string>>(new Set());
   // WebDAV 同步配置：仅已配置时展示同步按钮
   const { data: syncCfg } = useQuery({
     queryKey: ['syncConfig'],
@@ -96,6 +119,73 @@ export default function App() {
   const [editorRatio, setEditorRatio] = usePersistentState('apirequest-layout-editor', 0.5);
 
   useEffect(() => onRequestProgress(setProgress), [setProgress]);
+
+  const requestClose = async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    try {
+      const hasDirtyDraft = Object.values(useTabs.getState().sessions).some((item) =>
+        item.tabs.some((tab) => tab.dirty),
+      );
+      if (
+        hasDirtyDraft
+        && !(await dialog.confirm(formatMessage('仍有未保存的请求草稿，确认退出应用？')))
+      ) return;
+      flushWorkspaceSessions();
+      await requestApplicationQuit();
+    } catch (cause) {
+      void dialog.alert(
+        formatMessage('退出应用失败: {detail}', { detail: toAppError(cause).detail }),
+        { title: '退出失败' },
+      );
+    } finally {
+      closingRef.current = false;
+    }
+  };
+
+  const closeRef = useRef(requestClose);
+  closeRef.current = requestClose;
+  useEffect(() => onApplicationCloseRequest(() => { void closeRef.current(); }), []);
+
+  // 标题栏双击最大化/还原。
+  // 非最大化：--wails-draggable:drag 让 Wails 拦截 mousedown 启动原生拖拽，
+  //   浏览器无法合成 dblclick，用 mousedown 手动检测双击 → WindowMaximise。
+  // 最大化：移除 --wails-draggable，避免 Wails 拦截 mousedown 触发 Windows 原生
+  //   “还原并拖拽”行为（第一次按下就会还原窗口，导致双击恢复失效）。
+  //   改用原生 dblclick → WindowUnmaximise。
+  const [maximised, setMaximised] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => {
+      void WindowIsMaximised()
+        .then((m) => alive && setMaximised(m))
+        .catch(() => {});
+    };
+    refresh();
+    window.addEventListener('resize', refresh);
+    return () => {
+      alive = false;
+      window.removeEventListener('resize', refresh);
+    };
+  }, []);
+
+  const lastTitleClick = useRef(0);
+  const onTitleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('[data-no-drag]')) return;
+    if (maximised) return; // 最大化时由 onDoubleClick 处理
+    const now = Date.now();
+    if (now - lastTitleClick.current < 400) {
+      setTimeout(() => WindowMaximise(), 0);
+      lastTitleClick.current = 0;
+    } else {
+      lastTitleClick.current = now;
+    }
+  };
+
+  const onTitleDoubleClick = () => {
+    if (maximised) WindowUnmaximise();
+  };
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -139,13 +229,19 @@ export default function App() {
   const active = tabs.find((t) => t.id === activeId);
 
   const closeTab = async (tab: Tab) => {
-    if (
-      tab.dirty &&
-      !(await dialog.confirm(formatMessage('关闭「{name}」并放弃未保存的修改？', { name: tab.name })))
-    ) return;
-    if (tab.sendId) {
+    let current = findTab(tab.id);
+    while (current?.dirty) {
+      const confirmedRevision = current.revision;
+      if (!(await dialog.confirm(formatMessage('关闭「{name}」并放弃未保存的修改？', { name: current.name })))) {
+        return;
+      }
+      current = findTab(tab.id);
+      if (!current || !current.dirty || current.revision === confirmedRevision) break;
+    }
+    if (!current) return;
+    if (current.sendId) {
       try {
-        await cancelRequest(tab.sendId);
+        await cancelRequest(current.sendId);
       } catch (cause) {
         void dialog.alert(
           formatMessage('关闭标签前取消请求失败: {detail}', { detail: toAppError(cause).detail }),
@@ -154,7 +250,9 @@ export default function App() {
         return;
       }
     }
-    const blobRef = tab.response?.body?.blobRef;
+    const removed = close(tab.id);
+    if (!removed) return;
+    const blobRef = removed.response?.body?.blobRef;
     if (blobRef) {
       try {
         await releaseResponseBlob(blobRef);
@@ -165,8 +263,47 @@ export default function App() {
         );
       }
     }
-    close(tab.id);
   };
+
+  // 批量关闭：统一用 closeTab 逐个处理（包含 dirty 检查与资源释放）
+  const closeOthers = (keepTab: Tab) => {
+    for (const t of tabs) {
+      if (t.id !== keepTab.id) void closeTab(t);
+    }
+  };
+  const closeRight = (anchorTab: Tab) => {
+    const idx = tabs.findIndex((t) => t.id === anchorTab.id);
+    if (idx < 0) return;
+    for (const t of tabs.slice(idx + 1)) void closeTab(t);
+  };
+  const closeLeft = (anchorTab: Tab) => {
+    const idx = tabs.findIndex((t) => t.id === anchorTab.id);
+    if (idx <= 0) return;
+    for (const t of tabs.slice(0, idx)) void closeTab(t);
+  };
+  const closeAll = () => {
+    for (const t of tabs) void closeTab(t);
+  };
+
+  // 点击页面其他位置关闭 tab 右键菜单
+  const tabCtxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!tabCtx) return;
+    const onDown = (e: MouseEvent) => {
+      if (tabCtxRef.current && !tabCtxRef.current.contains(e.target as HTMLElement)) {
+        setTabCtx(null);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTabCtx(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [tabCtx]);
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -184,29 +321,62 @@ export default function App() {
     // 空 URL 直接前端拦截（与 RequestEditor 发送按钮 disabled 条件一致）
     if (!active.draft.url.trim()) return;
     const tabId = active.id;
-    const sendId = `${tabId}-${Date.now()}`;
-    setSending(tabId, true, sendId);
-    const previousBlobRef = active.response?.body?.blobRef;
-    if (previousBlobRef) {
-      try {
-        await releaseResponseBlob(previousBlobRef);
-      } catch {
-        // Backend shutdown and workspace cleanup remain the final owner fallback.
-      }
-    }
+    if (sendingTabsRef.current.has(tabId)) return;
+    sendingTabsRef.current.add(tabId);
     try {
-      const res = await sendRequest(sendId, active.draft, {
-        workspaceId: active.workspaceId,
-        requestId: active.nodeId ?? '',
-      } as SendContext);
-      setResponse(tabId, res);
-      qc.invalidateQueries({ queryKey: ['history', active.workspaceId] });
-      qc.invalidateQueries({ queryKey: ['cookies'] });
-      // 脚本可能改了环境/全局变量，刷新 EnvSwitcher 缓存
-      qc.invalidateQueries({ queryKey: ['envs', active.workspaceId] });
-      qc.invalidateQueries({ queryKey: ['globals', active.workspaceId] });
-    } catch (e) {
-      setError(tabId, toAppError(e));
+      // URL 无协议前缀时自动补充 http://
+      const url = ensureHttpScheme(active.draft.url);
+      if (url !== active.draft.url) useTabs.getState().patchDraft(tabId, { url });
+      const draft = { ...active.draft, url } as typeof active.draft;
+      // 发送前变量检查：请求引用的 {{var}} 若既不在激活环境也不在全局变量中，
+      // 提醒用户确认（集合级变量与脚本运行时 set 的变量无法在此静态获知）。
+      const undefinedVars = findUndefinedVars(qc, active.workspaceId, draft);
+      if (undefinedVars.length > 0) {
+        const list = undefinedVars.map((n) => `{{${n}}}`).join(', ');
+        const ok = await dialog.confirm(
+          formatMessage('以下变量未在激活环境或全局变量中定义：{vars}\n\n若由集合级变量或发送前脚本提供，可忽略并继续发送。', {
+            vars: list,
+          }),
+          { title: formatMessage('未定义变量') },
+        );
+        if (!ok) return;
+      }
+      const current = findTab(tabId);
+      if (!current || current.sendId || current.workspaceId !== active.workspaceId) return;
+      const sendId = `${tabId}-${Date.now()}`;
+      setSending(tabId, true, sendId);
+      const previousBlobRef = active.response?.body?.blobRef;
+      try {
+        const res = await sendRequest(sendId, draft, {
+          workspaceId: active.workspaceId,
+          requestId: active.nodeId ?? '',
+        } as SendContext);
+        const accepted = setResponse(tabId, sendId, res);
+        const responseBlobRef = res.body?.blobRef;
+        if (!accepted && responseBlobRef) {
+          try {
+            await releaseResponseBlob(responseBlobRef);
+          } catch {
+            // Backend shutdown and workspace cleanup remain the final owner fallback.
+          }
+        }
+        if (accepted && previousBlobRef && previousBlobRef !== responseBlobRef) {
+          try {
+            await releaseResponseBlob(previousBlobRef);
+          } catch {
+            // Backend shutdown and workspace cleanup remain the final owner fallback.
+          }
+        }
+        qc.invalidateQueries({ queryKey: ['history', active.workspaceId] });
+        qc.invalidateQueries({ queryKey: ['cookies'] });
+        // 脚本可能改了环境/全局变量，刷新 EnvSwitcher 缓存
+        qc.invalidateQueries({ queryKey: ['envs', active.workspaceId] });
+        qc.invalidateQueries({ queryKey: ['globals', active.workspaceId] });
+      } catch (e) {
+        setError(tabId, sendId, toAppError(e));
+      }
+    } finally {
+      sendingTabsRef.current.delete(tabId);
     }
   };
 
@@ -223,10 +393,38 @@ export default function App() {
     }
   };
 
+  // GraphQL 内省 → 新建请求标签：填入 endpoint + Query/Variables，method=POST
+  const handleOpenGraphqlRequest = (req: { url: string; query: string; variables: string; authHeader?: { key: string; value: string } }) => {
+    if (!workspace) return;
+    const credentials = splitRequestAuthHeader(req.authHeader);
+    const tabId = openBlank(workspace.id);
+    useTabs.getState().patchDraft(tabId, {
+      url: req.url,
+      method: 'POST',
+      headers: [
+        { key: 'Content-Type', value: 'application/json', enabled: true, description: '' },
+        ...(credentials.header
+          ? [{ ...credentials.header, enabled: true, description: '' }]
+          : []),
+      ],
+      ...(credentials.auth ? { auth: credentials.auth } : {}),
+      body: {
+        kind: 'graphql',
+        query: req.query,
+        variables: req.variables,
+        text: '',
+      } as Body,
+    });
+  };
+
   const handleSave = async () => {
     if (!active || !workspace || active.workspaceId !== workspace.id) return;
+    const tabId = active.id;
+    if (savingTabsRef.current.has(tabId)) return;
+    savingTabsRef.current.add(tabId);
+    const savedRevision = active.revision ?? 0;
     try {
-      // 已关联节点 → 更新；未关联 → 存入第一个集合（无集合则先建默认集合）
+      // 已关联节点 → 更新；未关联 → 保存到根级（无需先建集合）
       let parentId = '';
       let existing: Partial<Node> = {};
       if (active.nodeId) {
@@ -234,22 +432,13 @@ export default function App() {
         const currentNode = await getNode(active.workspaceId, active.nodeId);
         existing = currentNode;
         parentId = currentNode.parentId ?? '';
-      } else {
-        const nodes = await listNodes(active.workspaceId);
-        let col = nodes.find((n) => n.kind === 'collection');
-        if (!col) {
-          col = await upsertNode({
-            workspaceId: active.workspaceId,
-            kind: 'collection',
-            name: '默认集合',
-          } as Node);
-        }
-        parentId = col.id;
       }
       const name =
-        active.name === '新请求' && active.draft.url
+        active.name === formatMessage('新请求') && active.draft.url
           ? active.draft.url.replace(/^https?:\/\//, '').slice(0, 40)
-          : active.name;
+          : active.nodeId
+            ? (existing.name ?? active.name)
+            : active.name;
       const saved = await upsertNode({
         ...existing,
         workspaceId: active.workspaceId,
@@ -258,21 +447,28 @@ export default function App() {
         name,
         request: active.draft,
       } as unknown as Node);
-      markSaved(active.id, saved.id, saved.name);
+      markSaved(tabId, active.nodeId, saved.id, saved.name, savedRevision);
       qc.invalidateQueries({ queryKey: ['nodes', active.workspaceId] });
     } catch (e) {
       // 保存失败不应污染响应面板（与发送错误语义不同），单独提示。
       void dialog.alert(formatMessage('保存失败: {detail}', { detail: toAppError(e).detail }), {
         title: '保存失败',
       });
+    } finally {
+      savingTabsRef.current.delete(tabId);
     }
   };
 
   // 快捷键：Ctrl/Cmd+Enter 发送、Ctrl/Cmd+S 保存、Ctrl/Cmd+T 新标签、Ctrl/Cmd+W 关标签
+  // 用 ref 持有最新 handler，避免每次渲染都重新绑定 keydown（输入 URL 时频繁重渲染）
+  const hotkeyRef = useRef({ handleSend, handleSave, openBlank, closeTab, workspace, active });
+  hotkeyRef.current = { handleSend, handleSave, openBlank, closeTab, workspace, active };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
+      if ((e.target as HTMLElement | null)?.closest?.('[role="dialog"], [role="alertdialog"]')) return;
+      const { handleSend, handleSave, openBlank, closeTab, workspace, active } = hotkeyRef.current;
       if (e.key === 'Enter') {
         e.preventDefault();
         handleSend();
@@ -289,11 +485,11 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, []);
 
   if (!workspace) {
     return (
-      <div className="h-screen flex items-center justify-center text-gray-400">初始化中…</div>
+      <div className="h-screen flex items-center justify-center text-gray-400">{formatMessage('初始化中…')}</div>
     );
   }
 
@@ -302,10 +498,15 @@ export default function App() {
       {/* 自绘标题栏（无边框窗口）：标题区可拖动，交互控件与窗口按钮 no-drag */}
       <header
         className="flex items-center h-10 px-3 border-b bg-white shrink-0"
-        style={dragRegion}
+        style={maximised ? undefined : dragRegion}
+        onMouseDown={onTitleMouseDown}
+        onDoubleClick={onTitleDoubleClick}
       >
-        <h1 className="hidden px-1 text-sm font-semibold sm:block">ApiRequest</h1>
-        <div className="flex items-center flex-1 min-w-0" style={noDragRegion}>
+        <h1 className="hidden px-1 text-sm font-semibold sm:block cursor-default">
+          ApiRequest
+        </h1>
+        {/* 左侧交互控件组（工作区/环境/协议/同步） */}
+        <div className="flex items-center min-w-0" data-no-drag style={noDragRegion}>
           {/* 分组1：工作区 + 环境 */}
           <WorkspaceSwitcher
             activeId={workspace.id}
@@ -364,35 +565,116 @@ export default function App() {
             )}
           </div>
           )}
-
-          {/* 分组4：应用设置（右对齐） */}
-          <div className="ml-auto hidden items-center gap-1.5 border-l pl-3 md:flex">
-            <button
-              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
-              onClick={() => setShowTheme(true)}
-              title={formatMessage('主题')}
-            >
-              {formatMessage('主题')}
-            </button>
-            <button
-              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
-              onClick={() => setShowSettings(true)}
-              title={formatMessage('应用设置')}
-            >
-              {formatMessage('设置')}
-            </button>
-          </div>
         </div>
-        <WindowControls />
+        {/* 中间空白区域：继承 header 的 dragRegion，可拖动窗口；双击最大化/还原 */}
+        <div className="flex-1" />
+        {/* 右侧交互控件组（主题/设置） */}
+        <div className="flex items-center gap-1.5 border-l pl-3" data-no-drag style={noDragRegion}>
+          <button
+            className="hidden text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 md:block"
+            onClick={() => setShowTheme(true)}
+            title={formatMessage('主题')}
+          >
+            {formatMessage('主题')}
+          </button>
+          <button
+            className="hidden text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 md:block"
+            onClick={() => setShowSettings(true)}
+            title={formatMessage('应用设置')}
+          >
+            {formatMessage('设置')}
+          </button>
+        </div>
+          <WindowControls onClose={() => void requestClose()} />
       </header>
       <Suspense fallback={null}>
         {showCookies && <CookieManager onClose={() => setShowCookies(false)} />}
         {showWs && <WsPanel onClose={() => setShowWs(false)} />}
         {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
         {showGrpc && <GrpcPanel onClose={() => setShowGrpc(false)} />}
-        {showGraphql && <GraphqlPanel onClose={() => setShowGraphql(false)} />}
+        {showGraphql && (
+          <GraphqlPanel
+            onClose={() => setShowGraphql(false)}
+            onOpenRequest={handleOpenGraphqlRequest}
+          />
+        )}
         {showTheme && <ThemeDialog onClose={() => setShowTheme(false)} />}
       </Suspense>
+
+      {/* Tab 右键菜单：固定定位浮层，点击菜单项后关闭 */}
+      {tabCtx && (() => {
+        const idx = tabs.findIndex((t) => t.id === tabCtx.tabId);
+        const disLeft = idx <= 0 || tabs.length <= 1;
+        const disRight = idx < 0 || idx >= tabs.length - 1 || tabs.length <= 1;
+        const disOthers = tabs.length <= 1;
+        return (
+        <div
+          ref={tabCtxRef}
+          className="fixed z-50 min-w-[160px] rounded border border-gray-200 bg-white py-1 text-sm shadow-lg"
+          style={{
+            left: Math.min(tabCtx.x, window.innerWidth - 180),
+            top: Math.min(tabCtx.y, window.innerHeight - 200),
+          }}
+        >
+          <button
+            className="block w-full px-3 py-1.5 text-left hover:bg-gray-100"
+            onClick={() => {
+              const target = tabs.find((t) => t.id === tabCtx.tabId);
+              setTabCtx(null);
+              if (target) void closeTab(target);
+            }}
+          >
+            {formatMessage('关闭')}
+          </button>
+          <button
+            className={`block w-full px-3 py-1.5 text-left ${disOthers ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+            disabled={disOthers}
+            onClick={() => {
+              if (disOthers) return;
+              const target = tabs.find((t) => t.id === tabCtx.tabId);
+              setTabCtx(null);
+              if (target) closeOthers(target);
+            }}
+          >
+            {formatMessage('关闭其他')}
+          </button>
+          <button
+            className={`block w-full px-3 py-1.5 text-left ${disLeft ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+            disabled={disLeft}
+            onClick={() => {
+              if (disLeft) return;
+              const target = tabs.find((t) => t.id === tabCtx.tabId);
+              setTabCtx(null);
+              if (target) closeLeft(target);
+            }}
+          >
+            {formatMessage('关闭左侧')}
+          </button>
+          <button
+            className={`block w-full px-3 py-1.5 text-left ${disRight ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+            disabled={disRight}
+            onClick={() => {
+              if (disRight) return;
+              const target = tabs.find((t) => t.id === tabCtx.tabId);
+              setTabCtx(null);
+              if (target) closeRight(target);
+            }}
+          >
+            {formatMessage('关闭右侧')}
+          </button>
+          <div className="my-1 border-t border-gray-100" />
+          <button
+            className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+            onClick={() => {
+              setTabCtx(null);
+              closeAll();
+            }}
+          >
+            {formatMessage('关闭全部')}
+          </button>
+        </div>
+        );
+      })()}
 
       <div className="flex-1 flex min-h-0">
         {/* 侧栏（可拖拽调整宽度） */}
@@ -412,9 +694,31 @@ export default function App() {
             {tabs.map((t) => (
               <div
                 key={t.id}
+                draggable
+                onDragStart={(e) => {
+                  setDragTabId(t.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const fromId = dragTabId;
+                  setDragTabId(null);
+                  if (!fromId || fromId === t.id) return;
+                  reorderTabs(workspace.id, fromId, t.id);
+                }}
+                onDragEnd={() => setDragTabId(null)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setTabCtx({ x: e.clientX, y: e.clientY, tabId: t.id });
+                }}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded cursor-pointer whitespace-nowrap ${
                   t.id === activeId ? 'bg-white font-medium shadow-sm' : 'text-gray-500 hover:bg-gray-100'
-                }`}
+                } ${dragTabId === t.id ? 'opacity-50' : ''}`}
                 onClick={() => setActive(t.id)}
                 onAuxClick={(e) => {
                   if (e.button === 1) closeTab(t); // 中键关闭
@@ -475,11 +779,33 @@ export default function App() {
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-              按 Ctrl+T 新建请求标签
+              {formatMessage('按 Ctrl+T 新建请求标签')}
             </div>
           )}
         </main>
       </div>
     </div>
   );
+}
+
+// 查找请求中引用了但未在激活环境 / 全局变量中定义的变量名。
+// 数据从 react-query 缓存读取（EnvSwitcher 已加载），不额外发起请求。
+function findUndefinedVars(
+  qc: ReturnType<typeof useQueryClient>,
+  workspaceId: string,
+  draft: { url: string },
+): string[] {
+  const refs = collectVarRefs(draft);
+  if (refs.length === 0) return [];
+  const known = new Set<string>();
+  const envs = qc.getQueryData<Environment[]>(['envs', workspaceId]);
+  const active = envs?.find((e) => e.isActive);
+  for (const v of active?.variables ?? []) {
+    if (v.enabled && v.key) known.add(v.key);
+  }
+  const globals = qc.getQueryData<Variable[]>(['globals', workspaceId]);
+  for (const v of globals ?? []) {
+    if (v.enabled && v.key) known.add(v.key);
+  }
+  return refs.filter((name) => !known.has(name));
 }

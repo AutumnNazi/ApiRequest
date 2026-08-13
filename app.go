@@ -20,22 +20,23 @@ type App struct {
 	mocks     *mock.Manager
 	protocols *protocol.Manager
 
-	Request  *binding.RequestApi
-	Node     *binding.NodeApi
-	History  *binding.HistoryApi
-	Env      *binding.EnvApi
-	Cookie   *binding.CookieApi
-	Convert  *binding.ConvertApi
-	Runner   *binding.RunnerApi
-	Example  *binding.ExampleApi
-	Mock     *binding.MockApi
-	Protocol *binding.ProtocolApi
-	OAuth2   *binding.OAuth2Api
-	Settings *binding.SettingsApi
-	Grpc     *binding.GrpcApi
-	Graphql  *binding.GraphqlApi
-	Sync     *binding.SyncApi
-	Dialog   *binding.DialogApi
+	Request   *binding.RequestApi
+	Node      *binding.NodeApi
+	History   *binding.HistoryApi
+	Env       *binding.EnvApi
+	Cookie    *binding.CookieApi
+	Convert   *binding.ConvertApi
+	Runner    *binding.RunnerApi
+	Example   *binding.ExampleApi
+	Mock      *binding.MockApi
+	Protocol  *binding.ProtocolApi
+	OAuth2    *binding.OAuth2Api
+	Settings  *binding.SettingsApi
+	Grpc      *binding.GrpcApi
+	Graphql   *binding.GraphqlApi
+	Sync      *binding.SyncApi
+	Dialog    *binding.DialogApi
+	Lifecycle *binding.LifecycleApi
 }
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
@@ -55,6 +56,7 @@ func NewApp() *App {
 
 	request := binding.NewRequestApi(engine, store)
 	runner := binding.NewRunnerApi(request, store)
+	lifecycle := binding.NewLifecycleApi()
 	return &App{
 		store:     store,
 		mocks:     mocks,
@@ -75,12 +77,15 @@ func NewApp() *App {
 		Graphql:   binding.NewGraphqlApi(engine.NewHTTPClient(0)),
 		Sync:      binding.NewSyncApi(store, engine),
 		Dialog:    binding.NewDialogApi(),
+		Lifecycle: lifecycle,
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
-	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql, a.Dialog)
+	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql, a.Dialog, a.Lifecycle)
 }
+
+func (a *App) beforeClose(ctx context.Context) bool { return binding.BeforeClose(a.Lifecycle, ctx) }
 
 func (a *App) shutdown(ctx context.Context) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

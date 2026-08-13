@@ -100,6 +100,33 @@ func TestLegacyPlaintextCookiesMigrateOnReopen(t *testing.T) {
 	}
 }
 
+func TestV2CookieMigrationRekeysReferenceLikeLiteral(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	const literal = "secret://file/literal-cookie-value"
+	if _, err := store.db.Exec(`
+		INSERT INTO cookie (id, domain, path, name, value, http_only, secure)
+		VALUES ('legacy-literal-cookie', 'example.test', '/', 'session', ?, 1, 1)`, literal); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting("secrets.cookie.migration.v1", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", cookieSecretMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	cookies, err := reopened.ListCookies("example.test")
+	if err != nil || len(cookies) != 1 || cookies[0].Value != literal {
+		t.Fatalf("migrated reference-like cookie = %+v, err = %v", cookies, err)
+	}
+}
+
 func TestCookiesForHostEnforcesScopeAndLongestPathOrder(t *testing.T) {
 	store := openStoreWithMemoryKeyring(t, t.TempDir(), &memoryKeyring{})
 	for _, cookie := range []model.Cookie{

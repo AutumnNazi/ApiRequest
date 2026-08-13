@@ -70,7 +70,20 @@ func TestCredentialsAreReferencesAtRestAndResolvedAtBoundary(t *testing.T) {
 			"password": "node-password",
 		}},
 		Variables: []model.Variable{{Key: "apiKey", Value: "node-variable-secret", Type: "secret", Enabled: true}},
-		Request:   &model.HttpRequest{Auth: model.Auth{Type: "bearer", Params: map[string]string{"token": "request-token"}}},
+		Request: &model.HttpRequest{
+			Auth: model.Auth{Type: "bearer", Params: map[string]string{"token": "request-token"}},
+			Params: []model.KV{
+				{Key: "api_key", Value: "query-api-key", Enabled: true},
+				{Key: "page", Value: "1", Enabled: true},
+			},
+			Headers: []model.KV{
+				{Key: "Authorization", Value: "Bearer manual-header", Enabled: true},
+				{Key: "X-Trace", Value: "public-trace", Enabled: true},
+			},
+			Body: model.Body{Kind: "urlencoded", Items: []model.FormItem{
+				{Key: "password", Type: "text", Value: "form-password", Enabled: true},
+			}},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -98,12 +111,12 @@ func TestCredentialsAreReferencesAtRestAndResolvedAtBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	allRaw := strings.Join([]string{requestRaw, authRaw, nodeVarsRaw, envVarsRaw, globalVarsRaw}, "\n")
-	for _, plaintext := range []string{"request-token", "node-password", "node-variable-secret", "environment-secret", "global-secret"} {
+	for _, plaintext := range []string{"request-token", "query-api-key", "Bearer manual-header", "form-password", "node-password", "node-variable-secret", "environment-secret", "global-secret"} {
 		if strings.Contains(allRaw, plaintext) {
 			t.Fatalf("database contains plaintext %q: %s", plaintext, allRaw)
 		}
 	}
-	if count := strings.Count(allRaw, "secret://keyring/"); count != 5 {
+	if count := strings.Count(allRaw, "secret://keyring/"); count != 8 {
 		t.Fatalf("reference count = %d, raw = %s", count, allRaw)
 	}
 
@@ -112,7 +125,9 @@ func TestCredentialsAreReferencesAtRestAndResolvedAtBoundary(t *testing.T) {
 		t.Fatalf("nodes = %+v, err = %v", nodes, err)
 	}
 	got := nodes[0]
-	if got.Request.Auth.Params["token"] != "request-token" || got.Auth.Params["password"] != "node-password" || got.Variables[0].Value != "node-variable-secret" {
+	if got.Request.Auth.Params["token"] != "request-token" || got.Request.Params[0].Value != "query-api-key" ||
+		got.Request.Headers[0].Value != "Bearer manual-header" || got.Request.Body.Items[0].Value != "form-password" ||
+		got.Auth.Params["password"] != "node-password" || got.Variables[0].Value != "node-variable-secret" {
 		t.Fatalf("resolved node = %+v", got)
 	}
 	gotEnv, err := store.GetEnvironment(environment.Id)
@@ -179,9 +194,10 @@ func TestRemovedSecretReferencesAreCleanedAcrossStoredEntities(t *testing.T) {
 		Kind:        "collection",
 		Name:        "secured",
 		Auth:        modelAuth("node-password"),
-		Request: &model.HttpRequest{Auth: model.Auth{
-			Type: "bearer", Params: map[string]string{"token": "request-token"},
-		}},
+		Request: &model.HttpRequest{
+			Auth:    model.Auth{Type: "bearer", Params: map[string]string{"token": "request-token"}},
+			Headers: []model.KV{{Key: "Authorization", Value: "Bearer header-token", Enabled: true}},
+		},
 		Variables: []model.Variable{{Key: "token", Value: "node-variable", Type: "secret", Enabled: true}},
 	})
 	if err != nil {
@@ -198,12 +214,13 @@ func TestRemovedSecretReferencesAreCleanedAcrossStoredEntities(t *testing.T) {
 	if err := store.SetGlobalVariables(workspace.Id, []model.Variable{{Key: "token", Value: "global-secret", Type: "secret", Enabled: true}}); err != nil {
 		t.Fatal(err)
 	}
-	if len(adapter.values) != 5 {
-		t.Fatalf("initial keyring entries = %d, want 5", len(adapter.values))
+	if len(adapter.values) != 6 {
+		t.Fatalf("initial keyring entries = %d, want 6", len(adapter.values))
 	}
 
 	node.Auth = &model.Auth{Type: "none"}
 	node.Request.Auth = model.Auth{Type: "none"}
+	node.Request.Headers = nil
 	node.Variables = nil
 	if _, err := store.UpsertNode(node); err != nil {
 		t.Fatal(err)
@@ -486,6 +503,60 @@ func TestLegacyPlaintextCredentialsMigrateOnReopen(t *testing.T) {
 	}
 }
 
+func TestSecretMigrationMarkerFailureIsSafelyRetryable(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	authRaw, _ := json.Marshal(model.Auth{Type: "basic", Params: map[string]string{"password": "retry-password"}})
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, auth, created_at, updated_at)
+		VALUES ('marker-retry-node', ?, 'collection', 'marker retry', 0, ?, 1, 1)`, workspace.Id, string(authRaw)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key IN (?, ?, ?, ?)", secretMigrationKey, headerSecretMigrationKey, requestValueMigrationKey, secretRefNormalizationKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER fail_secret_migration_marker
+		BEFORE INSERT ON setting
+		WHEN NEW.key = 'secrets.migration.v2'
+		BEGIN SELECT RAISE(ABORT, 'forced secret marker failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.MigrateSecrets(); err == nil {
+		t.Fatal("forced secret migration marker failure was ignored")
+	}
+	if marker, err := store.GetSetting(secretMigrationKey); err != nil || marker != "" {
+		t.Fatalf("failed top-level marker = %q, err = %v", marker, err)
+	}
+	var firstAuth string
+	if err := store.db.QueryRow("SELECT auth FROM node WHERE id = 'marker-retry-node'").Scan(&firstAuth); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(firstAuth, "retry-password") || !strings.Contains(firstAuth, "secret://keyring/") {
+		t.Fatalf("first migration did not leave a recoverable reference: %s", firstAuth)
+	}
+	entryCount := len(adapter.values)
+	if _, err := store.db.Exec("DROP TRIGGER fail_secret_migration_marker"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MigrateSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	var secondAuth string
+	if err := store.db.QueryRow("SELECT auth FROM node WHERE id = 'marker-retry-node'").Scan(&secondAuth); err != nil {
+		t.Fatal(err)
+	}
+	if secondAuth != firstAuth || len(adapter.values) != entryCount {
+		t.Fatalf("retry changed migrated state: before=%s after=%s entries=%d/%d", firstAuth, secondAuth, entryCount, len(adapter.values))
+	}
+	node, err := store.GetNode(workspace.Id, "marker-retry-node")
+	if err != nil || node.Auth == nil || node.Auth.Params["password"] != "retry-password" {
+		t.Fatalf("retry result = %+v, err = %v", node.Auth, err)
+	}
+}
+
 func TestHistoryCredentialsAreIrreversiblyRedacted(t *testing.T) {
 	store := openStoreWithMemoryKeyring(t, t.TempDir(), &memoryKeyring{})
 	workspace, _ := store.EnsureDefaultWorkspace()
@@ -495,24 +566,794 @@ func TestHistoryCredentialsAreIrreversiblyRedacted(t *testing.T) {
 	_, err := store.InsertHistory(model.HistoryItem{
 		WorkspaceId: workspace.Id,
 		RequestSnap: model.HttpRequest{
-			Url:  "https://example.test/vault-history-secret",
-			Body: model.Body{Kind: "raw", Text: `{"token":"vault-history-secret"}`},
-			Auth: model.Auth{Type: "bearer", Params: map[string]string{"token": "history-token"}},
+			Url:     "https://example.test/vault-history-secret",
+			Body:    model.Body{Kind: "raw", Text: `{"token":"vault-history-secret"}`},
+			Auth:    model.Auth{Type: "bearer", Params: map[string]string{"token": "history-token"}},
+			Headers: []model.KV{{Key: "Authorization", Value: "Bearer manual-history-secret", Enabled: true}},
+			Params:  []model.KV{{Key: "api_token", Value: "history-query-secret", Enabled: true}},
 		},
+		BodyInline: `{"echo":"Bearer manual-history-secret history-query-secret"}`,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var raw string
-	if err := store.db.QueryRow("SELECT request_snap FROM history LIMIT 1").Scan(&raw); err != nil {
+	var raw, body string
+	if err := store.db.QueryRow("SELECT request_snap, body_inline FROM history LIMIT 1").Scan(&raw, &body); err != nil {
 		t.Fatal(err)
 	}
 	var snapshot model.HttpRequest
 	if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(raw, "history-token") || strings.Contains(raw, "vault-history-secret") || snapshot.Auth.Params["token"] != "<redacted>" {
-		t.Fatalf("unsafe history snapshot: %s", raw)
+	if strings.Contains(raw+body, "history-token") || strings.Contains(raw+body, "vault-history-secret") ||
+		strings.Contains(raw+body, "manual-history-secret") || strings.Contains(raw+body, "history-query-secret") ||
+		snapshot.Auth.Params["token"] != "<redacted>" || snapshot.Headers[0].Value != "<redacted>" ||
+		snapshot.Params[0].Value != "<redacted>" {
+		t.Fatalf("unsafe history snapshot: request=%s body=%s", raw, body)
+	}
+}
+
+func TestHistoryRedactsShortAndOverlappingCredentialEchoes(t *testing.T) {
+	store := openStoreWithMemoryKeyring(t, t.TempDir(), &memoryKeyring{})
+	workspace, _ := store.EnsureDefaultWorkspace()
+	id, err := store.InsertHistory(model.HistoryItem{
+		WorkspaceId: workspace.Id,
+		RequestSnap: model.HttpRequest{Params: []model.KV{
+			{Key: "token", Value: "abc", Enabled: true},
+			{Key: "access_token", Value: "abcdef", Enabled: true},
+			{Key: "api_key", Value: "x", Enabled: true},
+		}},
+		BodyInline:  "long=abcdef short=abc tiny=x",
+		TestResults: []model.TestResult{{Name: "x", Error: "abcdef abc x"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body, tests string
+	if err := store.db.QueryRow("SELECT body_inline, test_results FROM history WHERE id = ?", id).Scan(&body, &tests); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body+tests, "abcdef") || strings.Contains(body+tests, "abc") ||
+		body != "long=<redacted> short=<redacted> tiny=<redacted>" {
+		t.Fatalf("short or overlapping credentials leaked: body=%q tests=%s", body, tests)
+	}
+}
+
+func TestLegacyHeaderSecretsMigrateAfterOriginalSecretMarker(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	request := model.HttpRequest{Headers: []model.KV{
+		{Key: "Authorization", Value: "Bearer legacy-header", Enabled: true},
+		{Key: "X-Trace", Value: "public", Enabled: true},
+	}}
+	raw, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, request_data, created_at, updated_at)
+		VALUES ('legacy-header-node', ?, 'request', 'legacy', 0, ?, 1, 1)`, workspace.Id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(secretMigrationKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", headerSecretMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	var stored string
+	if err := reopened.db.QueryRow("SELECT request_data FROM node WHERE id = 'legacy-header-node'").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored, "legacy-header") || !strings.Contains(stored, "secret://keyring/") {
+		t.Fatalf("legacy header was not migrated: %s", stored)
+	}
+	got, err := reopened.GetNode(workspace.Id, "legacy-header-node")
+	if err != nil || got.Request.Headers[0].Value != "Bearer legacy-header" || got.Request.Headers[1].Value != "public" {
+		t.Fatalf("migrated node = %+v, err = %v", got, err)
+	}
+}
+
+func TestOriginalSecretMigrationDoesNotDoubleWrapHeaderReferences(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	request := model.HttpRequest{Headers: []model.KV{{Key: "Authorization", Value: "Bearer migrate-once", Enabled: true}}}
+	raw, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, request_data, created_at, updated_at)
+		VALUES ('full-migration-header', ?, 'request', 'legacy', 0, ?, 1, 1)`, workspace.Id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key IN (?, ?)", secretMigrationKey, headerSecretMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	got, err := reopened.GetNode(workspace.Id, "full-migration-header")
+	if err != nil || got.Request.Headers[0].Value != "Bearer migrate-once" {
+		t.Fatalf("migrated header = %+v, err = %v", got, err)
+	}
+	if len(adapter.values) != 1 {
+		t.Fatalf("header migration wrote %d vault entries, want 1", len(adapter.values))
+	}
+}
+
+func TestDedicatedHeaderMigrationPreservesExistingVaultReferences(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	ref, err := store.Vault().Put("node/partial/request/header/authorization", "Bearer existing-ref")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := model.HttpRequest{Headers: []model.KV{{Key: "Authorization", Value: ref, Enabled: true}}}
+	raw, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, request_data, created_at, updated_at)
+		VALUES ('partial-header-node', ?, 'request', 'partial', 0, ?, 1, 1)`, workspace.Id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(secretMigrationKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", headerSecretMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	got, err := reopened.GetNode(workspace.Id, "partial-header-node")
+	if err != nil || got.Request.Headers[0].Value != "Bearer existing-ref" {
+		t.Fatalf("preserved header = %+v, err = %v", got, err)
+	}
+	if len(adapter.values) != 1 {
+		t.Fatalf("dedicated migration wrote %d vault entries, want 1", len(adapter.values))
+	}
+}
+
+func TestDedicatedHeaderMigrationRollsBackVaultAndMarkerOnDatabaseFailure(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	request := model.HttpRequest{Headers: []model.KV{{Key: "Authorization", Value: "Bearer rollback-header", Enabled: true}}}
+	raw, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, request_data, created_at, updated_at)
+		VALUES ('rollback-header-node', ?, 'request', 'rollback', 0, ?, 1, 1)`, workspace.Id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(secretMigrationKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", headerSecretMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER fail_header_migration
+		BEFORE UPDATE OF request_data ON node
+		BEGIN SELECT RAISE(ABORT, 'forced header migration failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.MigrateSecrets(); err == nil {
+		t.Fatal("forced header migration failure was ignored")
+	}
+	if len(adapter.values) != 0 {
+		t.Fatalf("failed migration left vault entries: %+v", adapter.values)
+	}
+	if marker, err := store.GetSetting(headerSecretMigrationKey); err != nil || marker != "" {
+		t.Fatalf("failed migration marker = %q, err = %v", marker, err)
+	}
+	var stored string
+	if err := store.db.QueryRow("SELECT request_data FROM node WHERE id = 'rollback-header-node'").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stored, "rollback-header") {
+		t.Fatalf("failed migration changed request data: %s", stored)
+	}
+}
+
+func TestLegacyStructuredRequestSecretsMigrateAfterOlderMarkers(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	request := model.HttpRequest{
+		Params: []model.KV{{Key: "access_token", Value: "legacy-query-token", Enabled: true}},
+		Body: model.Body{Kind: "urlencoded", Items: []model.FormItem{{
+			Key: "password", Type: "text", Value: "legacy-form-password", Enabled: false,
+		}}},
+	}
+	raw, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, request_data, created_at, updated_at)
+		VALUES ('legacy-structured-node', ?, 'request', 'legacy structured', 0, ?, 1, 1)`, workspace.Id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(secretMigrationKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(headerSecretMigrationKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", requestValueMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	var stored string
+	if err := reopened.db.QueryRow("SELECT request_data FROM node WHERE id = 'legacy-structured-node'").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored, "legacy-query-token") || strings.Contains(stored, "legacy-form-password") ||
+		strings.Count(stored, "secret://keyring/") != 2 {
+		t.Fatalf("legacy structured values were not migrated: %s", stored)
+	}
+	got, err := reopened.GetNode(workspace.Id, "legacy-structured-node")
+	if err != nil || got.Request.Params[0].Value != "legacy-query-token" || got.Request.Body.Items[0].Value != "legacy-form-password" {
+		t.Fatalf("migrated structured request = %+v, err = %v", got, err)
+	}
+}
+
+func TestLegacyStructuredReferenceLikeLiteralsAreMigratedAsPlaintext(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	const literal = "secret://file/literal-structured-value"
+	request := model.HttpRequest{
+		Params: []model.KV{{Key: "access_token", Value: literal, Enabled: true}},
+		Body: model.Body{Kind: "urlencoded", Items: []model.FormItem{{
+			Key: "password", Type: "text", Value: literal, Enabled: false,
+		}}},
+	}
+	raw, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, request_data, created_at, updated_at)
+		VALUES ('legacy-literal-node', ?, 'request', 'legacy literal', 0, ?, 1, 1)`, workspace.Id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(secretMigrationKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(headerSecretMigrationKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", requestValueMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	got, err := reopened.GetNode(workspace.Id, "legacy-literal-node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Request.Params[0].Value != literal || got.Request.Body.Items[0].Value != literal {
+		t.Fatalf("reference-like structured literals = %+v", got.Request)
+	}
+	if len(adapter.values) != 2 {
+		t.Fatalf("structured literal vault entries = %d, want 2", len(adapter.values))
+	}
+}
+
+func TestCanonicalReferenceLikeLiteralIsRekeyedAfterAmbiguousFileVaultUnlock(t *testing.T) {
+	dir := t.TempDir()
+	fileVault := secrets.NewWithKeyring(dir, nil)
+	if err := fileVault.Unlock("canonical-literal-test"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenWithVault(dir, fileVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _ := store.EnsureDefaultWorkspace()
+	const literal = "secret://file/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	request := model.HttpRequest{Params: []model.KV{{Key: "access_token", Value: literal, Enabled: true}}}
+	raw, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, request_data, created_at, updated_at)
+		VALUES ('canonical-literal-node', ?, 'request', 'canonical literal', 0, ?, 1, 1)`, workspace.Id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key IN (?, ?, ?)", secretMigrationKey, headerSecretMigrationKey, requestValueMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := &memoryKeyring{}
+	mixedVault := secrets.NewWithKeyring(dir, adapter)
+	reopened, err := OpenWithVault(dir, mixedVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if marker, err := reopened.GetSetting(secretRefNormalizationKey); err != nil || marker != "" {
+		t.Fatalf("ambiguous literal migration marker = %q, err = %v", marker, err)
+	}
+	if err := mixedVault.Unlock("canonical-literal-test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.MigrateSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := reopened.GetNode(workspace.Id, "canonical-literal-node")
+	if err != nil || got.Request.Params[0].Value != literal {
+		t.Fatalf("canonical reference-like literal = %+v, err = %v", got.Request, err)
+	}
+	if len(adapter.values) != 1 {
+		t.Fatalf("canonical literal vault entries = %d, want 1", len(adapter.values))
+	}
+}
+
+func TestMixedVaultWaitsForUnlockThenMovesLegacyFileReferenceToKeyring(t *testing.T) {
+	dir := t.TempDir()
+	fileVault := secrets.NewWithKeyring(dir, nil)
+	if err := fileVault.Unlock("mixed-vault-test"); err != nil {
+		t.Fatal(err)
+	}
+	fileStore, err := OpenWithVault(dir, fileVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _ := fileStore.EnsureDefaultWorkspace()
+	const secret = "legacy-file-password"
+	legacyRef, err := fileVault.Put("legacy/node/password", secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authRaw, _ := json.Marshal(model.Auth{Type: "basic", Params: map[string]string{"password": legacyRef}})
+	if _, err := fileStore.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, auth, created_at, updated_at)
+		VALUES ('mixed-vault-node', ?, 'collection', 'mixed vault', 0, ?, 1, 1)`, workspace.Id, string(authRaw)); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{secretMigrationKey, headerSecretMigrationKey, requestValueMigrationKey, cookieSecretMigrationKey} {
+		if err := fileStore.SetSetting(key, "1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := fileStore.db.Exec("DELETE FROM setting WHERE key = ?", secretRefNormalizationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := &memoryKeyring{}
+	mixedVault := secrets.NewWithKeyring(dir, adapter)
+	mixedStore, err := OpenWithVault(dir, mixedVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mixedStore.Close()
+	var storedAuth string
+	if err := mixedStore.db.QueryRow("SELECT auth FROM node WHERE id = 'mixed-vault-node'").Scan(&storedAuth); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(storedAuth, legacyRef) {
+		t.Fatalf("locked legacy reference was rewritten before unlock: %s", storedAuth)
+	}
+	if marker, err := mixedStore.GetSetting(secretMigrationKey); err != nil || marker != "1" {
+		t.Fatalf("existing mixed-vault marker = %q, err = %v", marker, err)
+	}
+
+	if err := mixedVault.Unlock("mixed-vault-test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mixedStore.MigrateSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mixedStore.db.QueryRow("SELECT auth FROM node WHERE id = 'mixed-vault-node'").Scan(&storedAuth); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(storedAuth, legacyRef) || !strings.Contains(storedAuth, "secret://keyring/") {
+		t.Fatalf("unlocked legacy reference was not moved to keyring: %s", storedAuth)
+	}
+	if value, err := mixedVault.Resolve(legacyRef); err != nil || value != secret {
+		t.Fatalf("legacy file fallback was damaged: value=%q err=%v", value, err)
+	}
+	mixedVault.Lock()
+	node, err := mixedStore.GetNode(workspace.Id, "mixed-vault-node")
+	if err != nil || node.Auth == nil || node.Auth.Params["password"] != secret {
+		t.Fatalf("migrated credential after file lock = %+v, err = %v", node.Auth, err)
+	}
+}
+
+func TestKeyringReferenceIsPreservedWhileKeyringIsTemporarilyUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	keyringVault := secrets.NewWithKeyring(dir, adapter)
+	legacyRef, err := keyringVault.Put("legacy/node/password", "legacy-keyring-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenWithVault(dir, keyringVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _ := store.EnsureDefaultWorkspace()
+	authRaw, _ := json.Marshal(model.Auth{Type: "basic", Params: map[string]string{"password": legacyRef}})
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, auth, created_at, updated_at)
+		VALUES ('temporarily-unavailable-keyring', ?, 'collection', 'legacy keyring', 0, ?, 1, 1)`, workspace.Id, string(authRaw)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", secretMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter.unavailable = true
+	fallbackVault := secrets.NewWithKeyring(dir, adapter)
+	if err := fallbackVault.Unlock("temporary-keyring-outage"); err != nil {
+		t.Fatal(err)
+	}
+	fallbackStore, err := OpenWithVault(dir, fallbackVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fallbackStore.Close()
+	var storedAuth string
+	if err := fallbackStore.db.QueryRow("SELECT auth FROM node WHERE id = 'temporarily-unavailable-keyring'").Scan(&storedAuth); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(storedAuth, legacyRef) || strings.Contains(storedAuth, "secret://file/") {
+		t.Fatalf("temporarily unavailable keyring reference was rewritten: %s", storedAuth)
+	}
+}
+
+func TestCredentialUpdateFallsBackToFileDuringKeyringOutage(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	vault := secrets.NewWithKeyring(dir, adapter)
+	if err := vault.Unlock("runtime-keyring-fallback"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenWithVault(dir, vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	node, err := store.UpsertNode(model.Node{
+		WorkspaceId: workspace.Id,
+		Kind:        "collection",
+		Name:        "fallback",
+		Auth:        &model.Auth{Type: "basic", Params: map[string]string{"password": "old-password"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	adapter.unavailable = true
+	node.Auth.Params["password"] = "new-password"
+	if _, err := store.UpsertNode(node); err != nil {
+		t.Fatalf("update during keyring outage: %v", err)
+	}
+	var storedAuth string
+	if err := store.db.QueryRow("SELECT auth FROM node WHERE id = ?", node.Id).Scan(&storedAuth); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(storedAuth, "secret://file/") || strings.Contains(storedAuth, "secret://keyring/") {
+		t.Fatalf("fallback auth = %s", storedAuth)
+	}
+	got, err := store.GetNode(workspace.Id, node.Id)
+	if err != nil || got.Auth == nil || got.Auth.Params["password"] != "new-password" {
+		t.Fatalf("fallback credential = %+v, err = %v", got.Auth, err)
+	}
+
+	adapter.unavailable = false
+	if err := store.MigrateSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.GetNode(workspace.Id, node.Id)
+	if err != nil || got.Auth == nil || got.Auth.Params["password"] != "new-password" {
+		t.Fatalf("promoted credential = %+v, err = %v", got.Auth, err)
+	}
+}
+
+func TestCompletedMarkersStillNormalizeCanonicalKeyringLiteral(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	const literal = "secret://keyring/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	authRaw, _ := json.Marshal(model.Auth{Type: "basic", Params: map[string]string{"password": literal}})
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, auth, created_at, updated_at)
+		VALUES ('completed-marker-keyring-literal', ?, 'collection', 'literal', 0, ?, 1, 1)`, workspace.Id, string(authRaw)); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{secretMigrationKey, headerSecretMigrationKey, requestValueMigrationKey, cookieSecretMigrationKey} {
+		if err := store.SetSetting(key, "1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", secretRefNormalizationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	var storedAuth string
+	if err := reopened.db.QueryRow("SELECT auth FROM node WHERE id = 'completed-marker-keyring-literal'").Scan(&storedAuth); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(storedAuth, literal) || !strings.Contains(storedAuth, "secret://keyring/") {
+		t.Fatalf("completed-marker literal was not normalized: %s", storedAuth)
+	}
+	node, err := reopened.GetNode(workspace.Id, "completed-marker-keyring-literal")
+	if err != nil || node.Auth == nil || node.Auth.Params["password"] != literal {
+		t.Fatalf("normalized literal = %+v, err = %v", node.Auth, err)
+	}
+}
+
+func TestCanonicalReferenceLikeLiteralWithoutBackingEntryIsRekeyed(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+
+	const logicalKey = "node/missing-canonical-entry/auth/password"
+	literal, err := store.Vault().PutPlaintext(logicalKey, "temporary-seed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Vault().Delete(literal); err != nil {
+		t.Fatal(err)
+	}
+	authRaw, _ := json.Marshal(model.Auth{Type: "basic", Params: map[string]string{"password": literal}})
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, auth, created_at, updated_at)
+		VALUES ('missing-canonical-entry', ?, 'collection', 'canonical literal', 0, ?, 1, 1)`, workspace.Id, string(authRaw)); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{secretMigrationKey, headerSecretMigrationKey, requestValueMigrationKey, cookieSecretMigrationKey} {
+		if err := store.SetSetting(key, "1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", secretRefNormalizationKey); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.MigrateSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetNode(workspace.Id, "missing-canonical-entry")
+	if err != nil || got.Auth == nil || got.Auth.Params["password"] != literal {
+		t.Fatalf("canonical reference-like literal = %+v, err = %v", got.Auth, err)
+	}
+	if resolved, err := store.Vault().Resolve(literal); err != nil || resolved != literal {
+		t.Fatalf("canonical literal backing entry = %q, err = %v", resolved, err)
+	}
+}
+
+func TestV2MigrationRekeysReferenceLikeTypedCredentialsAndSyncPassword(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	const literal = "secret://file/literal-legacy-credential"
+	authRaw, _ := json.Marshal(model.Auth{Type: "basic", Params: map[string]string{"password": literal}})
+	if _, err := store.db.Exec(`INSERT INTO node
+		(id, workspace_id, kind, name, sort_order, auth, created_at, updated_at)
+		VALUES ('legacy-literal-auth', ?, 'collection', 'legacy literal', 0, ?, 1, 1)`, workspace.Id, string(authRaw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting("sync.webdav", `{"url":"https://dav.example.test","password":"`+literal+`"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting("secrets.migration.v1", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", secretMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	node, err := reopened.GetNode(workspace.Id, "legacy-literal-auth")
+	if err != nil || node.Auth.Params["password"] != literal {
+		t.Fatalf("migrated reference-like auth = %+v, err = %v", node.Auth, err)
+	}
+	raw, err := reopened.GetSetting("sync.webdav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	passwordRef, _ := cfg["password"].(string)
+	password, err := reopened.Vault().Resolve(passwordRef)
+	if err != nil || password != literal {
+		t.Fatalf("migrated reference-like sync password = %q, err = %v", password, err)
+	}
+}
+
+func TestStructuredAuditMigrationRunsAfterLegacyV1Markers(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	node, err := store.UpsertNode(model.Node{
+		WorkspaceId: workspace.Id, Kind: "request", Name: "audit-owner",
+		Request: &model.HttpRequest{Method: "GET", Url: "https://example.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := model.HttpRequest{
+		Params: []model.KV{{Key: "access_token", Value: "legacy-audit-query", Enabled: true}},
+		Body: model.Body{Kind: "urlencoded", Items: []model.FormItem{{
+			Key: "password", Type: "text", Value: "legacy-audit-form", Enabled: true,
+		}}},
+	}
+	raw, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO history
+		(id, workspace_id, request_snap, method, url, body_inline, created_at)
+		VALUES ('legacy-v1-history', ?, ?, 'POST', '', 'legacy-audit-query legacy-audit-form', 1)`,
+		workspace.Id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO example
+		(id, node_id, name, request_snap, status, headers, body, created_at, updated_at)
+		VALUES ('legacy-v1-example', ?, 'legacy', ?, 200, '[]', 'legacy-audit-query legacy-audit-form', 1, 1)`,
+		node.Id, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting("history.request-redaction.v1", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting("example.redaction.v1", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key IN (?, ?)", historyRequestRedactionMigrationKey, exampleRedactionMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	var historyRequest, historyBody, exampleRequest, exampleBody string
+	if err := reopened.db.QueryRow(
+		"SELECT request_snap, body_inline FROM history WHERE id = 'legacy-v1-history'",
+	).Scan(&historyRequest, &historyBody); err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.db.QueryRow(
+		"SELECT request_snap, body FROM example WHERE id = 'legacy-v1-example'",
+	).Scan(&exampleRequest, &exampleBody); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(historyRequest+historyBody+exampleRequest+exampleBody, "legacy-audit-query") ||
+		strings.Contains(historyRequest+historyBody+exampleRequest+exampleBody, "legacy-audit-form") {
+		t.Fatalf("legacy v1 audit markers skipped structured redaction: history=%s %s example=%s %s",
+			historyRequest, historyBody, exampleRequest, exampleBody)
+	}
+}
+
+func TestAuditMigrationWaitsForVaultUnlockBeforeRedactingReferencedEchoes(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{unavailable: true}
+	vault := secrets.NewWithKeyring(dir, adapter)
+	if err := vault.Unlock("audit-migration-test"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenWithVault(dir, vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _ := store.EnsureDefaultWorkspace()
+	const secret = "referenced-history-echo"
+	ref, err := vault.Put("test/history-reference", secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := model.HttpRequest{Params: []model.KV{{Key: "access_token", Value: ref, Enabled: true}}}
+	raw, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO history
+		(id, workspace_id, request_snap, method, url, body_inline, created_at)
+		VALUES ('locked-reference-history', ?, ?, 'GET', '', ?, 1)`, workspace.Id, string(raw), secret); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", historyRequestRedactionMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	lockedVault := secrets.NewWithKeyring(dir, adapter)
+	lockedStore, err := OpenWithVault(dir, lockedVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockedStore.Close()
+	if marker, err := lockedStore.GetSetting(historyRequestRedactionMigrationKey); err != nil || marker != "" {
+		t.Fatalf("locked audit migration marker = %q, err = %v", marker, err)
+	}
+	if err := lockedVault.Unlock("audit-migration-test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := lockedStore.MigrateSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lockedStore.MigrateAuditSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	var storedRequest, storedBody string
+	if err := lockedStore.db.QueryRow(
+		"SELECT request_snap, body_inline FROM history WHERE id = 'locked-reference-history'",
+	).Scan(&storedRequest, &storedBody); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(storedRequest+storedBody, secret) || storedBody != "<redacted>" {
+		t.Fatalf("referenced history echo was not redacted after unlock: request=%s body=%s", storedRequest, storedBody)
+	}
+}
+
+func TestLegacyHistoryRequestHeadersAreRedactedOnReopen(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	request := model.HttpRequest{Headers: []model.KV{{Key: "Cookie", Value: "session=legacy-request-cookie", Enabled: true}}}
+	raw, _ := json.Marshal(request)
+	responseMeta := `{"headers":[{"key":"X-Api-Token","value":"legacy-response-token","enabled":true}],"timing":{}}`
+	if _, err := store.db.Exec(`INSERT INTO history
+		(id, workspace_id, request_snap, method, url, response_meta, body_inline, created_at)
+		VALUES ('legacy-request-history', ?, ?, 'GET', '', ?, 'echo=legacy-request-cookie response=legacy-response-token', 1)`,
+		workspace.Id, string(raw), responseMeta); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", historyRequestRedactionMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", historyResponseRedactionMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	var stored, body string
+	if err := reopened.db.QueryRow(
+		"SELECT request_snap, body_inline FROM history WHERE id = 'legacy-request-history'",
+	).Scan(&stored, &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored+body, "legacy-request-cookie") || strings.Contains(stored+body, "legacy-response-token") {
+		t.Fatalf("legacy history leaked header values: request=%s body=%s", stored, body)
 	}
 }
 
@@ -529,12 +1370,13 @@ func TestHistoryRedactsResponseCredentialsBeforePersistence(t *testing.T) {
 		RespHeaders: []model.KV{
 			{Key: "set-cookie", Value: "session=unseen-cookie-secret; HttpOnly", Enabled: true},
 			{Key: "X-Debug", Value: "token=" + knownSecret, Enabled: true},
+			{Key: "X-Api-Token", Value: "response-header-secret", Enabled: true},
 		},
-		BodyInline: `{"debug":"` + knownSecret + `"}`,
+		BodyInline: `{"debug":"` + knownSecret + `","cookie":"unseen-cookie-secret","response":"response-header-secret"}`,
 		TestResults: []model.TestResult{{
 			Name:  "response excludes " + knownSecret,
 			Pass:  false,
-			Error: "received " + knownSecret,
+			Error: "received " + knownSecret + " unseen-cookie-secret response-header-secret",
 		}},
 	})
 	if err != nil {
@@ -546,7 +1388,7 @@ func TestHistoryRedactsResponseCredentialsBeforePersistence(t *testing.T) {
 	).Scan(&meta, &body, &tests); err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"unseen-cookie-secret", knownSecret} {
+	for _, secret := range []string{"unseen-cookie-secret", knownSecret, "response-header-secret"} {
 		if strings.Contains(meta+body+tests, secret) {
 			t.Fatalf("history response persisted %q: meta=%s body=%s tests=%s", secret, meta, body, tests)
 		}
@@ -557,6 +1399,9 @@ func TestHistoryRedactsResponseCredentialsBeforePersistence(t *testing.T) {
 	}
 	if got := detail.RespHeaders[0].Value; got != "<redacted>" {
 		t.Fatalf("Set-Cookie value = %q", got)
+	}
+	if got := detail.RespHeaders[2].Value; got != "<redacted>" {
+		t.Fatalf("sensitive response header value = %q", got)
 	}
 	if !strings.Contains(detail.RespHeaders[1].Value, "<redacted>") ||
 		!strings.Contains(detail.BodyInline, "<redacted>") ||
@@ -602,5 +1447,81 @@ func TestLegacyHistorySetCookieIsRedactedOnReopen(t *testing.T) {
 	}
 	if strings.Contains(raw, legacySecret) || len(migrated.Headers) != 1 || migrated.Headers[0].Value != "<redacted>" {
 		t.Fatalf("legacy response metadata was not redacted: %s", raw)
+	}
+}
+
+func TestExamplesRedactRequestAndResponseCredentials(t *testing.T) {
+	store := openStoreWithMemoryKeyring(t, t.TempDir(), &memoryKeyring{})
+	workspace, _ := store.EnsureDefaultWorkspace()
+	node, err := store.UpsertNode(model.Node{
+		WorkspaceId: workspace.Id, Kind: "request", Name: "example-owner",
+		Request: &model.HttpRequest{Method: "GET", Url: "https://example.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := model.HttpRequest{
+		Headers: []model.KV{{Key: "Authorization", Value: "Bearer example-secret", Enabled: true}},
+		Auth:    model.Auth{Type: "bearer", Params: map[string]string{"token": "auth-example-secret"}},
+	}
+	example, err := store.UpsertExample(model.Example{
+		NodeId: node.Id, Name: "secured", RequestSnap: &request, Status: 200,
+		Headers: []model.KV{
+			{Key: "Set-Cookie", Value: "session=example-cookie", Enabled: true},
+			{Key: "X-Api-Token", Value: "example-response-token", Enabled: true},
+		},
+		Body: "echo=example-secret cookie=example-cookie response=example-response-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap, headers, body string
+	if err := store.db.QueryRow(
+		"SELECT request_snap, headers, body FROM example WHERE id = ?", example.Id,
+	).Scan(&snap, &headers, &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(snap+headers+body, "example-secret") || strings.Contains(snap+headers+body, "example-cookie") ||
+		strings.Contains(snap+headers+body, "example-response-token") {
+		t.Fatalf("example persisted credentials: snap=%s headers=%s body=%s", snap, headers, body)
+	}
+}
+
+func TestLegacyExampleCredentialsAreRedactedOnReopen(t *testing.T) {
+	dir := t.TempDir()
+	adapter := &memoryKeyring{}
+	store := openStoreWithMemoryKeyring(t, dir, adapter)
+	workspace, _ := store.EnsureDefaultWorkspace()
+	node, err := store.UpsertNode(model.Node{
+		WorkspaceId: workspace.Id, Kind: "request", Name: "legacy-owner",
+		Request: &model.HttpRequest{Method: "GET", Url: "https://example.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := model.HttpRequest{Headers: []model.KV{{Key: "Cookie", Value: "session=legacy-example-cookie", Enabled: true}}}
+	snap, _ := json.Marshal(request)
+	if _, err := store.db.Exec(`INSERT INTO example
+		(id, node_id, name, request_snap, status, headers, body, created_at, updated_at)
+		VALUES ('legacy-example', ?, 'legacy', ?, 200, ?, 'echo=legacy-example-cookie', 1, 1)`,
+		node.Id, string(snap), `[{"key":"Set-Cookie","value":"session=legacy-response-cookie","enabled":true}]`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DELETE FROM setting WHERE key = ?", exampleRedactionMigrationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
+	var requestRaw, headersRaw, body string
+	if err := reopened.db.QueryRow(
+		"SELECT request_snap, headers, body FROM example WHERE id = 'legacy-example'",
+	).Scan(&requestRaw, &headersRaw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(requestRaw+headersRaw+body, "legacy-example-cookie") || strings.Contains(headersRaw, "legacy-response-cookie") {
+		t.Fatalf("legacy example leaked credentials: request=%s headers=%s body=%s", requestRaw, headersRaw, body)
 	}
 }

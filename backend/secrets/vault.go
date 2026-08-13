@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -42,6 +43,12 @@ type SecretWriter interface {
 	Put(logicalKey, value string) (string, error)
 	PutPlaintext(logicalKey, value string) (string, error)
 	Delete(ref string) error
+}
+
+// IsKeyringRef reports whether value belongs to the system-keyring Adapter.
+func IsKeyringRef(value string) bool {
+	backend, _, err := parseRef(value)
+	return err == nil && backend == "keyring"
 }
 
 type systemKeyring struct{}
@@ -99,10 +106,17 @@ func (v *Vault) probeKeyring() bool {
 	return err == nil || errors.Is(err, keyringlib.ErrNotFound) || errors.Is(err, ErrNotFound)
 }
 
+func (v *Vault) refreshKeyringAvailabilityLocked() {
+	if !v.keyringAvailable {
+		v.keyringAvailable = v.probeKeyring()
+	}
+}
+
 // Status reports which persistence Adapter can currently serve secrets.
 func (v *Vault) Status() Status {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.refreshKeyringAvailabilityLocked()
 	status := Status{
 		KeyringAvailable: v.keyringAvailable,
 		FileExists:       v.file.exists(),
@@ -259,34 +273,42 @@ func (v *Vault) putValueWithUndo(logicalKey, value string) (string, func() error
 	id := secretID(logicalKey)
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	v.refreshKeyringAvailabilityLocked()
 
 	if v.keyringAvailable {
 		previous, previousErr := v.keyring.Get(serviceName, id)
 		existed := previousErr == nil
-		if previousErr != nil && !errors.Is(previousErr, keyringlib.ErrNotFound) && !errors.Is(previousErr, ErrNotFound) {
-			return "", nil, previousErr
-		}
-		if err := v.keyring.Set(serviceName, id, value); err == nil {
+		if previousErr != nil && !isSecretNotFound(previousErr) {
+			v.keyringAvailable = false
+		} else if err := v.keyring.Set(serviceName, id, value); err == nil {
 			v.remember(value)
 			ref := keyringRef + id
 			return ref, func() error {
 				v.mu.Lock()
 				defer v.mu.Unlock()
 				if existed {
-					return v.keyring.Set(serviceName, id, previous)
+					if err := v.keyring.Set(serviceName, id, previous); err != nil {
+						v.keyringAvailable = false
+						return err
+					}
+					return nil
 				}
 				err := v.keyring.Delete(serviceName, id)
-				if errors.Is(err, keyringlib.ErrNotFound) || errors.Is(err, ErrNotFound) {
+				if isSecretNotFound(err) {
 					return nil
+				}
+				if err != nil {
+					v.keyringAvailable = false
 				}
 				return err
 			}, nil
+		} else {
+			// A keychain can disappear after startup (session lock/service failure).
+			v.keyringAvailable = false
 		}
-		// A keychain can disappear after startup (session lock/service failure).
-		v.keyringAvailable = false
 	}
 	if !v.file.unlocked() {
-		return "", nil, ErrLocked
+		return "", nil, fmt.Errorf("%w: no secret Adapter is currently writable", ErrLocked)
 	}
 	previous, existed := v.file.entries[id]
 	if err := v.file.put(id, value); err != nil {
@@ -313,23 +335,30 @@ func (v *Vault) deleteValueWithUndo(ref string) (func() error, error) {
 
 	switch backend {
 	case "keyring":
+		v.refreshKeyringAvailabilityLocked()
+		if !v.keyringAvailable {
+			return nil, fmt.Errorf("%w: system keychain unavailable", ErrLocked)
+		}
 		previous, err := v.keyring.Get(serviceName, id)
 		if isSecretNotFound(err) {
 			return nil, nil
 		}
 		if err != nil {
-			return nil, err
+			v.keyringAvailable = false
+			return nil, fmt.Errorf("%w: system keychain unavailable: %v", ErrLocked, err)
 		}
 		if err := v.keyring.Delete(serviceName, id); err != nil {
 			if isSecretNotFound(err) {
 				return nil, nil
 			}
-			return nil, err
+			v.keyringAvailable = false
+			return nil, fmt.Errorf("%w: system keychain unavailable: %v", ErrLocked, err)
 		}
 		return func() error {
 			v.mu.Lock()
 			defer v.mu.Unlock()
 			if err := v.keyring.Set(serviceName, id, previous); err != nil {
+				v.keyringAvailable = false
 				return err
 			}
 			v.remember(previous)
@@ -374,6 +403,7 @@ func (v *Vault) Resolve(value string) (string, error) {
 	var resolved string
 	switch backend {
 	case "keyring":
+		v.refreshKeyringAvailabilityLocked()
 		if !v.keyringAvailable {
 			return "", fmt.Errorf("%w: system keychain unavailable", ErrLocked)
 		}
@@ -384,8 +414,12 @@ func (v *Vault) Resolve(value string) (string, error) {
 		err = ErrInvalidRef
 	}
 	if err != nil {
-		if errors.Is(err, keyringlib.ErrNotFound) {
+		if isSecretNotFound(err) {
 			return "", ErrNotFound
+		}
+		if backend == "keyring" {
+			v.keyringAvailable = false
+			return "", fmt.Errorf("%w: system keychain unavailable: %v", ErrLocked, err)
 		}
 		return "", err
 	}
@@ -403,9 +437,17 @@ func (v *Vault) Delete(ref string) error {
 	defer v.mu.Unlock()
 	switch backend {
 	case "keyring":
+		v.refreshKeyringAvailabilityLocked()
+		if !v.keyringAvailable {
+			return fmt.Errorf("%w: system keychain unavailable", ErrLocked)
+		}
 		err = v.keyring.Delete(serviceName, id)
-		if errors.Is(err, keyringlib.ErrNotFound) || errors.Is(err, ErrNotFound) {
+		if isSecretNotFound(err) {
 			return nil
+		}
+		if err != nil {
+			v.keyringAvailable = false
+			return fmt.Errorf("%w: system keychain unavailable: %v", ErrLocked, err)
 		}
 		return err
 	case "file":
@@ -421,9 +463,17 @@ func isSecretNotFound(err error) bool {
 
 // RedactString removes every credential value observed by this Vault from text.
 func (v *Vault) RedactString(input string) string {
+	return redactKnown(input, v.knownValuesSnapshot())
+}
+
+func (v *Vault) knownValuesSnapshot() map[string]struct{} {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	return redactKnown(input, v.knownValues)
+	values := make(map[string]struct{}, len(v.knownValues))
+	for value := range v.knownValues {
+		values[value] = struct{}{}
+	}
+	return values
 }
 
 func (v *Vault) remember(value string) {
@@ -433,10 +483,20 @@ func (v *Vault) remember(value string) {
 }
 
 func redactKnown(input string, values map[string]struct{}) string {
+	ordered := make([]string, 0, len(values))
 	for value := range values {
-		if len(value) >= 3 {
-			input = strings.ReplaceAll(input, value, redactedText)
+		if value != "" && value != redactedText {
+			ordered = append(ordered, value)
 		}
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if len(ordered[i]) == len(ordered[j]) {
+			return ordered[i] < ordered[j]
+		}
+		return len(ordered[i]) > len(ordered[j])
+	})
+	for _, value := range ordered {
+		input = strings.ReplaceAll(input, value, redactedText)
 	}
 	return input
 }
@@ -448,7 +508,29 @@ func secretID(logicalKey string) string {
 
 // IsRef reports whether value is an opaque Vault reference.
 func IsRef(value string) bool {
-	return strings.HasPrefix(value, keyringRef) || strings.HasPrefix(value, fileRef)
+	_, _, err := parseRef(value)
+	return err == nil
+}
+
+// IsFileRef reports whether value belongs to the encrypted-file Adapter.
+func IsFileRef(value string) bool {
+	backend, _, err := parseRef(value)
+	return err == nil && backend == "file"
+}
+
+// ReferenceMatchesLogicalKey reports whether ref carries the deterministic
+// identifier assigned to logicalKey. It does not access the secret backend.
+func ReferenceMatchesLogicalKey(ref, logicalKey string) bool {
+	_, id, err := parseRef(ref)
+	return err == nil && id == secretID(logicalKey)
+}
+
+// ReferencesShareIdentifier reports whether two canonical references point to
+// the same deterministic logical secret through different persistence Adapters.
+func ReferencesShareIdentifier(first, second string) bool {
+	firstBackend, firstID, firstErr := parseRef(first)
+	secondBackend, secondID, secondErr := parseRef(second)
+	return firstErr == nil && secondErr == nil && firstBackend != secondBackend && firstID == secondID
 }
 
 func parseRef(ref string) (string, string, error) {
@@ -462,6 +544,10 @@ func parseRef(ref string) (string, string, error) {
 		return "", "", ErrInvalidRef
 	}
 	if id == "" || strings.ContainsAny(id, `/\\`) || strings.Contains(id, "..") {
+		return "", "", ErrInvalidRef
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(id)
+	if err != nil || len(decoded) != 24 {
 		return "", "", ErrInvalidRef
 	}
 	return backend, id, nil

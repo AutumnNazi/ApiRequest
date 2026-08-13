@@ -208,10 +208,14 @@ export default function SettingsDialog({ onClose }: Props) {
                 </div>
 
                 {/* 操作区 */}
-                {vault && !vault.keyringAvailable && !vault.fileUnlocked && (
+                {vault && !vault.fileUnlocked && (!vault.keyringAvailable || vault.fileExists) && (
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-gray-500">
-                      {vault.fileExists ? formatMessage('输入主密码以解锁') : formatMessage('设置新的主密码')}
+                      {vault.keyringAvailable && vault.fileExists
+                        ? formatMessage('输入主密码以解锁旧加密文件')
+                        : vault.fileExists
+                          ? formatMessage('输入主密码以解锁')
+                          : formatMessage('设置新的主密码')}
                     </label>
                     <div className="flex gap-2">
                       <input
@@ -235,9 +239,13 @@ export default function SettingsDialog({ onClose }: Props) {
                   </div>
                 )}
 
-                {vault?.fileUnlocked && !vault.keyringAvailable && (
+                {vault?.fileUnlocked && (
                   <div className="flex items-center justify-between rounded-lg border border-gray-200 p-3">
-                    <span className="text-xs text-gray-500">{formatMessage('Vault 已解锁，凭据可正常读写')}</span>
+                    <span className="text-xs text-gray-500">
+                      {vault.keyringAvailable
+                        ? formatMessage('旧加密文件已解锁，凭据已迁移至系统密钥链')
+                        : formatMessage('Vault 已解锁，凭据可正常读写')}
+                    </span>
                     <button
                       className="rounded border px-4 py-1.5 text-sm hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50"
                       disabled={vaultBusy}
@@ -283,7 +291,7 @@ export default function SettingsDialog({ onClose }: Props) {
                   {proxy.mode === 'manual' && (
                     <input
                       className="mt-2 w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-none"
-                      placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+                      placeholder={formatMessage('http://127.0.0.1:7890 或 socks5://127.0.0.1:1080')}
                       value={proxy.url ?? ''}
                       onChange={(event) => setProxy({ ...proxy, url: event.target.value })}
                     />

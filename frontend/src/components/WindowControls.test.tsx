@@ -18,7 +18,7 @@ describe('WindowControls', () => {
   });
 
   it('uses consistent control dimensions and accessible names', async () => {
-    render(<WindowControls />);
+    render(<WindowControls onClose={() => {}} />);
 
     const controls = screen.getByRole('group', { name: '窗口控制' });
     const buttons = screen.getAllByRole('button');
@@ -40,11 +40,12 @@ describe('WindowControls', () => {
     await waitFor(() => expect(runtime.WindowIsMaximised).toHaveBeenCalledOnce());
   });
 
-  it('calls the native window actions and refreshes maximised state', async () => {
+  it('calls the window actions and delegates close through the application guard', async () => {
+    const onClose = vi.fn();
     runtime.WindowIsMaximised
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
-    render(<WindowControls />);
+    render(<WindowControls onClose={onClose} />);
     await waitFor(() => expect(runtime.WindowIsMaximised).toHaveBeenCalledOnce());
 
     fireEvent.click(screen.getByRole('button', { name: '最小化' }));
@@ -69,6 +70,7 @@ describe('WindowControls', () => {
     }
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
-    expect(runtime.Quit).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(runtime.Quit).not.toHaveBeenCalled();
   });
 });

@@ -179,7 +179,7 @@ export default function CookieManager({ onClose }: Props) {
             <button
               className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
               disabled={cookies.length === 0 || clearAll.isPending}
-              onClick={() => void dialog.confirm('清空全部 Cookie？').then((ok) => ok && clearAll.mutate())}
+              onClick={() => void dialog.confirm(formatMessage('清空全部 Cookie？')).then((ok) => ok && clearAll.mutate())}
             >
               {formatMessage('全部清空')}
             </button>

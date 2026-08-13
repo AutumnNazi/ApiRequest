@@ -6,8 +6,8 @@ export function CreateWorkspace(arg1) {
   return window['go']['binding']['NodeApi']['CreateWorkspace'](arg1);
 }
 
-export function DeleteNode(arg1) {
-  return window['go']['binding']['NodeApi']['DeleteNode'](arg1);
+export function DeleteNode(arg1, arg2) {
+  return window['go']['binding']['NodeApi']['DeleteNode'](arg1, arg2);
 }
 
 export function DeleteWorkspace(arg1) {
@@ -30,8 +30,12 @@ export function ListWorkspaces() {
   return window['go']['binding']['NodeApi']['ListWorkspaces']();
 }
 
-export function MoveNode(arg1, arg2, arg3) {
-  return window['go']['binding']['NodeApi']['MoveNode'](arg1, arg2, arg3);
+export function MoveNode(arg1, arg2, arg3, arg4) {
+  return window['go']['binding']['NodeApi']['MoveNode'](arg1, arg2, arg3, arg4);
+}
+
+export function MoveNodes(arg1, arg2) {
+  return window['go']['binding']['NodeApi']['MoveNodes'](arg1, arg2);
 }
 
 export function RenameNode(arg1, arg2, arg3) {

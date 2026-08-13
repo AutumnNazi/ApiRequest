@@ -142,16 +142,24 @@ func (a *NodeApi) UpsertNode(n model.Node) (model.Node, error) {
 }
 
 // DeleteNode 软删除节点及后代
-func (a *NodeApi) DeleteNode(nodeId string) error {
-	if err := a.store.DeleteNode(nodeId); err != nil {
+func (a *NodeApi) DeleteNode(workspaceId, nodeId string) error {
+	if err := a.store.DeleteNode(workspaceId, nodeId); err != nil {
 		return model.WrapError(model.KindStorage, err)
 	}
 	return nil
 }
 
 // MoveNode 移动节点
-func (a *NodeApi) MoveNode(nodeId, newParentId string, sortOrder float64) error {
-	if err := a.store.MoveNode(nodeId, newParentId, sortOrder); err != nil {
+func (a *NodeApi) MoveNode(workspaceId, nodeId, newParentId string, sortOrder float64) error {
+	if err := a.store.MoveNode(workspaceId, nodeId, newParentId, sortOrder); err != nil {
+		return model.WrapError(model.KindStorage, err)
+	}
+	return nil
+}
+
+// MoveNodes 原子移动多个节点，任一失败则全部回滚。
+func (a *NodeApi) MoveNodes(workspaceId string, moves []model.NodeMove) error {
+	if err := a.store.MoveNodes(workspaceId, moves); err != nil {
 		return model.WrapError(model.KindStorage, err)
 	}
 	return nil

@@ -15,6 +15,7 @@ import * as GrpcApi from '../../wailsjs/go/binding/GrpcApi';
 import * as GraphqlApi from '../../wailsjs/go/binding/GraphqlApi';
 import * as SyncApi from '../../wailsjs/go/binding/SyncApi';
 import * as DialogApi from '../../wailsjs/go/binding/DialogApi';
+import * as LifecycleApi from '../../wailsjs/go/binding/LifecycleApi';
 import { BrowserOpenURL, EventsOn } from '../../wailsjs/runtime/runtime';
 import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient, graphql, secrets, sync } from '../../wailsjs/go/models';
 import { translate } from '../i18n/locale';
@@ -27,6 +28,7 @@ export type ResponseBlobInfo = model.ResponseBlobInfo;
 export type ResponseBlobChunk = model.ResponseBlobChunk;
 export type Node = model.Node;
 export type NodeSummary = model.NodeSummary;
+export type NodeMove = model.NodeMove;
 export type Workspace = model.Workspace;
 export type HistorySummary = model.HistorySummary;
 export type HistoryDetail = model.HistoryDetail;
@@ -87,6 +89,7 @@ export const openNativeDirectory = (title: string) =>
 export const saveNativeFile = (title: string, defaultFilename: string) =>
   call(() => DialogApi.SaveFile(translate(title), defaultFilename));
 export const readNativeTextFile = (path: string) => call(() => DialogApi.ReadTextFile(path));
+export const requestApplicationQuit = () => call(() => LifecycleApi.RequestQuit());
 
 // ── 集合树 ──
 
@@ -102,9 +105,12 @@ export const getNode = (workspaceId: string, nodeId: string) =>
 export const renameNode = (workspaceId: string, nodeId: string, name: string) =>
   call(() => NodeApi.RenameNode(workspaceId, nodeId, name));
 export const upsertNode = (node: Node) => call(() => NodeApi.UpsertNode(node));
-export const deleteNode = (nodeId: string) => call(() => NodeApi.DeleteNode(nodeId));
-export const moveNode = (nodeId: string, newParentId: string, sortOrder: number) =>
-  call(() => NodeApi.MoveNode(nodeId, newParentId, sortOrder));
+export const deleteNode = (workspaceId: string, nodeId: string) =>
+  call(() => NodeApi.DeleteNode(workspaceId, nodeId));
+export const moveNode = (workspaceId: string, nodeId: string, newParentId: string, sortOrder: number) =>
+  call(() => NodeApi.MoveNode(workspaceId, nodeId, newParentId, sortOrder));
+export const moveNodes = (workspaceId: string, moves: NodeMove[]) =>
+  call(() => NodeApi.MoveNodes(workspaceId, moves));
 
 // ── 历史 ──
 
@@ -289,6 +295,10 @@ export interface RequestProgress {
 /** 订阅请求进度事件；返回取消订阅函数 */
 export function onRequestProgress(handler: (p: RequestProgress) => void): () => void {
   return EventsOn('request:progress', handler);
+}
+
+export function onApplicationCloseRequest(handler: () => void): () => void {
+  return EventsOn('app:close-request', handler);
 }
 
 export interface RunnerProgress {

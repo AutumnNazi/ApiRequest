@@ -37,7 +37,7 @@ export default function EnvSwitcher({ workspaceId }: Props) {
     onError: (e) =>
       void dialog.alert(
         formatMessage('切换环境失败: {detail}', { detail: toAppError(e).detail }),
-        { title: '切换环境失败' },
+        { title: formatMessage('切换环境失败') },
       ),
   });
 
@@ -102,7 +102,7 @@ function EnvManager({
     onError: (e) =>
       void dialog.alert(
         formatMessage('保存环境失败: {detail}', { detail: toAppError(e).detail }),
-        { title: '保存环境失败' },
+        { title: formatMessage('保存环境失败') },
       ),
   });
 
@@ -251,7 +251,7 @@ function EnvEditor({
                   <td className="p-1">
                     <input
                       className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded font-mono"
-                      placeholder="变量名"
+                      placeholder={formatMessage('变量名')}
                       value={r.key}
                       onChange={(e) => update(i, { key: e.target.value })}
                     />
@@ -259,7 +259,7 @@ function EnvEditor({
                   <td className="p-1">
                     <input
                       className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded font-mono"
-                      placeholder="值"
+                      placeholder={formatMessage('值')}
                       type={r.type === 'secret' ? 'password' : 'text'}
                       value={r.value}
                       onChange={(e) => update(i, { value: e.target.value })}
@@ -271,7 +271,7 @@ function EnvEditor({
                         type="checkbox"
                         checked={r.type === 'secret'}
                         onChange={(e) => update(i, { type: e.target.checked ? 'secret' : 'default' })}
-                        title="密钥变量（掩码显示）"
+                        title={formatMessage('密钥变量（掩码显示）')}
                       />
                     )}
                   </td>

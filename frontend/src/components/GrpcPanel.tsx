@@ -15,7 +15,9 @@ import {
   type GrpcCallResult,
   type GrpcStreamMessage,
 } from '../ipc';
-import { translate, Verbatim } from '../i18n/locale';
+import { translate, Verbatim, formatMessage } from '../i18n/locale';
+import { useRecentTargets } from '../hooks/useRecentTargets';
+import RecentTargets from './RecentTargets';
 
 interface Props {
   onClose(): void;
@@ -28,6 +30,9 @@ interface StreamEntry {
 }
 
 const MAX_STREAM_LOG_ENTRIES = 1000;
+
+// CodeMirror 扩展只需创建一次
+const jsonExtensions = [json()];
 
 export default function GrpcPanel({ onClose }: Props) {
   const [target, setTarget] = useState('');
@@ -46,8 +51,21 @@ export default function GrpcPanel({ onClose }: Props) {
   const streamLogRef = useRef<StreamEntry[]>([]);
   const [streamInput, setStreamInput] = useState('');
   const [sendClosed, setSendClosed] = useState(false);
+  const { recents, recall } = useRecentTargets('protocol:recent:grpc');
 
-  const cfg = () => ({ target, useTls });
+  const pickRecent = (value: string) => {
+    setTarget(value);
+    setError('');
+  };
+
+  const cfg = (resolvedTarget = target) => ({ target: resolvedTarget, useTls });
+
+  const attemptDiscover = async () => {
+    const resolvedTarget = target.trim();
+    if (!resolvedTarget) return;
+    setTarget(resolvedTarget);
+    if (await discover(resolvedTarget)) recall(resolvedTarget);
+  };
 
   const appendStreamLog = (entry: StreamEntry) => {
     const next = [...streamLogRef.current, entry].slice(-MAX_STREAM_LOG_ENTRIES);
@@ -55,16 +73,18 @@ export default function GrpcPanel({ onClose }: Props) {
     setStreamLog(next);
   };
 
-  const discover = async () => {
+  const discover = async (resolvedTarget = target): Promise<boolean> => {
     endStream();
     setError('');
     setBusy(true);
     setMethods([]);
     setSelected(null);
     try {
-      setMethods(await grpcDiscover(cfg()));
+      setMethods(await grpcDiscover(cfg(resolvedTarget)));
+      return true;
     } catch (e) {
       setError(toAppError(e).detail);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -235,7 +255,7 @@ export default function GrpcPanel({ onClose }: Props) {
             placeholder="localhost:50051"
             value={target}
             onChange={(e) => setTarget(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && target && discover()}
+            onKeyDown={(e) => e.key === 'Enter' && target && attemptDiscover()}
           />
           <label className="flex items-center gap-1 text-xs text-gray-600">
             <input type="checkbox" checked={useTls} onChange={(e) => setUseTls(e.target.checked)} />
@@ -244,9 +264,9 @@ export default function GrpcPanel({ onClose }: Props) {
           <button
             className="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700 disabled:opacity-50"
             disabled={!target.trim() || busy}
-            onClick={discover}
+            onClick={attemptDiscover}
           >
-            {busy && methods.length === 0 ? '发现中…' : '发现服务'}
+            {busy && methods.length === 0 ? formatMessage('发现中…') : formatMessage('发现服务')}
           </button>
           <button className="text-gray-400 hover:text-gray-700 ml-1" onClick={onClose}>
             ×
@@ -255,12 +275,14 @@ export default function GrpcPanel({ onClose }: Props) {
 
         {error && <div className="px-4 py-2 bg-red-50 border-b text-xs text-red-600"><Verbatim value={error} /></div>}
 
+        <RecentTargets recents={recents} current={target} onPick={pickRecent} />
+
         <div className="flex-1 flex min-h-0">
           {/* 方法列表 */}
           <div className="w-72 border-r overflow-auto">
             {methods.length === 0 ? (
               <div className="h-full flex items-center justify-center text-gray-400 text-xs px-6 text-center">
-                输入地址并"发现服务"（目标需开启 server reflection）
+                {formatMessage('输入地址并"发现服务"（目标需开启 server reflection）')}
               </div>
             ) : (
               methods.map((m) => (
@@ -275,9 +297,9 @@ export default function GrpcPanel({ onClose }: Props) {
                   <div className="text-gray-400 truncate"><Verbatim value={m.service} /></div>
                   {(m.clientStream || m.serverStream) && (
                     <span className="text-purple-600">
-                      {m.clientStream && m.serverStream ? 'bidi 流'
-                        : m.clientStream ? 'client 流'
-                        : 'server 流'}
+                      {m.clientStream && m.serverStream ? formatMessage('bidi 流')
+                        : m.clientStream ? formatMessage('client 流')
+                        : formatMessage('server 流')}
                     </span>
                   )}
                 </div>
@@ -300,21 +322,21 @@ export default function GrpcPanel({ onClose }: Props) {
                         disabled={busy || !selected.clientStream || sendClosed || !streamInput.trim()}
                         onClick={() => sendStream()}
                       >
-                        发送
+                        {formatMessage('发送')}
                       </button>
                       <button
                         className="bg-red-600 text-white rounded px-4 py-1 text-sm hover:bg-red-700"
                         onClick={endStream}
                       >
-                        结束流
+                        {formatMessage('结束流')}
                       </button>
                       {selected.clientStream && !sendClosed && (
                         <button
                           className="bg-amber-600 text-white rounded px-4 py-1 text-sm hover:bg-amber-700"
                           onClick={() => closeSend()}
-                          title="向服务端半关闭发送方向（流仍开放接收）"
+                          title={formatMessage('向服务端半关闭发送方向（流仍开放接收）')}
                         >
-                          {selected.serverStream ? '半关发送' : '完成发送'}
+                          {selected.serverStream ? formatMessage('半关发送') : formatMessage('完成发送')}
                         </button>
                       )}
                     </>
@@ -324,7 +346,7 @@ export default function GrpcPanel({ onClose }: Props) {
                       disabled={busy}
                       onClick={openStream}
                     >
-                      {busy ? '连接中…' : '开始流'}
+                      {busy ? formatMessage('连接中…') : formatMessage('开始流')}
                     </button>
                   ) : (
                     <button
@@ -332,7 +354,7 @@ export default function GrpcPanel({ onClose }: Props) {
                       disabled={busy}
                       onClick={invoke}
                     >
-                      {busy ? '调用中…' : '调用'}
+                      {busy ? formatMessage('调用中…') : formatMessage('调用')}
                     </button>
                   )}
                 </div>
@@ -341,10 +363,10 @@ export default function GrpcPanel({ onClose }: Props) {
                 {showStreamLog ? (
                   // 流式视图：下方流日志 + 输入框
                   <div className="flex-1 flex flex-col min-h-0">
-                    <div className="px-3 py-1 text-xs text-gray-500 bg-gray-50">流消息（按时间排序）</div>
+                    <div className="px-3 py-1 text-xs text-gray-500 bg-gray-50">{formatMessage('流消息（按时间排序）')}</div>
                     <div className="flex-1 overflow-auto p-3 text-xs font-mono whitespace-pre-wrap break-all">
                       {streamLog.length === 0 ? (
-                        <span className="text-gray-400">暂无消息</span>
+                        <span className="text-gray-400">{formatMessage('暂无消息')}</span>
                       ) : (
                         streamLog.map((it, i) => (
                           <div key={i} className={`mb-2 ${colorByKind(it.kind)}`}>
@@ -364,8 +386,8 @@ export default function GrpcPanel({ onClose }: Props) {
                           className="flex-1 border rounded px-2 py-1 text-xs font-mono"
                           placeholder={
                             selected.serverStream
-                              ? '输入一条 JSON 消息后回车发送…'
-                              : '输入一条 JSON 消息后回车发送…'
+                              ? formatMessage('输入一条 JSON 消息后回车发送…')
+                              : formatMessage('输入一条 JSON 消息后回车发送…')
                           }
                           value={streamInput}
                           onChange={(e) => setStreamInput(e.target.value)}
@@ -377,7 +399,7 @@ export default function GrpcPanel({ onClose }: Props) {
                           className="bg-green-600 text-white rounded px-3 py-1 text-xs hover:bg-green-700"
                           onClick={() => sendStream()}
                         >
-                          发送
+                          {formatMessage('发送')}
                         </button>
                       </div>
                     )}
@@ -385,23 +407,23 @@ export default function GrpcPanel({ onClose }: Props) {
                 ) : (
                   <>
                     <div className="h-2/5 border-b flex flex-col min-h-0">
-                      <div className="px-3 py-1 text-xs text-gray-500 bg-gray-50">请求（JSON）</div>
+                      <div className="px-3 py-1 text-xs text-gray-500 bg-gray-50">{formatMessage('请求（JSON）')}</div>
                       <div className="flex-1 overflow-auto">
                         <CodeMirror
                           height="100%"
                           value={requestJSON}
-                          extensions={[json()]}
+                          extensions={jsonExtensions}
                           onChange={setRequestJSON}
                         />
                       </div>
                     </div>
                     <div className="h-3/5 flex flex-col min-h-0">
                       <div className="px-3 py-1 text-xs text-gray-500 bg-gray-50 flex items-center gap-3">
-                        响应
+                        {formatMessage('响应')}
                         {result && <span className="text-gray-400">{result.durationMs} ms</span>}
                       </div>
                       <pre className="flex-1 overflow-auto p-3 text-xs font-mono whitespace-pre-wrap break-all">
-                        {result ? <Verbatim value={result.response} /> : '调用后在此显示响应'}
+                        {result ? <Verbatim value={result.response} /> : formatMessage('调用后在此显示响应')}
                       </pre>
                     </div>
                   </>
@@ -409,7 +431,7 @@ export default function GrpcPanel({ onClose }: Props) {
               </>
             ) : (
               <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-                从左侧选择一个方法
+                {formatMessage('从左侧选择一个方法')}
               </div>
             )}
           </div>

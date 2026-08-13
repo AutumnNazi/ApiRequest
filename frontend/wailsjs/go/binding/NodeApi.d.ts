@@ -4,7 +4,7 @@ import {model} from '../models';
 
 export function CreateWorkspace(arg1:string):Promise<model.Workspace>;
 
-export function DeleteNode(arg1:string):Promise<void>;
+export function DeleteNode(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteWorkspace(arg1:string):Promise<void>;
 
@@ -16,7 +16,9 @@ export function ListNodes(arg1:string):Promise<Array<model.NodeSummary>>;
 
 export function ListWorkspaces():Promise<Array<model.Workspace>>;
 
-export function MoveNode(arg1:string,arg2:string,arg3:number):Promise<void>;
+export function MoveNode(arg1:string,arg2:string,arg3:string,arg4:number):Promise<void>;
+
+export function MoveNodes(arg1:string,arg2:Array<model.NodeMove>):Promise<void>;
 
 export function RenameNode(arg1:string,arg2:string,arg3:string):Promise<void>;
 

@@ -191,8 +191,11 @@ func (s *Store) validateSyncNodeOwnership(n model.Node) error {
 	if n.Kind != "folder" && n.Kind != "request" {
 		return errors.New("sync node kind is invalid")
 	}
+	if n.Kind == "folder" && n.ParentId == "" {
+		return errors.New("sync folder nodes require a parent")
+	}
 	if n.ParentId == "" {
-		return errors.New("sync folder and request nodes require a parent")
+		return nil // request 可放在根级
 	}
 	if n.ParentId == n.Id {
 		return errors.New("sync node cannot be its own parent")
