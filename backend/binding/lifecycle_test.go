@@ -11,6 +11,7 @@ import (
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
 	"apirequest/backend/runner"
+	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 )
 
@@ -122,7 +123,12 @@ func TestScriptChangesToExistingSecretVariablesAreRedacted(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	store, err := storage.Open(t.TempDir())
+	dataDir := t.TempDir()
+	vault := secrets.NewWithKeyring(dataDir, nil)
+	if err := vault.Unlock("binding-lifecycle-test"); err != nil {
+		t.Fatalf("unlock test vault: %v", err)
+	}
+	store, err := storage.OpenWithVault(dataDir, vault)
 	if err != nil {
 		t.Fatal(err)
 	}
