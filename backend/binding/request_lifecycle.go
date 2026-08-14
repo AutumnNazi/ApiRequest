@@ -121,51 +121,22 @@ func collectContext(store *storage.Store, req model.HttpRequest, sendCtx model.S
 
 // persistVariableChanges 把脚本的变量变更统一提交（docs/request-lifecycle.md §3.1）
 func persistVariableChanges(store *storage.Store, ec *executionContext, workspaceId string, r script.Result) error {
-	if ec.env != nil && !r.EnvChanges.Empty() {
-		ec.env.Variables = applyChanges(ec.env.Variables, r.EnvChanges)
-		if _, err := store.UpsertEnvironment(*ec.env); err != nil {
-			return err
+	changes := storage.WorkspaceVariableMutations{
+		Globals: storage.VariableMutation{Set: r.GlobalChanges.Set, Unset: r.GlobalChanges.Unset},
+	}
+	if ec.env != nil {
+		changes.EnvironmentId = ec.env.Id
+		changes.Environment = storage.VariableMutation{
+			Set: r.EnvChanges.Set, Unset: r.EnvChanges.Unset,
 		}
 	}
-	if !r.CollectionChanges.Empty() && len(ec.ancestors) > 0 {
-		root := ec.ancestors[len(ec.ancestors)-1]
-		root.Variables = applyChanges(root.Variables, r.CollectionChanges)
-		if _, err := store.UpsertNode(root); err != nil {
-			return err
+	if len(ec.ancestors) > 0 {
+		changes.CollectionId = ec.ancestors[len(ec.ancestors)-1].Id
+		changes.Collection = storage.VariableMutation{
+			Set: r.CollectionChanges.Set, Unset: r.CollectionChanges.Unset,
 		}
 	}
-	if !r.GlobalChanges.Empty() {
-		globals, err := store.GetGlobalVariables(workspaceId)
-		if err != nil {
-			return err
-		}
-		if err := store.SetGlobalVariables(workspaceId, applyChanges(globals, r.GlobalChanges)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func applyChanges(vars []model.Variable, c *script.VarChanges) []model.Variable {
-	out := make([]model.Variable, 0, len(vars))
-	seen := map[string]bool{}
-	for _, v := range vars {
-		if c.Unset[v.Key] {
-			continue
-		}
-		if nv, ok := c.Set[v.Key]; ok {
-			v.Value = nv
-			v.Enabled = true
-			seen[v.Key] = true
-		}
-		out = append(out, v)
-	}
-	for k, v := range c.Set {
-		if !seen[k] {
-			out = append(out, model.Variable{Key: k, Value: v, Type: "default", Enabled: true})
-		}
-	}
-	return out
+	return store.ApplyWorkspaceVariableMutations(workspaceId, changes)
 }
 
 func resolveInheritedAuth(req *model.HttpRequest, ancestors []model.Node) {

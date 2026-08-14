@@ -212,4 +212,33 @@ describe('ResponseViewer body rendering', () => {
     const view = render(<ResponseViewer response={response} sending={false} />);
     expect(view.container.querySelector('pre .text-blue-600')).toHaveTextContent('true');
   });
+
+  it('shows a visible error when saving a response example fails', async () => {
+    Object.defineProperty(window, 'go', {
+      configurable: true,
+      value: {
+        binding: {
+          ExampleApi: {
+            UpsertExample: () => Promise.reject(new Error('database locked')),
+          },
+        },
+      },
+    });
+    const response = {
+      status: 200,
+      statusText: 'OK',
+      headers: [],
+      cookies: [],
+      body: { inline: true, text: 'example body', encoding: 'utf8' },
+      timing: { dnsMs: 0, connectMs: 0, tlsMs: 0, ttfbMs: 1, downloadMs: 1, totalMs: 2 },
+      sizeBytes: 12,
+      testResults: [],
+      scriptLogs: [],
+    } as unknown as ResponseResult;
+
+    render(<ResponseViewer response={response} sending={false} nodeId="request-1" />);
+    fireEvent.click(screen.getByRole('button', { name: '保存为示例' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('保存示例失败：database locked');
+  });
 });

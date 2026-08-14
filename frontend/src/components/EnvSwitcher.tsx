@@ -14,6 +14,7 @@ import { useStableRowIds } from '../hooks/useStableRowIds';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 import Dropdown from './Dropdown';
+import QueryErrorState from './QueryErrorState';
 
 interface Props {
   workspaceId: string;
@@ -23,10 +24,11 @@ export default function EnvSwitcher({ workspaceId }: Props) {
   const dialog = useDialog();
   const qc = useQueryClient();
   const [managing, setManaging] = useState(false);
-  const { data: envs = [] } = useQuery({
+  const envQuery = useQuery({
     queryKey: ['envs', workspaceId],
     queryFn: () => listEnvironments(workspaceId),
   });
+  const envs = envQuery.data ?? [];
   const active = envs.find((e) => e.isActive);
 
   const activate = useMutation({
@@ -40,21 +42,36 @@ export default function EnvSwitcher({ workspaceId }: Props) {
         { title: formatMessage('切换环境失败') },
       ),
   });
+  const unavailable = envQuery.isPending || activate.isPending;
+
+  if (envQuery.isError && envs.length === 0) {
+    return (
+      <div className="ml-auto">
+        <QueryErrorState
+          message={formatMessage('环境加载失败')}
+          detail={toAppError(envQuery.error).detail}
+          onRetry={() => void envQuery.refetch()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="ml-auto flex items-center gap-2">
       <Dropdown
         value={active?.id ?? ''}
         options={[
-          { value: '', label: formatMessage('无环境') },
+          { value: '', label: envQuery.isPending ? formatMessage('加载中…') : formatMessage('无环境') },
           ...envs.map((e) => ({ value: e.id, label: e.name })),
         ]}
         onChange={(v) => activate.mutate(v)}
         title={formatMessage('切换环境 (Ctrl+E)')}
+        disabled={unavailable}
       >
         <button
-          className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 ml-1"
+          className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 ml-1 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => setManaging(true)}
+          disabled={unavailable}
         >
           {formatMessage('管理')}
         </button>
@@ -94,6 +111,10 @@ function EnvManager({
       invalidate();
       setSelectedId(created.id);
     },
+    onError: (cause) => void dialog.alert(
+      formatMessage('创建环境失败: {detail}', { detail: toAppError(cause).detail }),
+      { title: formatMessage('创建环境失败') },
+    ),
   });
 
   const save = useMutation({
@@ -112,6 +133,10 @@ function EnvManager({
       invalidate();
       setSelectedId(null);
     },
+    onError: (cause) => void dialog.alert(
+      formatMessage('删除环境失败: {detail}', { detail: toAppError(cause).detail }),
+      { title: formatMessage('删除环境失败') },
+    ),
   });
 
   return (
@@ -147,10 +172,11 @@ function EnvManager({
               ))}
             </div>
             <button
-              className="m-2 border border-dashed rounded py-1 text-xs text-gray-500 hover:text-gray-800"
+              className="m-2 border border-dashed rounded py-1 text-xs text-gray-500 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => create.mutate()}
+              disabled={create.isPending}
             >
-              {formatMessage('+ 新建环境')}
+              {create.isPending ? formatMessage('创建中…') : formatMessage('+ 新建环境')}
             </button>
           </div>
           {/* 变量编辑 */}
@@ -164,6 +190,8 @@ function EnvManager({
                   if (ok) del.mutate(selected.id);
                 });
               }}
+              saving={save.isPending}
+              deleting={del.isPending}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
@@ -180,10 +208,14 @@ function EnvEditor({
   env,
   onSave,
   onDelete,
+  saving,
+  deleting,
 }: {
   env: Environment;
   onSave(env: Environment): void;
   onDelete(): void;
+  saving: boolean;
+  deleting: boolean;
 }) {
   const [name, setName] = useState(env.name);
   const [vars, setVars] = useState<Variable[]>(env.variables ?? []);
@@ -211,16 +243,18 @@ function EnvEditor({
           onChange={(e) => setName(e.target.value)}
         />
         <button
-          className="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700"
+          className="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => onSave({ ...env, name, variables: vars } as Environment)}
+          disabled={saving || deleting}
         >
-          {formatMessage('保存')}
+          {saving ? formatMessage('保存中…') : formatMessage('保存')}
         </button>
         <button
-          className="border border-red-200 text-red-500 rounded px-3 py-1 text-sm hover:bg-red-50"
+          className="border border-red-200 text-red-500 rounded px-3 py-1 text-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={onDelete}
+          disabled={saving || deleting}
         >
-          {formatMessage('删除')}
+          {deleting ? formatMessage('删除中…') : formatMessage('删除')}
         </button>
       </div>
       <div className="flex-1 overflow-auto p-3">

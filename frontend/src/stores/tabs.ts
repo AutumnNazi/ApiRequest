@@ -25,11 +25,17 @@ export interface WorkspaceSession {
   activeId: string | null;
 }
 
+export type CloseTabCommitResult =
+  | { status: 'closed'; tab: Tab }
+  | { status: 'changed' }
+  | { status: 'missing' };
+
 interface TabsState {
   sessions: Record<string, WorkspaceSession>;
   openBlank(workspaceId: string): string;
   openNode(workspaceId: string, nodeId: string, name: string, req: HttpRequest): string;
   close(tabId: string): Tab | undefined;
+  closeIfUnchanged(tabId: string, revision: number, sendId?: string): CloseTabCommitResult;
   reorderTabs(workspaceId: string, fromId: string, toId: string): void;
   removeSession(workspaceId: string): void;
   detachNodes(workspaceId: string, nodeIds: string[]): void;
@@ -271,6 +277,35 @@ export const useTabs = create<TabsState>()(
           return state;
         });
         return removed;
+      },
+
+      closeIfUnchanged(tabId, revision, sendId) {
+        let result: CloseTabCommitResult = { status: 'missing' };
+        set((state) => {
+          for (const [workspaceId, session] of Object.entries(state.sessions)) {
+            const index = session.tabs.findIndex((tab) => tab.id === tabId);
+            if (index < 0) continue;
+            const current = session.tabs[index];
+            if (current.revision !== revision || current.sendId !== sendId) {
+              result = { status: 'changed' };
+              return state;
+            }
+            const tabs = session.tabs.filter((tab) => tab.id !== tabId);
+            const activeId =
+              session.activeId === tabId
+                ? (tabs[Math.min(index, tabs.length - 1)]?.id ?? null)
+                : session.activeId;
+            result = { status: 'closed', tab: current };
+            return {
+              sessions: {
+                ...state.sessions,
+                [workspaceId]: { tabs, activeId },
+              },
+            };
+          }
+          return state;
+        });
+        return result;
       },
 
       reorderTabs(workspaceId, fromId, toId) {

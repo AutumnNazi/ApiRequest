@@ -14,23 +14,30 @@ import (
 	"apirequest/backend/storage"
 )
 
+const maxCachedRunnerReports = 20
+
 // RunnerApi Collection Runner 域（docs/api-contract.md §4）
 type RunnerApi struct {
 	ctx     context.Context
 	request *RequestApi
 	store   *storage.Store
 
-	operations *operationRegistry
-	mu         sync.Mutex
-	reports    map[string]*runner.Report // runId → 最新报告（内存）
+	operations  *operationRegistry
+	mu          sync.Mutex
+	reports     map[string]*runner.Report // runId → 最新报告（内存）
+	reportOrder []string
 }
 
 // NewRunnerApi 构造
 func NewRunnerApi(request *RequestApi, store *storage.Store) *RunnerApi {
+	operations := newOperationRegistry()
+	if request != nil && request.operations != nil {
+		operations = request.operations
+	}
 	return &RunnerApi{
 		request:    request,
 		store:      store,
-		operations: newOperationRegistry(),
+		operations: operations,
 		reports:    map[string]*runner.Report{},
 	}
 }
@@ -157,10 +164,31 @@ loop:
 	report.Skipped = total - report.Total
 	report.DurationMs = time.Since(start).Milliseconds()
 
-	a.mu.Lock()
-	a.reports[runId] = report
-	a.mu.Unlock()
+	a.rememberReport(report)
 	return report, nil
+}
+
+func (a *RunnerApi) rememberReport(report *runner.Report) {
+	if report == nil || report.RunId == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, exists := a.reports[report.RunId]; exists {
+		for index, id := range a.reportOrder {
+			if id == report.RunId {
+				a.reportOrder = append(a.reportOrder[:index], a.reportOrder[index+1:]...)
+				break
+			}
+		}
+	}
+	a.reports[report.RunId] = report
+	a.reportOrder = append(a.reportOrder, report.RunId)
+	for len(a.reportOrder) > maxCachedRunnerReports {
+		oldest := a.reportOrder[0]
+		a.reportOrder = a.reportOrder[1:]
+		delete(a.reports, oldest)
+	}
 }
 
 // CancelRun 取消进行中的运行；未知 runId 为 no-op

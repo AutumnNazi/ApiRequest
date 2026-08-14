@@ -16,7 +16,7 @@ type operation struct {
 }
 
 // operationRegistry owns uniqueness, cancellation, completion, and shutdown
-// for one class of long-running operations.
+// for all long-running operations in one application instance.
 type operationRegistry struct {
 	mu            sync.Mutex
 	active        map[string]*operation

@@ -43,6 +43,22 @@ describe('Workspace Session store', () => {
     expect(useTabs.getState().sessions['workspace-a'].tabs).toHaveLength(0);
   });
 
+  it('refuses to close when the tab revision changed after validation', () => {
+    const tabId = useTabs.getState().openBlank('workspace-a');
+    const snapshot = useTabs.getState().sessions['workspace-a'].tabs[0];
+    useTabs.getState().patchDraft(tabId, { url: 'https://edited-during-close.example' });
+
+    expect(
+      useTabs.getState().closeIfUnchanged(tabId, snapshot.revision, snapshot.sendId),
+    ).toEqual({ status: 'changed' });
+    expect(useTabs.getState().sessions['workspace-a'].tabs).toHaveLength(1);
+
+    const current = useTabs.getState().sessions['workspace-a'].tabs[0];
+    const result = useTabs.getState().closeIfUnchanged(tabId, current.revision, current.sendId);
+    expect(result.status).toBe('closed');
+    expect(useTabs.getState().sessions['workspace-a'].tabs).toHaveLength(0);
+  });
+
   it('persists only dirty drafts and removes credential and transient state', () => {
     const clean = useTabs.getState().openBlank('workspace-a');
     const dirty = useTabs.getState().openBlank('workspace-a');

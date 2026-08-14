@@ -32,6 +32,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
   const [progress, setProgress] = useState<RunnerProgress | null>(null);
   const [report, setReport] = useState<RunnerReport | null>(null);
   const [error, setError] = useState('');
+  const [exporting, setExporting] = useState(false);
   const runIdRef = useRef('');
 
   useEffect(() => {
@@ -95,6 +96,21 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
       setDataFormat(path.toLowerCase().endsWith('.json') ? 'json' : 'csv');
     } catch (cause) {
       setError(toAppError(cause).detail);
+    }
+  };
+
+  const handleExport = async () => {
+    if (!report || exporting) return;
+    setError('');
+    setExporting(true);
+    try {
+      const text = await exportReport(report.runId);
+      await navigator.clipboard.writeText(text);
+      void dialog.alert(formatMessage('报告 JSON 已复制到剪贴板'));
+    } catch (cause) {
+      setError(toAppError(cause).detail);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -249,14 +265,11 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
             <>
               {report && (
                 <button
-                  className="border rounded px-4 py-1.5 text-sm hover:bg-gray-50"
-                  onClick={async () => {
-                    const text = await exportReport(report.runId);
-                    await navigator.clipboard.writeText(text);
-                    void dialog.alert(formatMessage('报告 JSON 已复制到剪贴板'));
-                  }}
+                  className="border rounded px-4 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => void handleExport()}
+                  disabled={exporting}
                 >
-                  {formatMessage('导出报告')}
+                  {exporting ? formatMessage('导出中…') : formatMessage('导出报告')}
                 </button>
               )}
               <button

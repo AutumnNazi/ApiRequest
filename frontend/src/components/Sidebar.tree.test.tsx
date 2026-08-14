@@ -20,7 +20,10 @@ const ipc = vi.hoisted(() => ({
   exportMirror: vi.fn(() => Promise.resolve(null)),
   openNativeDirectory: vi.fn(() => Promise.resolve('')),
   newDefaultRequest: vi.fn(() => ({})),
-  toAppError: vi.fn((e: unknown) => (e instanceof Error ? e : new Error(String(e)))),
+  toAppError: vi.fn((e: unknown) => ({
+    kind: 'unknown',
+    detail: e instanceof Error ? e.message : String(e),
+  })),
 }));
 
 vi.mock('../ipc', () => ipc);
@@ -61,7 +64,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   ipc.listNodes.mockReset();
   ipc.listNodes.mockResolvedValue(nodes);
+  ipc.listHistory.mockReset();
+  ipc.listHistory.mockResolvedValue({ items: [], nextCursor: '', hasMore: false });
+  ipc.upsertNode.mockReset();
+  ipc.upsertNode.mockImplementation((node: unknown) => Promise.resolve(node));
   ipc.deleteNode.mockResolvedValue(null);
+  ipc.clearHistory.mockResolvedValue(null);
   ipc.moveNodes.mockResolvedValue(null);
   useTabs.setState({ sessions: {} });
 });
@@ -313,5 +321,26 @@ describe('CollectionTree multi-select', () => {
       { id: 'r1', parentId: 'c2', sortOrder: 0 },
       { id: 'r2', parentId: 'c2', sortOrder: 1 },
     ]);
+  });
+
+  it('reports collection creation failures', async () => {
+    ipc.upsertNode.mockRejectedValueOnce(new Error('disk full'));
+    renderTree();
+    await screen.findByText('请求1');
+
+    fireEvent.click(screen.getByRole('button', { name: /新建集合/ }));
+
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('创建集合失败: disk full');
+  });
+
+  it('shows history load failures and allows retrying', async () => {
+    ipc.listHistory.mockRejectedValueOnce(new Error('database offline'));
+    renderTree();
+
+    fireEvent.click(screen.getByRole('button', { name: '历史' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('加载历史失败：database offline');
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    await waitFor(() => expect(ipc.listHistory).toHaveBeenCalledTimes(2));
   });
 });

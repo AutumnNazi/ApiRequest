@@ -186,11 +186,19 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         }),
       } as Node),
     onSuccess: invalidate,
+    onError: (cause) => void dialog.alert(
+      formatMessage('创建集合失败: {detail}', { detail: toAppError(cause).detail }),
+      { title: formatMessage('创建失败') },
+    ),
   });
 
   const del = useMutation({
     mutationFn: (nodeId: string) => deleteNode(workspaceId, nodeId),
     onSuccess: invalidate,
+    onError: (cause) => void dialog.alert(
+      formatMessage('删除节点失败: {detail}', { detail: toAppError(cause).detail }),
+      { title: formatMessage('删除失败') },
+    ),
   });
 
   const addChild = useMutation({
@@ -208,11 +216,19 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         openNode(workspaceId, created.id, created.name, created.request);
       }
     },
+    onError: (cause) => void dialog.alert(
+      formatMessage('创建节点失败: {detail}', { detail: toAppError(cause).detail }),
+      { title: formatMessage('创建失败') },
+    ),
   });
 
   const rename = useMutation({
     mutationFn: (n: NodeSummary) => renameNode(workspaceId, n.id, n.name),
     onSuccess: invalidate,
+    onError: (cause) => void dialog.alert(
+      formatMessage('重命名失败: {detail}', { detail: toAppError(cause).detail }),
+      { title: formatMessage('重命名失败') },
+    ),
   });
 
   const move = useMutation({
@@ -1278,6 +1294,10 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
   const clear = useMutation({
     mutationFn: () => clearHistory(workspaceId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['history'] }),
+    onError: (cause) => void dialog.alert(
+      formatMessage('清空历史失败: {detail}', { detail: toAppError(cause).detail }),
+      { title: formatMessage('清空失败') },
+    ),
   });
 
   const replay = async (item: HistorySummary) => {
@@ -1307,19 +1327,38 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
           onChange={(e) => setSearch(e.target.value)}
         />
         <button
-          className="border rounded px-2 py-1 text-xs text-gray-400 hover:text-red-500 hover:border-gray-300"
+          className="border rounded px-2 py-1 text-xs text-gray-400 hover:text-red-500 hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-50"
           title={formatMessage('清空全部历史')}
+          disabled={clear.isPending}
           onClick={() => {
             void dialog.confirm(formatMessage('清空全部历史记录？')).then((ok) => {
               if (ok) clear.mutate();
             });
           }}
         >
-          {formatMessage('清空')}
+          {clear.isPending ? formatMessage('清空中…') : formatMessage('清空')}
         </button>
       </div>
       <div className="flex-1 overflow-auto">
-        {items.length === 0 ? (
+        {history.isPending ? (
+          <p className="text-gray-400 text-center py-6 text-xs">{formatMessage('加载中…')}</p>
+        ) : history.isError && items.length === 0 ? (
+          <div className="space-y-2 px-3 py-6 text-center text-xs" role="alert">
+            <p className="break-words text-red-600">
+              <Verbatim
+                value={formatMessage('加载历史失败：{detail}', {
+                  detail: toAppError(history.error).detail,
+                })}
+              />
+            </p>
+            <button
+              className="rounded border px-2 py-1 text-gray-600 hover:bg-gray-100"
+              onClick={() => void history.refetch()}
+            >
+              {formatMessage('重试')}
+            </button>
+          </div>
+        ) : items.length === 0 ? (
           <p className="text-gray-400 text-center py-6 text-xs">
             {debounced ? '无匹配记录' : '暂无历史记录'}
           </p>
@@ -1344,11 +1383,19 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
                 <div className="truncate text-xs text-gray-600 font-mono"><Verbatim value={it.url} /></div>
               </div>
             ))}
-            {history.hasNextPage && (
+            {history.hasNextPage && !history.isFetchNextPageError && (
               <LoadMoreTrigger
                 isFetching={history.isFetchingNextPage}
                 onLoadMore={() => void history.fetchNextPage()}
               />
+            )}
+            {history.isFetchNextPageError && (
+              <div className="flex items-center justify-center gap-2 px-2 py-2 text-xs text-red-600" role="alert">
+                <span>{formatMessage('加载更多历史失败')}</span>
+                <button className="underline" onClick={() => void history.fetchNextPage()}>
+                  {formatMessage('重试')}
+                </button>
+              </div>
             )}
           </div>
         )}

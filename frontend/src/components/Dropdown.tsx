@@ -13,6 +13,7 @@ interface Props {
   className?: string;
   placeholder?: string;
   title?: string;
+  disabled?: boolean;
   children?: ReactNode; // 右侧额外内容（如"管理"按钮）
 }
 
@@ -23,6 +24,7 @@ export default function Dropdown({
   className = '',
   placeholder = '',
   title,
+  disabled = false,
   children,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -37,6 +39,10 @@ export default function Dropdown({
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
   const selected = options.find((o) => o.value === value);
   const display = selected?.label ?? placeholder ?? '';
 
@@ -44,9 +50,10 @@ export default function Dropdown({
     <div ref={ref} className={`relative flex items-center ${className}`}>
       <button
         type="button"
-        className="tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-none min-w-0"
+        className="tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:opacity-50"
         onClick={() => setOpen((v) => !v)}
         title={title}
+        disabled={disabled}
       >
         <span className="truncate max-w-32">{display}</span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
@@ -67,6 +74,7 @@ export default function Dropdown({
                 onChange(opt.value);
                 setOpen(false);
               }}
+              disabled={disabled}
             >
               {opt.label}
             </button>

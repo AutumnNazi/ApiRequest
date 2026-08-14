@@ -6,6 +6,7 @@ import RequestEditor from './components/RequestEditor';
 import ResponseViewer from './components/ResponseViewer';
 import Splitter from './components/Splitter';
 import WindowControls from './components/WindowControls';
+import QueryErrorState from './components/QueryErrorState';
 import EnvSwitcher from './components/EnvSwitcher';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import { useDialog } from './components/DialogProvider';
@@ -15,6 +16,7 @@ import { WindowMaximise, WindowUnmaximise, WindowIsMaximised } from '../wailsjs/
 import { formatMessage, useLocale, Verbatim } from './i18n/locale';
 import { collectVarRefs } from './utils/varRefs';
 import { ensureHttpScheme, splitRequestAuthHeader } from './utils/request';
+import { closeTabSafely, closeTabsSequentially } from './utils/tabClose';
 
 // 仅在打开时加载，降低初始渲染的脚本体积。
 const CookieManager = lazy(() => import('./components/CookieManager'));
@@ -59,7 +61,7 @@ export default function App() {
   const locale = useLocale((state) => state.locale);
   const sessions = useTabs((s) => s.sessions);
   const openBlank = useTabs((s) => s.openBlank);
-  const close = useTabs((s) => s.close);
+  const closeIfUnchanged = useTabs((s) => s.closeIfUnchanged);
   const reorderTabs = useTabs((s) => s.reorderTabs);
   const setActive = useTabs((s) => s.setActive);
   const setSending = useTabs((s) => s.setSending);
@@ -68,22 +70,32 @@ export default function App() {
   const markSaved = useTabs((s) => s.markSaved);
   const setProgress = useTabs((s) => s.setProgress);
 
-  const { data: defaultWorkspace } = useQuery({
+  const workspaceQuery = useQuery({
     queryKey: ['workspace'],
     queryFn: getDefaultWorkspace,
   });
+  const defaultWorkspace = workspaceQuery.data;
   // 首次加载：若默认工作区仍为英文名"My Workspace"，重命名为本地化名称
   useEffect(() => {
     if (defaultWorkspace?.name === 'My Workspace') {
       const localName = formatMessage('我的工作区');
       if (localName !== 'My Workspace') {
-        void renameWorkspace(defaultWorkspace.id, localName).then(() => {
-          qc.invalidateQueries({ queryKey: ['workspace'] });
-          qc.invalidateQueries({ queryKey: ['workspaces'] });
-        });
+        void renameWorkspace(defaultWorkspace.id, localName)
+          .then(() => {
+            qc.invalidateQueries({ queryKey: ['workspace'] });
+            qc.invalidateQueries({ queryKey: ['workspaces'] });
+          })
+          .catch((cause) => {
+            dialog.toast(
+              formatMessage('初始化工作区名称失败：{detail}', {
+                detail: toAppError(cause).detail,
+              }),
+              'error',
+            );
+          });
       }
     }
-  }, [defaultWorkspace, qc]);
+  }, [defaultWorkspace, dialog, locale, qc]);
   // 当前工作区：默认为 GetDefaultWorkspace，切换后覆盖
   const [workspaceOverride, setWorkspaceOverride] = useState<{ id: string; name: string } | null>(
     null,
@@ -228,30 +240,29 @@ export default function App() {
 
   const active = tabs.find((t) => t.id === activeId);
 
-  const closeTab = async (tab: Tab) => {
-    let current = findTab(tab.id);
-    while (current?.dirty) {
-      const confirmedRevision = current.revision;
-      if (!(await dialog.confirm(formatMessage('关闭「{name}」并放弃未保存的修改？', { name: current.name })))) {
-        return;
-      }
-      current = findTab(tab.id);
-      if (!current || !current.dirty || current.revision === confirmedRevision) break;
+  const closeTab = async (tab: Tab): Promise<boolean> => {
+    let result: Awaited<ReturnType<typeof closeTabSafely<Tab>>>;
+    try {
+      result = await closeTabSafely(tab.id, {
+        read: findTab,
+        confirmDiscard: (current) =>
+          dialog.confirm(
+            formatMessage('关闭「{name}」并放弃未保存的修改？', { name: current.name }),
+          ),
+        cancel: cancelRequest,
+        commit: (current) =>
+          closeIfUnchanged(current.id, current.revision, current.sendId),
+      });
+    } catch (cause) {
+      void dialog.alert(
+        formatMessage('关闭标签前取消请求失败: {detail}', { detail: toAppError(cause).detail }),
+        { title: '请求取消失败' },
+      );
+      return false;
     }
-    if (!current) return;
-    if (current.sendId) {
-      try {
-        await cancelRequest(current.sendId);
-      } catch (cause) {
-        void dialog.alert(
-          formatMessage('关闭标签前取消请求失败: {detail}', { detail: toAppError(cause).detail }),
-          { title: '请求取消失败' },
-        );
-        return;
-      }
-    }
-    const removed = close(tab.id);
-    if (!removed) return;
+    if (!result.continue) return false;
+    const removed = result.closed;
+    if (!removed) return true;
     const blobRef = removed.response?.body?.blobRef;
     if (blobRef) {
       try {
@@ -263,27 +274,23 @@ export default function App() {
         );
       }
     }
+    return true;
   };
 
   // 批量关闭：统一用 closeTab 逐个处理（包含 dirty 检查与资源释放）
-  const closeOthers = (keepTab: Tab) => {
-    for (const t of tabs) {
-      if (t.id !== keepTab.id) void closeTab(t);
-    }
-  };
+  const closeOthers = (keepTab: Tab) =>
+    closeTabsSequentially(tabs.filter((tab) => tab.id !== keepTab.id), closeTab);
   const closeRight = (anchorTab: Tab) => {
     const idx = tabs.findIndex((t) => t.id === anchorTab.id);
-    if (idx < 0) return;
-    for (const t of tabs.slice(idx + 1)) void closeTab(t);
+    if (idx < 0) return Promise.resolve(true);
+    return closeTabsSequentially(tabs.slice(idx + 1), closeTab);
   };
   const closeLeft = (anchorTab: Tab) => {
     const idx = tabs.findIndex((t) => t.id === anchorTab.id);
-    if (idx <= 0) return;
-    for (const t of tabs.slice(0, idx)) void closeTab(t);
+    if (idx <= 0) return Promise.resolve(true);
+    return closeTabsSequentially(tabs.slice(0, idx), closeTab);
   };
-  const closeAll = () => {
-    for (const t of tabs) void closeTab(t);
-  };
+  const closeAll = () => closeTabsSequentially(tabs, closeTab);
 
   // 点击页面其他位置关闭 tab 右键菜单
   const tabCtxRef = useRef<HTMLDivElement>(null);
@@ -487,6 +494,17 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  if (!workspace && workspaceQuery.isError) {
+    return (
+      <QueryErrorState
+        message={formatMessage('初始化失败')}
+        detail={toAppError(workspaceQuery.error).detail}
+        onRetry={() => void workspaceQuery.refetch()}
+        fullScreen
+      />
+    );
+  }
+
   if (!workspace) {
     return (
       <div className="h-screen flex items-center justify-center text-gray-400">{formatMessage('初始化中…')}</div>
@@ -633,7 +651,7 @@ export default function App() {
               if (disOthers) return;
               const target = tabs.find((t) => t.id === tabCtx.tabId);
               setTabCtx(null);
-              if (target) closeOthers(target);
+              if (target) void closeOthers(target);
             }}
           >
             {formatMessage('关闭其他')}
@@ -645,7 +663,7 @@ export default function App() {
               if (disLeft) return;
               const target = tabs.find((t) => t.id === tabCtx.tabId);
               setTabCtx(null);
-              if (target) closeLeft(target);
+              if (target) void closeLeft(target);
             }}
           >
             {formatMessage('关闭左侧')}
@@ -657,7 +675,7 @@ export default function App() {
               if (disRight) return;
               const target = tabs.find((t) => t.id === tabCtx.tabId);
               setTabCtx(null);
-              if (target) closeRight(target);
+              if (target) void closeRight(target);
             }}
           >
             {formatMessage('关闭右侧')}
@@ -667,7 +685,7 @@ export default function App() {
             className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
             onClick={() => {
               setTabCtx(null);
-              closeAll();
+              void closeAll();
             }}
           >
             {formatMessage('关闭全部')}
@@ -721,7 +739,7 @@ export default function App() {
                 } ${dragTabId === t.id ? 'opacity-50' : ''}`}
                 onClick={() => setActive(t.id)}
                 onAuxClick={(e) => {
-                  if (e.button === 1) closeTab(t); // 中键关闭
+                  if (e.button === 1) void closeTab(t); // 中键关闭
                 }}
               >
                 <span className="truncate max-w-40">
@@ -732,7 +750,7 @@ export default function App() {
                   className="text-gray-400 hover:text-gray-700 ml-1"
                   onClick={(e) => {
                     e.stopPropagation();
-                    closeTab(t);
+                    void closeTab(t);
                   }}
                 >
                   ×

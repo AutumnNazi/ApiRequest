@@ -12,6 +12,7 @@ import { useTabs } from '../stores/tabs';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 import Dropdown from './Dropdown';
+import QueryErrorState from './QueryErrorState';
 
 interface Props {
   activeId: string;
@@ -21,22 +22,24 @@ interface Props {
 export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
   const dialog = useDialog();
   const qc = useQueryClient();
-  const { data: workspaces = [] } = useQuery({
+  const workspacesQuery = useQuery({
     queryKey: ['workspaces'],
     queryFn: listWorkspaces,
   });
+  const workspaces = workspacesQuery.data ?? [];
   const invalidate = () => qc.invalidateQueries({ queryKey: ['workspaces'] });
   const active = workspaces.find((w) => w.id === activeId);
   const [busy, setBusy] = useState(false);
   const removeSession = useTabs((state) => state.removeSession);
 
   const doCreate = async () => {
-    const name = await dialog.prompt(formatMessage('新工作区名称：'), {
-      defaultValue: formatMessage('工作区 {index}', { index: workspaces.length + 1 }),
-    });
-    if (!name) return;
+    if (busy) return;
     setBusy(true);
     try {
+      const name = await dialog.prompt(formatMessage('新工作区名称：'), {
+        defaultValue: formatMessage('工作区 {index}', { index: workspaces.length + 1 }),
+      });
+      if (!name) return;
       const w = await createWorkspace(name);
       invalidate();
       onSwitch(w.id);
@@ -51,29 +54,33 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
   };
 
   const doRename = async () => {
-    if (!active) return;
-    const name = await dialog.prompt(formatMessage('重命名工作区：'), { defaultValue: active.name });
-    if (!name || name === active.name) return;
+    if (!active || busy) return;
+    setBusy(true);
     try {
+      const name = await dialog.prompt(formatMessage('重命名工作区：'), { defaultValue: active.name });
+      if (!name || name === active.name) return;
       await renameWorkspace(active.id, name);
       invalidate();
     } catch (e) {
       void dialog.alert(formatMessage('重命名失败: {detail}', { detail: toAppError(e).detail }), {
         title: formatMessage('重命名失败'),
       });
+    } finally {
+      setBusy(false);
     }
   };
 
   const doDelete = async () => {
-    if (!active) return;
-    if (
-      !(await dialog.confirm(
-        formatMessage('删除工作区「{name}」及其全部集合、环境与历史？此操作不可恢复。', {
-          name: active.name,
-        }),
-      ))
-    ) return;
+    if (!active || busy) return;
+    setBusy(true);
     try {
+      if (
+        !(await dialog.confirm(
+          formatMessage('删除工作区「{name}」及其全部集合、环境与历史？此操作不可恢复。', {
+            name: active.name,
+          }),
+        ))
+      ) return;
       await deleteWorkspace(active.id);
       removeSession(active.id);
       invalidate();
@@ -84,8 +91,22 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
         formatMessage('删除工作区失败: {detail}', { detail: toAppError(e).detail }),
         { title: formatMessage('删除工作区失败') },
       );
+    } finally {
+      setBusy(false);
     }
   };
+
+  if (workspacesQuery.isError && workspaces.length === 0) {
+    return (
+      <div className="ml-3">
+        <QueryErrorState
+          message={formatMessage('工作区加载失败')}
+          detail={toAppError(workspacesQuery.error).detail}
+          onRetry={() => void workspacesQuery.refetch()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-1 ml-3">
@@ -94,11 +115,14 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
         options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
         onChange={onSwitch}
         title={formatMessage('工作区')}
+        placeholder={workspacesQuery.isPending ? formatMessage('加载中…') : ''}
+        disabled={busy || workspacesQuery.isPending}
       />
       <button
         className="text-xs text-gray-500 hover:text-gray-800 px-1"
         title={formatMessage('新建工作区')}
         onClick={doCreate}
+        disabled={busy || workspacesQuery.isPending}
       >
         +
       </button>
@@ -106,6 +130,7 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
         className="text-xs text-gray-500 hover:text-gray-800 px-1"
         title={formatMessage('重命名')}
         onClick={doRename}
+        disabled={busy || workspacesQuery.isPending}
       >
         ✎
       </button>
@@ -114,6 +139,7 @@ export default function WorkspaceSwitcher({ activeId, onSwitch }: Props) {
           className="text-xs text-gray-400 hover:text-red-500 px-1"
           title={formatMessage('删除工作区')}
           onClick={doDelete}
+          disabled={busy || workspacesQuery.isPending}
         >
           ×
         </button>

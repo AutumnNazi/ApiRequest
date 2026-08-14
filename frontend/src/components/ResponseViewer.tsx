@@ -47,6 +47,8 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   // 当前命中的序号（整数下标，-1=无）；搜索词变化时重置
   const [searchIndex, setSearchIndex] = useState(-1);
   const [exampleSaved, setExampleSaved] = useState(false);
+  const [savingExample, setSavingExample] = useState(false);
+  const [exampleError, setExampleError] = useState('');
   const [blobBytes, setBlobBytes] = useState<Uint8Array>(() => new Uint8Array());
   const [blobSize, setBlobSize] = useState(0);
   const [blobEof, setBlobEof] = useState(false);
@@ -58,7 +60,15 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   const responseBlobRef = response?.body?.blobRef ?? '';
   const activeBlobRef = useRef(responseBlobRef);
   const loadingBlobRef = useRef('');
+  const exampleSaveRef = useRef(0);
   activeBlobRef.current = responseBlobRef;
+
+  useEffect(() => {
+    exampleSaveRef.current += 1;
+    setExampleSaved(false);
+    setSavingExample(false);
+    setExampleError('');
+  }, [nodeId, response]);
 
   // 新响应到来时丢弃旧 chunk，并只读取 metadata。
   useEffect(() => {
@@ -176,16 +186,33 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   };
 
   const saveAsExample = async () => {
-    if (!response || !nodeId) return;
-    await upsertExample({
-      nodeId,
-      name: formatMessage('{status} 示例', { status: response.status }),
-      status: response.status,
-      headers: response.headers,
-      body: response.body?.text ?? '',
-    } as unknown as Example);
-    setExampleSaved(true);
-    setTimeout(() => setExampleSaved(false), 1500);
+    if (!response || !nodeId || savingExample) return;
+    const saveId = ++exampleSaveRef.current;
+    setSavingExample(true);
+    setExampleSaved(false);
+    setExampleError('');
+    try {
+      await upsertExample({
+        nodeId,
+        name: formatMessage('{status} 示例', { status: response.status }),
+        status: response.status,
+        headers: response.headers,
+        body: response.body?.text ?? '',
+      } as unknown as Example);
+      if (exampleSaveRef.current !== saveId) return;
+      setExampleSaved(true);
+      window.setTimeout(() => {
+        if (exampleSaveRef.current === saveId) setExampleSaved(false);
+      }, 1500);
+    } catch (cause) {
+      if (exampleSaveRef.current === saveId) {
+        setExampleError(
+          formatMessage('保存示例失败：{detail}', { detail: toAppError(cause).detail }),
+        );
+      }
+    } finally {
+      if (exampleSaveRef.current === saveId) setSavingExample(false);
+    }
   };
 
   const contentType = useMemo(
@@ -331,14 +358,24 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
         )}
         {nodeId && !response.body?.blobRef && (
           <button
-            className="ml-auto text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-0.5"
-            onClick={saveAsExample}
+            className="ml-auto text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => void saveAsExample()}
+            disabled={savingExample}
             title={formatMessage('保存为示例（供 Mock Server 使用）')}
           >
-            {exampleSaved ? formatMessage('已保存 ✓') : formatMessage('保存为示例')}
+            {savingExample
+              ? formatMessage('保存中…')
+              : exampleSaved
+                ? formatMessage('已保存 ✓')
+                : formatMessage('保存为示例')}
           </button>
         )}
       </div>
+      {exampleError && (
+        <div className="border-b border-red-100 bg-red-50 px-3 py-1.5 text-xs text-red-600" role="alert">
+          <Verbatim value={exampleError} />
+        </div>
+      )}
 
       {/* 页签 */}
       <div className="flex gap-4 px-3 pt-2 border-b text-sm">
