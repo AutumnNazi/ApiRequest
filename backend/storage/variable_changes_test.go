@@ -5,10 +5,26 @@ import (
 	"testing"
 
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 )
 
+func openVariableMutationTestStore(t *testing.T) *Store {
+	t.Helper()
+	dataDir := t.TempDir()
+	vault := secrets.NewWithKeyring(dataDir, nil)
+	if err := vault.Unlock("variable-mutation-test"); err != nil {
+		t.Fatalf("unlock test vault: %v", err)
+	}
+	store, err := OpenWithVault(dataDir, vault)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
+}
+
 func TestApplyWorkspaceVariableMutationsMergesConcurrentChanges(t *testing.T) {
-	store := openTestStore(t)
+	store := openVariableMutationTestStore(t)
 	workspace, err := store.EnsureDefaultWorkspace()
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +76,7 @@ func TestApplyWorkspaceVariableMutationsMergesConcurrentChanges(t *testing.T) {
 }
 
 func TestApplyWorkspaceVariableMutationsRollsBackAllScopes(t *testing.T) {
-	store := openTestStore(t)
+	store := openVariableMutationTestStore(t)
 	workspace, err := store.EnsureDefaultWorkspace()
 	if err != nil {
 		t.Fatal(err)
