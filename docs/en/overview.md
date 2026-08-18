@@ -122,7 +122,7 @@ Business modules such as `http`, `storage`, and `auth` depend **only on the foll
 |--------|----------------|---------|-------|
 | `paths` | Application data, logs, and blobs root | `%APPDATA%\com.apirequest.app\` through `os.UserConfigDir` | `~/Library/Application Support/com.apirequest.app/` |
 | `secrets` | Secret variables and OAuth token storage | Credential Manager through `go-keyring` | Keychain through `go-keyring` |
-| `proxy` | Read system proxy and bypass rules | WinHTTP / registry; fall back to `http.ProxyFromEnvironment` | System Configuration; fall back to environment variables |
+| `proxy` | Read system proxy and bypass rules | Internet Settings registry; fall back to environment variables | System Configuration; fall back to environment variables |
 | `certs` | Load custom CAs and client certificates | Files plus optional system certificate store | Files plus Keychain trust |
 | `open` | Open the system browser for OAuth and similar flows | System default through Wails `runtime.BrowserOpenURL` | Same |
 
@@ -131,6 +131,8 @@ Conventions:
 - **Paths**: always use standard APIs such as `path/filepath` and `os.UserConfigDir`; never concatenate path separators. Relative paths persisted to the database or mirror always use `/`.
 - **Secrets**: see [ADR-013](./decisions.md#adr-013-use-the-system-keychain-by-default-with-master-password-encryption-as-fallback-accepted).
 - **Proxy/certificates**: inject configuration into the HTTP engine through `platform`; the UI only displays results and manual overrides.
+
+All five submodules are implemented. The desktop app and CLI resolve the `data/blobs/logs/protos` roots consistently; the Vault reaches the system credential store through `platform.secrets`; system proxy discovery prefers Windows Internet Settings or macOS System Configuration and falls back to environment variables; TLS appends custom CAs and optional mTLS identities to native trust; and OAuth launches only validated HTTP(S) authorization URLs through `platform.open`.
 
 See [ops.md](./ops.md#4-cross-platform-support-and-releases) for packaging artifacts, the CI matrix, and smoke-test coverage.
 

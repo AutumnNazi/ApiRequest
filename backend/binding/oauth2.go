@@ -4,9 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	wailsrt "github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"apirequest/backend/auth"
+	"apirequest/backend/platform"
 )
 
 // OAuth2Api OAuth 2.0 token 获取域
@@ -23,11 +22,7 @@ func NewOAuth2Api(clients ...*http.Client) *OAuth2Api {
 		client = clients[0]
 	}
 	api.manager = auth.NewTokenManager(func(url string) error {
-		if api.ctx == nil {
-			return nil
-		}
-		wailsrt.BrowserOpenURL(api.ctx, url)
-		return nil
+		return platform.OpenURL(api.ctx, url)
 	}, client)
 	return api
 }

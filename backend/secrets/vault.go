@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	keyringlib "github.com/zalando/go-keyring"
+	"apirequest/backend/platform"
 )
 
 const (
@@ -29,12 +29,9 @@ var (
 	ErrNotFound = errors.New("secret not found")
 )
 
-// Keyring is the narrow Adapter required from an operating-system credential store.
-type Keyring interface {
-	Set(service, account, value string) error
-	Get(service, account string) (string, error)
-	Delete(service, account string) error
-}
+// Keyring is retained as the Vault-facing name for the platform credential
+// adapter and as a stable test injection point.
+type Keyring = platform.SecretStore
 
 // SecretWriter is the write surface used by protection helpers. Vault and
 // WriteBatch both implement it so callers can make DB + secret updates
@@ -49,18 +46,6 @@ type SecretWriter interface {
 func IsKeyringRef(value string) bool {
 	backend, _, err := parseRef(value)
 	return err == nil && backend == "keyring"
-}
-
-type systemKeyring struct{}
-
-func (systemKeyring) Set(service, account, value string) error {
-	return keyringlib.Set(service, account, value)
-}
-func (systemKeyring) Get(service, account string) (string, error) {
-	return keyringlib.Get(service, account)
-}
-func (systemKeyring) Delete(service, account string) error {
-	return keyringlib.Delete(service, account)
 }
 
 // Status is safe to expose to the UI; it never contains credential material.
@@ -84,7 +69,7 @@ type Vault struct {
 
 // New constructs a production Vault rooted in dataDir.
 func New(dataDir string) *Vault {
-	return NewWithKeyring(dataDir, systemKeyring{})
+	return NewWithKeyring(dataDir, platform.SystemSecretStore())
 }
 
 // NewWithKeyring is an injection point for deterministic tests and alternate platform Adapters.
@@ -103,7 +88,7 @@ func (v *Vault) probeKeyring() bool {
 		return false
 	}
 	_, err := v.keyring.Get(serviceName, "__availability_probe__")
-	return err == nil || errors.Is(err, keyringlib.ErrNotFound) || errors.Is(err, ErrNotFound)
+	return err == nil || platform.IsSecretNotFound(err) || errors.Is(err, ErrNotFound)
 }
 
 func (v *Vault) refreshKeyringAvailabilityLocked() {
@@ -458,7 +443,7 @@ func (v *Vault) Delete(ref string) error {
 }
 
 func isSecretNotFound(err error) bool {
-	return errors.Is(err, keyringlib.ErrNotFound) || errors.Is(err, ErrNotFound)
+	return platform.IsSecretNotFound(err) || errors.Is(err, ErrNotFound)
 }
 
 // RedactString removes every credential value observed by this Vault from text.

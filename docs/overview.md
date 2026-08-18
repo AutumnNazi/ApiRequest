@@ -120,7 +120,7 @@ Wails 使用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGT
 |--------|------|---------|-------|
 | `paths` | 应用数据目录、日志目录、blobs 根路径 | `%APPDATA%\com.apirequest.app\`（经 `os.UserConfigDir`） | `~/Library/Application Support/com.apirequest.app/` |
 | `secrets` | 密钥变量 / OAuth token 存取 | Credential Manager（`go-keyring`） | Keychain（`go-keyring`） |
-| `proxy` | 读取系统代理与绕过列表 | WinHTTP / 注册表；失败则 `http.ProxyFromEnvironment` | System Configuration；失败则环境变量 |
+| `proxy` | 读取系统代理与绕过列表 | Internet Settings 注册表；失败则环境变量 | System Configuration；失败则环境变量 |
 | `certs` | 自定义 CA、客户端证书加载 | 文件 + 可选系统证书库 | 文件 + 钥匙串信任 |
 | `open` | 打开系统浏览器（OAuth）等 | 系统默认关联（Wails `runtime.BrowserOpenURL`） | 同上 |
 
@@ -128,6 +128,8 @@ Wails 使用系统 WebView（Windows WebView2 / macOS WKWebView / Linux WebKitGT
 - **路径**：一律用 `path/filepath` 与 `os.UserConfigDir` 等标准库 API，禁止字符串拼接分隔符；持久化到库/镜像的相对路径统一用 `/`。
 - **密钥**：见 [ADR-013](./decisions.md#adr-013-密钥存储默认系统-keychain无可用时主密码加密回退已定)。
 - **代理 / 证书**：HTTP 引擎通过 `platform` 注入配置，UI 只展示结果与手动覆盖项。
+
+当前实现已覆盖全部五个子模块：桌面应用与 CLI 统一解析 `data/blobs/logs/protos` 路径；Vault 通过 `platform.secrets` 访问系统凭据库；系统代理优先读取 Windows Internet Settings 或 macOS System Configuration，失败时回退环境变量；TLS 在系统信任根上追加自定义 CA 与可选 mTLS 证书；OAuth 仅允许通过 `platform.open` 拉起经过校验的 HTTP(S) 授权地址。
 
 细节（打包产物、CI 矩阵、冒烟清单）见 [ops.md](./ops.md#4-跨平台支持与发布)。
 

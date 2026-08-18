@@ -41,16 +41,16 @@ type App struct {
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
 func NewApp() *App {
-	dataDir, err := platform.DataDir()
+	paths, err := platform.ResolvePaths()
 	if err != nil {
-		log.Fatalf("resolve data dir: %v", err)
+		log.Fatalf("resolve application paths: %v", err)
 	}
-	store, err := storage.Open(dataDir)
+	store, err := storage.Open(paths.Data)
 	if err != nil {
 		log.Fatalf("open storage: %v", err)
 	}
 	engine := httpengine.New()
-	engine.SetBlobsDir(store.BlobsDir())
+	engine.SetBlobsDir(paths.Blobs)
 	mocks := mock.NewManager()
 	protocols := protocol.NewManager(engine.NewHTTPClient(0))
 

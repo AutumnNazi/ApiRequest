@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -28,6 +27,7 @@ import (
 
 	"apirequest/backend/auth"
 	"apirequest/backend/model"
+	"apirequest/backend/platform"
 	"apirequest/backend/requesturl"
 )
 
@@ -44,7 +44,7 @@ func authProviderTwoPhase(authType string) (auth.TwoPhaseProvider, bool) {
 // inlineBodyLimit 超过该字节数的响应体不内联返回，落 blobs/ 并返回引用
 const inlineBodyLimit = 2 << 20 // 2 MiB
 
-const maxTLSMaterialSize = 4 << 20
+const maxTLSMaterialSize = platform.MaxCertificateMaterialSize
 
 // Progress is request-scoped transfer progress reported by SendWithProgress.
 type Progress struct {
@@ -74,7 +74,7 @@ func New() *Engine {
 			ForceAttemptHTTP2:   true,
 		},
 	}
-	e.proxyFunc = http.ProxyFromEnvironment
+	e.proxyFunc = platform.SystemProxyFunc()
 	e.transport.Proxy = func(r *http.Request) (*url.URL, error) {
 		e.proxyMu.RLock()
 		fn := e.proxyFunc
@@ -92,20 +92,23 @@ func (e *Engine) SetBlobsDir(dir string) { e.blobsDir = dir }
 
 // SetProxy 应用代理设置。mode: system | manual | none；manual 时用 proxyUrl。
 func (e *Engine) SetProxy(mode, proxyUrl string) error {
-	e.proxyMu.Lock()
+	var proxyFunc func(*http.Request) (*url.URL, error)
+	var err error
 	switch mode {
 	case "none":
-		e.proxyFunc = nil
 	case "manual":
-		u, err := url.Parse(proxyUrl)
-		if err != nil || u.Host == "" {
-			e.proxyMu.Unlock()
-			return model.NewError(model.KindValidation, "invalid proxy url: "+proxyUrl)
+		proxyFunc, err = platform.ManualProxyFunc(proxyUrl)
+		if err != nil {
+			return model.NewError(model.KindValidation, "invalid proxy url: "+proxyUrl+" ("+err.Error()+")")
 		}
-		e.proxyFunc = http.ProxyURL(u)
-	default: // system
-		e.proxyFunc = http.ProxyFromEnvironment
+	case "system", "":
+		proxyFunc = platform.SystemProxyFunc()
+	default:
+		return model.NewError(model.KindValidation, "invalid proxy mode: "+mode)
 	}
+
+	e.proxyMu.Lock()
+	e.proxyFunc = proxyFunc
 	e.proxyMu.Unlock()
 	// 代理变更后关闭旧连接，避免复用到旧代理的连接
 	e.currentTransport().CloseIdleConnections()
@@ -121,42 +124,13 @@ type TLSSettings struct {
 
 // SetTLS 应用 TLS 设置到共享 Transport（对全部请求生效）
 func (e *Engine) SetTLS(s TLSSettings) error {
-	cfg := &tls.Config{}
-	if s.CaCertPath != "" {
-		pem, err := readBoundedFile(s.CaCertPath, maxTLSMaterialSize)
-		if err != nil {
-			return model.NewError(model.KindTls, "read CA cert: "+err.Error())
-		}
-		// 在系统根证书基础上追加，而非替换
-		pool, err := x509.SystemCertPool()
-		if err != nil || pool == nil {
-			pool = x509.NewCertPool()
-		}
-		if !pool.AppendCertsFromPEM(pem) {
-			return model.NewError(model.KindTls, "no valid certificates in "+s.CaCertPath)
-		}
-		cfg.RootCAs = pool
-	}
-	if s.ClientCertPath != "" || s.ClientKeyPath != "" {
-		if s.ClientCertPath == "" || s.ClientKeyPath == "" {
-			return model.NewError(model.KindTls, "client cert and key must both be set")
-		}
-		certPEM, err := readBoundedFile(s.ClientCertPath, maxTLSMaterialSize)
-		if err != nil {
-			return model.NewError(model.KindTls, "read client cert: "+err.Error())
-		}
-		keyPEM, err := readBoundedFile(s.ClientKeyPath, maxTLSMaterialSize)
-		if err != nil {
-			return model.NewError(model.KindTls, "read client key: "+err.Error())
-		}
-		cert, err := tls.X509KeyPair(certPEM, keyPEM)
-		if err != nil {
-			return model.NewError(model.KindTls, "load client cert: "+err.Error())
-		}
-		cfg.Certificates = []tls.Certificate{cert}
-	}
-	if s.CaCertPath == "" && s.ClientCertPath == "" {
-		cfg = nil // 清除自定义配置，回到默认
+	cfg, err := platform.LoadTLSConfig(platform.CertificateSettings{
+		CACertPath:     s.CaCertPath,
+		ClientCertPath: s.ClientCertPath,
+		ClientKeyPath:  s.ClientKeyPath,
+	})
+	if err != nil {
+		return model.NewError(model.KindTls, err.Error())
 	}
 	e.transportMu.Lock()
 	oldTransport := e.transport
@@ -166,32 +140,6 @@ func (e *Engine) SetTLS(s TLSSettings) error {
 	e.transportMu.Unlock()
 	oldTransport.CloseIdleConnections()
 	return nil
-}
-
-func readBoundedFile(path string, limit int64) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, errors.New("path is not a regular file")
-	}
-	if info.Size() > limit {
-		return nil, fmt.Errorf("file exceeds %d MiB limit", limit>>20)
-	}
-	data, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("file exceeds %d MiB limit", limit>>20)
-	}
-	return data, nil
 }
 
 func (e *Engine) currentTransport() *http.Transport {

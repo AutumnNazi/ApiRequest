@@ -61,14 +61,17 @@ Exit code: number of failed requests (capped at 100); 2 = usage/setup error.
 }
 
 func openStore(dataDir string) (*storage.Store, error) {
+	var paths platform.Paths
+	var err error
 	if dataDir == "" {
-		var err error
-		dataDir, err = platform.DataDir()
-		if err != nil {
-			return nil, err
-		}
+		paths, err = platform.ResolvePaths()
+	} else {
+		paths, err = platform.EnsurePaths(dataDir)
 	}
-	return storage.Open(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return storage.Open(paths.Data)
 }
 
 func cmdList(args []string) int {

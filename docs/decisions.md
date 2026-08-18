@@ -74,7 +74,7 @@
 - **决定**：使用 `zalando/go-keyring` 访问 Windows Credential Manager 与 macOS Keychain，存放密钥变量、OAuth access token 与 refresh token；密钥本体不写入 SQLite、历史记录或集合镜像。系统 keychain 不可用时，要求用户设置主密码，以 `golang.org/x/crypto/argon2`（Argon2id）派生密钥并加密本地密钥数据。
 - **理由**：默认复用 OS 已有的凭证保护与用户解锁机制，确保 Windows/macOS 一致的安全体验；回退机制使无 GUI keychain 的 CI、受限企业环境和 Linux 不阻断核心功能。
 - **取舍**：首次使用回退模式须额外输入主密码；忘记主密码无法恢复密钥数据，只能清除并重新授权。
-- **边界**：keychain 调用、回退存储和错误归一化只能由 `backend/secrets` 实现，业务模块不得感知具体平台后端。密钥更新与 SQLite 写入通过可回滚 Vault 批次协调：数据库失败时恢复旧值或删除新值，但不虚构跨系统的 ACID 事务。详见 [ops.md](./ops.md#1-安全考量)。
+- **边界**：只有 `backend/platform` 可直接调用 OS keychain；`backend/secrets` 负责 Vault 策略、回退存储、引用格式与错误归一化，其他业务模块不得感知具体平台后端。密钥更新与 SQLite 写入通过可回滚 Vault 批次协调：数据库失败时恢复旧值或删除新值，但不虚构跨系统的 ACID 事务。详见 [ops.md](./ops.md#1-安全考量)。
 
 ---
 
