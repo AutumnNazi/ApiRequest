@@ -1,6 +1,20 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
+import { writeFileSync } from 'node:fs';
+
+// main.go 的 //go:embed all:frontend/dist 要求该目录在干净克隆后就存在且非空，
+// 因此仓库跟踪了 dist/gitkeep。但 vite 默认 emptyOutDir 会在每次构建时清空
+// 目录连带删掉它，让工作区凭空多出一条删除记录。构建收尾时重建即可，
+// 同时保留 emptyOutDir 清理旧 chunk 的行为。
+function keepEmbedPlaceholder() {
+  return {
+    name: 'apirequest:keep-embed-placeholder',
+    closeBundle() {
+      writeFileSync(fileURLToPath(new URL('./dist/gitkeep', import.meta.url)), '');
+    },
+  };
+}
 
 function manualChunks(id: string) {
   const moduleId = id.replaceAll('\\', '/');
@@ -25,7 +39,7 @@ function manualChunks(id: string) {
 }
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), keepEmbedPlaceholder()],
   resolve: {
     alias: {
       '@apirequest/i18n': fileURLToPath(new URL('./src/i18n', import.meta.url)),
