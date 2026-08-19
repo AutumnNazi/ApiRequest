@@ -144,6 +144,40 @@ func TestTimeout(t *testing.T) {
 	}
 }
 
+func TestProxyRecursionIsBounded(t *testing.T) {
+	s := NewSandbox(100*time.Millisecond, nil, nil, nil, nil)
+	done := make(chan error, 1)
+	go func() {
+		done <- s.Run(`var p = new Proxy({}, {get: function(){ return p.x }}); p.x`, "pre")
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("recursive Proxy completed without an error")
+		}
+		ae, ok := err.(*model.AppError)
+		if !ok || ae.Kind != model.KindScript {
+			t.Fatalf("recursive Proxy error = %T %v", err, err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("recursive Proxy ignored the sandbox execution bound")
+	}
+}
+
+func TestCallStackAllowsReasonableRecursion(t *testing.T) {
+	s := newTestSandbox()
+	err := s.Run(`
+		function depth(n) {
+			return n === 0 ? 0 : 1 + depth(n - 1);
+		}
+		if (depth(128) !== 128) throw new Error('unexpected recursion result');
+	`, "pre")
+	if err != nil {
+		t.Fatalf("reasonable recursion was rejected: %v", err)
+	}
+}
+
 func TestScriptErrorHasPhase(t *testing.T) {
 	s := newTestSandbox()
 	err := s.Run(`throw new Error('boom')`, "test")

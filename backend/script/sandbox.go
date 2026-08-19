@@ -12,6 +12,8 @@ import (
 	"apirequest/backend/model"
 )
 
+const maxScriptCallStackDepth = 1024
+
 // VarChanges 脚本对某作用域变量的变更缓冲（Go 统一提交，避免竞态）
 type VarChanges struct {
 	Set   map[string]string
@@ -95,6 +97,9 @@ func (s *Sandbox) Run(code, phase string) error {
 		return nil
 	}
 	vm := goja.New()
+	// Interrupt handles VM loops, while the stack bound also covers recursive
+	// Proxy traps that may not reach an interrupt check before exhausting memory.
+	vm.SetMaxCallStackSize(maxScriptCallStackDepth)
 	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
 
 	// 沙箱约束：不注入 require/fs/fetch；仅暴露 pm 与 console
