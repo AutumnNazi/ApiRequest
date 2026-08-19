@@ -40,10 +40,14 @@ Recommended flow:
 
 1. Fork this repository
 2. Sync your fork with `dev` and create a branch from `dev` (`fix/*` or `feature/*`)
-3. Make your changes and run self-checks:
+3. Make your changes and run self-checks (matching what CI runs):
    ```bash
-   go test ./backend/...          # Go core tests
-   cd frontend && npm run build   # type-check + bundle
+   go vet ./backend/... ./cmd/...     # Go static analysis
+   go test ./backend/... ./cmd/...    # Go tests
+   node --test scripts                 # packaging script tests
+   node scripts/check-docs.mjs        # doc links and bilingual parity
+   npm --prefix frontend test -- --run  # frontend tests
+   npm --prefix frontend run build      # type-check + bundle
    ```
 4. Push the branch to your fork
 5. Open a pull request against the `dev` branch of this repository

@@ -40,10 +40,14 @@ feature/* / fix/* -> dev -> release/* -> main -> tag(vX.Y.Z)
 
 1. Fork 本仓库
 2. 将 fork 与 `dev` 同步，并从 `dev` 创建分支（推荐 `fix/*` 或 `feature/*`）
-3. 完成修改并自检：
+3. 完成修改并自检（与 CI 的检查项一致）：
    ```bash
-   go test ./backend/...          # Go 核心测试
-   cd frontend && npm run build   # 类型检查 + 打包
+   go vet ./backend/... ./cmd/...     # Go 静态检查
+   go test ./backend/... ./cmd/...    # Go 测试
+   node --test scripts                 # 打包脚本测试
+   node scripts/check-docs.mjs        # 文档链接与双语一致性
+   npm --prefix frontend test -- --run  # 前端测试
+   npm --prefix frontend run build      # 类型检查 + 打包
    ```
 4. 将分支推送到你的 fork
 5. 向本仓库的 `dev` 分支发起 Pull Request
