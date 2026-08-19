@@ -20,12 +20,12 @@ type operation struct {
 type operationRegistry struct {
 	mu            sync.Mutex
 	active        map[string]*operation
-	blockedScopes map[string]struct{}
+	blockedScopes map[string]int
 	closing       bool
 }
 
 func newOperationRegistry() *operationRegistry {
-	return &operationRegistry{active: map[string]*operation{}, blockedScopes: map[string]struct{}{}}
+	return &operationRegistry{active: map[string]*operation{}, blockedScopes: map[string]int{}}
 }
 
 func (r *operationRegistry) begin(parent context.Context, id, scope string) (context.Context, func(), error) {
@@ -41,7 +41,7 @@ func (r *operationRegistry) begin(parent context.Context, id, scope string) (con
 		r.mu.Unlock()
 		return nil, nil, errOperationRegistryClosing
 	}
-	if _, blocked := r.blockedScopes[scope]; blocked {
+	if r.blockedScopes[scope] > 0 {
 		r.mu.Unlock()
 		return nil, nil, errors.New("operation scope is closing: " + scope)
 	}
@@ -74,7 +74,7 @@ func (r *operationRegistry) cancelScope(ctx context.Context, scope string) error
 		ctx = context.Background()
 	}
 	r.mu.Lock()
-	r.blockedScopes[scope] = struct{}{}
+	r.blockedScopes[scope]++
 	operations := make([]*operation, 0)
 	for _, op := range r.active {
 		if op.scope == scope {
@@ -97,7 +97,11 @@ func (r *operationRegistry) cancelScope(ctx context.Context, scope string) error
 
 func (r *operationRegistry) resumeScope(scope string) {
 	r.mu.Lock()
-	delete(r.blockedScopes, scope)
+	if count := r.blockedScopes[scope]; count > 1 {
+		r.blockedScopes[scope] = count - 1
+	} else {
+		delete(r.blockedScopes, scope)
+	}
 	r.mu.Unlock()
 }
 
