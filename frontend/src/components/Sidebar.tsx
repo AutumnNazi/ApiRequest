@@ -38,6 +38,9 @@ const EXPORT_FORMATS = [
   { value: 'curl', label: 'cURL' },
 ];
 
+// 稳定的空数组：作为 nodesQuery.data 的兜底值，避免每次渲染产生新引用
+const EMPTY_NODES: NodeSummary[] = [];
+
 interface Props {
   workspaceId: string;
 }
@@ -109,20 +112,8 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     queryKey: ['nodes', workspaceId],
     queryFn: () => listNodes(workspaceId),
   });
-  const nodes = nodesQuery.data ?? [];
-
-  useEffect(() => {
-    setSelectedIds(new Set());
-    lastSelectedId.current = null;
-    dragSelectedIdsRef.current = [];
-    dragIdRef.current = null;
-    setDragId(null);
-    setDragOverId(null);
-    setFocusedId(null);
-    setCtxMenu(null);
-    setRunnerTarget(null);
-    setMockTarget(null);
-  }, [workspaceId]);
+  // 常量兜底：data 缺省时若每次渲染新建 []，依赖 nodes 的 effect 会每次渲染都重跑
+  const nodes = nodesQuery.data ?? EMPTY_NODES;
 
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
 
