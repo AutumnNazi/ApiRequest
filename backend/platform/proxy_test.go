@@ -122,4 +122,9 @@ func TestParseDarwinProxy(t *testing.T) {
 	if !found || ipv6.HTTPProxy != "http://[2001:db8::1]:8080" {
 		t.Fatalf("macOS IPv6 proxy = %+v", ipv6)
 	}
+
+	automatic, found := parseDarwinProxy("ProxyAutoConfigEnable : 1\nProxyAutoConfigURLString : https://proxy.example/proxy.pac")
+	if found || !strings.Contains(automatic.Warning, "PAC") {
+		t.Fatalf("macOS automatic proxy diagnostic = %+v, found = %v", automatic, found)
+	}
 }

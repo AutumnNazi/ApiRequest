@@ -21,17 +21,28 @@ func systemProxyConfig() (ProxyConfig, bool, error) {
 	defer key.Close()
 
 	enabled, _, err := key.GetIntegerValue("ProxyEnable")
-	if err != nil || enabled == 0 {
-		return ProxyConfig{}, false, nil
+	if err != nil {
+		return ProxyConfig{}, false, fmt.Errorf("read Windows proxy enabled state: %w", err)
+	}
+	config := ProxyConfig{}
+	if pacURL, _, pacErr := key.GetStringValue("AutoConfigURL"); pacErr == nil && strings.TrimSpace(pacURL) != "" {
+		config.Warning = "PAC automatic proxy configuration is not supported (" + strings.TrimSpace(pacURL) + ")"
+	}
+	if autoDetect, _, detectErr := key.GetIntegerValue("AutoDetect"); detectErr == nil && autoDetect != 0 {
+		config.Warning = appendProxyWarning(config.Warning, "WPAD automatic proxy discovery is not supported")
+	}
+	if enabled == 0 {
+		return config, false, nil
 	}
 	server, _, err := key.GetStringValue("ProxyServer")
 	if err != nil || strings.TrimSpace(server) == "" {
 		return ProxyConfig{}, false, fmt.Errorf("Windows system proxy is enabled without a proxy server")
 	}
 	bypass, _, _ := key.GetStringValue("ProxyOverride")
-	config := parseWindowsProxy(server, bypass)
-	if config.HTTPProxy == "" && config.HTTPSProxy == "" {
+	parsed := parseWindowsProxy(server, bypass)
+	parsed.Warning = config.Warning
+	if parsed.HTTPProxy == "" && parsed.HTTPSProxy == "" {
 		return ProxyConfig{}, false, fmt.Errorf("Windows system proxy contains no supported HTTP, HTTPS, or SOCKS endpoint")
 	}
-	return config, true, nil
+	return parsed, true, nil
 }

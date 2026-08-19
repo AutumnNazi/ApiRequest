@@ -74,7 +74,6 @@ func New() *Engine {
 			ForceAttemptHTTP2:   true,
 		},
 	}
-	e.proxyFunc = platform.SystemProxyFunc()
 	e.transport.Proxy = func(r *http.Request) (*url.URL, error) {
 		e.proxyMu.RLock()
 		fn := e.proxyFunc
@@ -84,6 +83,7 @@ func New() *Engine {
 		}
 		return fn(r)
 	}
+	_, _ = e.ConfigureProxy("system", "")
 	return e
 }
 
@@ -92,19 +92,29 @@ func (e *Engine) SetBlobsDir(dir string) { e.blobsDir = dir }
 
 // SetProxy 应用代理设置。mode: system | manual | none；manual 时用 proxyUrl。
 func (e *Engine) SetProxy(mode, proxyUrl string) error {
+	_, err := e.ConfigureProxy(mode, proxyUrl)
+	return err
+}
+
+// ConfigureProxy applies the selected proxy and returns its diagnosable source.
+func (e *Engine) ConfigureProxy(mode, proxyUrl string) (platform.ProxyConfig, error) {
 	var proxyFunc func(*http.Request) (*url.URL, error)
+	config := platform.ProxyConfig{}
 	var err error
 	switch mode {
 	case "none":
+		config.Source = "none"
 	case "manual":
 		proxyFunc, err = platform.ManualProxyFunc(proxyUrl)
 		if err != nil {
-			return model.NewError(model.KindValidation, "invalid proxy url: "+proxyUrl+" ("+err.Error()+")")
+			return platform.ProxyConfig{}, model.NewError(model.KindValidation, "invalid proxy URL: "+err.Error())
 		}
+		config.Source = "manual"
 	case "system", "":
-		proxyFunc = platform.SystemProxyFunc()
+		config = platform.DetectSystemProxy()
+		proxyFunc = config.ProxyFunc()
 	default:
-		return model.NewError(model.KindValidation, "invalid proxy mode: "+mode)
+		return platform.ProxyConfig{}, model.NewError(model.KindValidation, "invalid proxy mode: "+mode)
 	}
 
 	e.proxyMu.Lock()
@@ -112,7 +122,7 @@ func (e *Engine) SetProxy(mode, proxyUrl string) error {
 	e.proxyMu.Unlock()
 	// 代理变更后关闭旧连接，避免复用到旧代理的连接
 	e.currentTransport().CloseIdleConnections()
-	return nil
+	return config, nil
 }
 
 // TLSSettings 自定义 TLS 配置（docs/ops.md：允许自定义 CA 与客户端证书）
@@ -124,13 +134,31 @@ type TLSSettings struct {
 
 // SetTLS 应用 TLS 设置到共享 Transport（对全部请求生效）
 func (e *Engine) SetTLS(s TLSSettings) error {
+	cfg, err := PrepareTLS(s)
+	if err != nil {
+		return err
+	}
+	e.ApplyTLSConfig(cfg)
+	return nil
+}
+
+// PrepareTLS validates and loads certificate material without mutating Engine.
+func PrepareTLS(s TLSSettings) (*tls.Config, error) {
 	cfg, err := platform.LoadTLSConfig(platform.CertificateSettings{
 		CACertPath:     s.CaCertPath,
 		ClientCertPath: s.ClientCertPath,
 		ClientKeyPath:  s.ClientKeyPath,
 	})
 	if err != nil {
-		return model.NewError(model.KindTls, err.Error())
+		return nil, model.NewError(model.KindTls, err.Error())
+	}
+	return cfg, nil
+}
+
+// ApplyTLSConfig atomically swaps a previously validated TLS configuration.
+func (e *Engine) ApplyTLSConfig(cfg *tls.Config) {
+	if cfg != nil {
+		cfg = cfg.Clone()
 	}
 	e.transportMu.Lock()
 	oldTransport := e.transport
@@ -139,7 +167,6 @@ func (e *Engine) SetTLS(s TLSSettings) error {
 	e.transport = nextTransport
 	e.transportMu.Unlock()
 	oldTransport.CloseIdleConnections()
-	return nil
 }
 
 func (e *Engine) currentTransport() *http.Transport {

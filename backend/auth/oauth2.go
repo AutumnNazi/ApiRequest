@@ -51,6 +51,14 @@ type Token struct {
 	Scope        string `json:"scope,omitempty"`
 }
 
+// TokenStore persists tokens outside collection data. Implementations must
+// protect both access and refresh tokens as credentials.
+type TokenStore interface {
+	Load(key string) (*Token, error)
+	Save(key string, token *Token) error
+	Delete(key string) error
+}
+
 // Expired token 是否已过期（留 30s 余量）
 func (t *Token) Expired() bool {
 	return t.ExpiresAt > 0 && time.Now().UnixMilli() > t.ExpiresAt-30_000
@@ -58,20 +66,32 @@ func (t *Token) Expired() bool {
 
 // TokenManager 按配置指纹缓存 token（docs/auth.md：缓存键 = auth 配置指纹）
 type TokenManager struct {
-	mu     sync.Mutex
-	cache  map[string]*Token
-	client *http.Client
+	mu         sync.Mutex
+	cache      map[string]*Token
+	client     *http.Client
+	tokenStore TokenStore
 	// OpenBrowser 打开系统浏览器（授权码模式；由 platform 注入，测试可替换）
 	OpenBrowser func(url string) error
 }
 
 // NewTokenManager 构造
 func NewTokenManager(openBrowser func(string) error, clients ...*http.Client) *TokenManager {
+	return NewTokenManagerWithStore(openBrowser, nil, clients...)
+}
+
+// NewTokenManagerWithStore constructs a manager backed by an optional secure
+// store. Tests and headless callers can still omit persistence.
+func NewTokenManagerWithStore(openBrowser func(string) error, tokenStore TokenStore, clients ...*http.Client) *TokenManager {
 	client := &http.Client{Timeout: 30 * time.Second}
 	if len(clients) > 0 && clients[0] != nil {
 		client = clients[0]
 	}
-	return &TokenManager{cache: map[string]*Token{}, client: client, OpenBrowser: openBrowser}
+	return &TokenManager{
+		cache:       map[string]*Token{},
+		client:      client,
+		tokenStore:  tokenStore,
+		OpenBrowser: openBrowser,
+	}
 }
 
 // fingerprint 配置指纹（不含易变字段）
@@ -91,13 +111,25 @@ func (m *TokenManager) GetToken(ctx context.Context, p map[string]string) (*Toke
 	m.mu.Lock()
 	cached := m.cache[fp]
 	m.mu.Unlock()
+	if cached == nil && m.tokenStore != nil {
+		stored, err := m.tokenStore.Load(fp)
+		if err != nil {
+			return nil, model.WrapError(model.KindStorage, err)
+		}
+		if stored != nil {
+			m.cacheOnly(fp, stored)
+			cached = stored
+		}
+	}
 
 	if cached != nil && !cached.Expired() {
 		return cached, nil
 	}
 	if cached != nil && cached.RefreshToken != "" {
 		if tok, err := m.refresh(ctx, p, cached.RefreshToken); err == nil {
-			m.put(fp, tok)
+			if err := m.put(fp, tok); err != nil {
+				return nil, err
+			}
 			return tok, nil
 		}
 		// 刷新失败：走完整流程
@@ -118,21 +150,40 @@ func (m *TokenManager) GetToken(ctx context.Context, p map[string]string) (*Toke
 	if err != nil {
 		return nil, err
 	}
-	m.put(fp, tok)
+	if err := m.put(fp, tok); err != nil {
+		return nil, err
+	}
 	return tok, nil
 }
 
-func (m *TokenManager) put(fp string, tok *Token) {
+func (m *TokenManager) put(fp string, tok *Token) error {
+	if m.tokenStore != nil {
+		if err := m.tokenStore.Save(fp, tok); err != nil {
+			return model.WrapError(model.KindStorage, err)
+		}
+	}
+	m.cacheOnly(fp, tok)
+	return nil
+}
+
+func (m *TokenManager) cacheOnly(fp string, tok *Token) {
 	m.mu.Lock()
 	m.cache[fp] = tok
 	m.mu.Unlock()
 }
 
 // ClearToken 清除缓存（前端"清除 Token"）
-func (m *TokenManager) ClearToken(p map[string]string) {
+func (m *TokenManager) ClearToken(p map[string]string) error {
+	fp := fingerprint(p)
+	if m.tokenStore != nil {
+		if err := m.tokenStore.Delete(fp); err != nil {
+			return model.WrapError(model.KindStorage, err)
+		}
+	}
 	m.mu.Lock()
-	delete(m.cache, fingerprint(p))
+	delete(m.cache, fp)
 	m.mu.Unlock()
+	return nil
 }
 
 // ── 各授权模式 ──

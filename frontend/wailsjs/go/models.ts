@@ -44,6 +44,10 @@ export namespace binding {
 	export class ProxySettings {
 	    mode: string;
 	    url?: string;
+	    username?: string;
+	    password?: string;
+	    passwordSet?: boolean;
+	    clearPassword?: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new ProxySettings(source);
@@ -53,6 +57,30 @@ export namespace binding {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mode = source["mode"];
 	        this.url = source["url"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.passwordSet = source["passwordSet"];
+	        this.clearPassword = source["clearPassword"];
+	    }
+	}
+	export class NetworkStatus {
+	    proxyMode: string;
+	    proxySource: string;
+	    proxyWarning?: string;
+	    tlsActive: boolean;
+	    tlsWarning?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new NetworkStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.proxyMode = source["proxyMode"];
+	        this.proxySource = source["proxySource"];
+	        this.proxyWarning = source["proxyWarning"];
+	        this.tlsActive = source["tlsActive"];
+	        this.tlsWarning = source["tlsWarning"];
 	    }
 	}
 

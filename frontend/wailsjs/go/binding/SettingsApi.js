@@ -6,6 +6,10 @@ export function GetProxySettings() {
   return window['go']['binding']['SettingsApi']['GetProxySettings']();
 }
 
+export function GetNetworkStatus() {
+  return window['go']['binding']['SettingsApi']['GetNetworkStatus']();
+}
+
 export function GetTLSSettings() {
   return window['go']['binding']['SettingsApi']['GetTLSSettings']();
 }
@@ -28,4 +32,8 @@ export function SetTLSSettings(arg1) {
 
 export function UnlockVault(arg1) {
   return window['go']['binding']['SettingsApi']['UnlockVault'](arg1);
+}
+
+export function RefreshSystemProxy() {
+  return window['go']['binding']['SettingsApi']['RefreshSystemProxy']();
 }

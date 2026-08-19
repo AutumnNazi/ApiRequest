@@ -69,6 +69,15 @@ func parseDarwinProxy(output string) (ProxyConfig, bool) {
 	}
 
 	config := ProxyConfig{Source: "darwin"}
+	if values["ProxyAutoConfigEnable"] == "1" {
+		config.Warning = "PAC automatic proxy configuration is not supported"
+		if pacURL := values["ProxyAutoConfigURLString"]; pacURL != "" {
+			config.Warning += " (" + pacURL + ")"
+		}
+	}
+	if values["ProxyAutoDiscoveryEnable"] == "1" {
+		config.Warning = appendProxyWarning(config.Warning, "WPAD automatic proxy discovery is not supported")
+	}
 	if values["HTTPEnable"] == "1" {
 		config.HTTPProxy = hostPortProxy(values["HTTPProxy"], values["HTTPPort"], "http")
 	}

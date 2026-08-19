@@ -6,6 +6,8 @@ import {secrets} from '../models';
 
 export function GetProxySettings():Promise<binding.ProxySettings>;
 
+export function GetNetworkStatus():Promise<binding.NetworkStatus>;
+
 export function GetTLSSettings():Promise<httpengine.TLSSettings>;
 
 export function GetVaultStatus():Promise<secrets.Status>;
@@ -17,3 +19,5 @@ export function SetProxySettings(arg1:binding.ProxySettings):Promise<void>;
 export function SetTLSSettings(arg1:httpengine.TLSSettings):Promise<void>;
 
 export function UnlockVault(arg1:string):Promise<secrets.Status>;
+
+export function RefreshSystemProxy():Promise<binding.NetworkStatus>;

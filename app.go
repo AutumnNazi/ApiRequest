@@ -71,7 +71,7 @@ func NewApp() *App {
 		Example:   binding.NewExampleApi(store),
 		Mock:      binding.NewMockApi(store, mocks),
 		Protocol:  binding.NewProtocolApi(protocols),
-		OAuth2:    binding.NewOAuth2Api(engine.NewHTTPClient(30 * time.Second)),
+		OAuth2:    binding.NewOAuth2Api(store, engine.NewHTTPClient(30*time.Second)),
 		Settings:  binding.NewSettingsApi(store, engine),
 		Grpc:      binding.NewGrpcApi(),
 		Graphql:   binding.NewGraphqlApi(engine.NewHTTPClient(0)),

@@ -979,6 +979,76 @@ func TestMixedVaultWaitsForUnlockThenMovesLegacyFileReferenceToKeyring(t *testin
 	}
 }
 
+func TestMixedVaultPromotesSecretSettingsAfterUnlock(t *testing.T) {
+	dir := t.TempDir()
+	fileVault := secrets.NewWithKeyring(dir, nil)
+	if err := fileVault.Unlock("settings-promotion"); err != nil {
+		t.Fatal(err)
+	}
+	fileStore, err := OpenWithVault(dir, fileVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyRef, err := fileVault.Put("setting/proxy/password", "proxy-file-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oauthRef, err := fileVault.Put("setting/oauth.token.fingerprint", `{"accessToken":"oauth-file-secret"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fileStore.SetSettings(map[string]string{
+		"proxy.password":          proxyRef,
+		"oauth.token.fingerprint": oauthRef,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fileStore.db.Exec("DELETE FROM setting WHERE key = ?", secretRefNormalizationKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := &memoryKeyring{values: map[string]string{}}
+	mixedVault := secrets.NewWithKeyring(dir, adapter)
+	mixedStore, err := OpenWithVault(dir, mixedVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mixedStore.Close()
+	for _, key := range []string{"proxy.password", "oauth.token.fingerprint"} {
+		value, err := mixedStore.GetSetting(key)
+		if err != nil || !secrets.IsFileRef(value) {
+			t.Fatalf("locked setting %q = %q, err = %v", key, value, err)
+		}
+	}
+
+	if err := mixedVault.Unlock("settings-promotion"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mixedStore.MigrateSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"proxy.password", "oauth.token.fingerprint"} {
+		value, err := mixedStore.GetSetting(key)
+		if err != nil || !secrets.IsKeyringRef(value) {
+			t.Fatalf("promoted setting %q = %q, err = %v", key, value, err)
+		}
+	}
+	mixedVault.Lock()
+	proxyStored, _ := mixedStore.GetSetting("proxy.password")
+	proxyValue, err := mixedVault.Resolve(proxyStored)
+	if err != nil || proxyValue != "proxy-file-secret" {
+		t.Fatalf("proxy setting after file lock = %q, err = %v", proxyValue, err)
+	}
+	oauthStored, _ := mixedStore.GetSetting("oauth.token.fingerprint")
+	oauthValue, err := mixedVault.Resolve(oauthStored)
+	if err != nil || oauthValue != `{"accessToken":"oauth-file-secret"}` {
+		t.Fatalf("OAuth setting after file lock = %q, err = %v", oauthValue, err)
+	}
+}
+
 func TestKeyringReferenceIsPreservedWhileKeyringIsTemporarilyUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	adapter := &memoryKeyring{}

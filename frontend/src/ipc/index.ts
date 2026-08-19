@@ -200,12 +200,28 @@ export const clearOAuth2Token = (params: Record<string, string>) =>
 export interface ProxySettings {
   mode: 'system' | 'manual' | 'none';
   url?: string;
+  username?: string;
+  password?: string;
+  passwordSet?: boolean;
+  clearPassword?: boolean;
+}
+
+export interface NetworkStatus {
+  proxyMode: string;
+  proxySource: string;
+  proxyWarning?: string;
+  tlsActive: boolean;
+  tlsWarning?: string;
 }
 
 export const getProxySettings = () =>
   call(() => SettingsApi.GetProxySettings()) as Promise<ProxySettings>;
 export const setProxySettings = (p: ProxySettings) =>
   call(() => SettingsApi.SetProxySettings(binding.ProxySettings.createFrom(p)));
+export const getNetworkStatus = () =>
+  call(() => SettingsApi.GetNetworkStatus()) as Promise<NetworkStatus>;
+export const refreshSystemProxy = () =>
+  call(() => SettingsApi.RefreshSystemProxy()) as Promise<NetworkStatus>;
 
 export interface TLSSettings {
   caCertPath?: string;

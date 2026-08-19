@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   getProxySettings,
+  getNetworkStatus,
+  refreshSystemProxy,
   setProxySettings,
   getTLSSettings,
   setTLSSettings,
@@ -15,6 +17,7 @@ import {
   openNativeFile,
   toAppError,
   type ProxySettings,
+  type NetworkStatus,
   type TLSSettings,
   type SyncDavConfig,
   type VaultStatus,
@@ -47,6 +50,7 @@ export default function SettingsDialog({ onClose }: Props) {
   const setLocale = useLocale((state) => state.setLocale);
   const [cat, setCat] = useState<Category>('general');
   const [proxy, setProxy] = useState<ProxySettings>({ mode: 'system' });
+  const [network, setNetwork] = useState<NetworkStatus | null>(null);
   const [tls, setTls] = useState<TLSSettings>({});
   const [dav, setDav] = useState<Partial<SyncDavConfig>>({});
   const [vault, setVault] = useState<VaultStatus | null>(null);
@@ -56,12 +60,13 @@ export default function SettingsDialog({ onClose }: Props) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([getProxySettings(), getTLSSettings(), getSyncConfig(), getVaultStatus()])
-      .then(([nextProxy, nextTls, nextDav, nextVault]) => {
+    Promise.all([getProxySettings(), getTLSSettings(), getSyncConfig(), getVaultStatus(), getNetworkStatus()])
+      .then(([nextProxy, nextTls, nextDav, nextVault, nextNetwork]) => {
         setProxy(nextProxy);
         setTls(nextTls);
         setDav(nextDav);
         setVault(nextVault);
+        setNetwork(nextNetwork);
       })
       .catch((cause) => setError(toAppError(cause).detail));
   }, []);
@@ -81,10 +86,23 @@ export default function SettingsDialog({ onClose }: Props) {
       await setProxySettings(proxy);
       await setTLSSettings(tls);
       await setSyncConfig(dav);
+      setProxy(await getProxySettings());
+      setNetwork(await getNetworkStatus());
       setDav(await getSyncConfig());
       await qc.invalidateQueries({ queryKey: ['syncConfig'] });
       setVault(await getVaultStatus());
       setMsg(formatMessage('已保存并生效'));
+      window.setTimeout(() => setMsg(''), 1500);
+    } catch (cause) {
+      setError(toAppError(cause).detail);
+    }
+  };
+
+  const detectSystemProxy = async () => {
+    setError('');
+    try {
+      setNetwork(await refreshSystemProxy());
+      setMsg(formatMessage('系统代理已重新检测'));
       window.setTimeout(() => setMsg(''), 1500);
     } catch (cause) {
       setError(toAppError(cause).detail);
@@ -289,12 +307,49 @@ export default function SettingsDialog({ onClose }: Props) {
                     ))}
                   </div>
                   {proxy.mode === 'manual' && (
-                    <input
-                      className="mt-2 w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-none"
-                      placeholder={formatMessage('http://127.0.0.1:7890 或 socks5://127.0.0.1:1080')}
-                      value={proxy.url ?? ''}
-                      onChange={(event) => setProxy({ ...proxy, url: event.target.value })}
-                    />
+                    <div className="mt-2 space-y-2">
+                      <input
+                        className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-none"
+                        placeholder={formatMessage('http://127.0.0.1:7890 或 socks5://127.0.0.1:1080')}
+                        value={proxy.url ?? ''}
+                        onChange={(event) => setProxy({ ...proxy, url: event.target.value })}
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+                          placeholder={formatMessage('代理用户名（可选）')}
+                          value={proxy.username ?? ''}
+                          onChange={(event) => setProxy({ ...proxy, username: event.target.value })}
+                        />
+                        <input
+                          type="password"
+                          className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+                          placeholder={proxy.passwordSet ? formatMessage('密码已保存；留空则保持不变') : formatMessage('代理密码（可选）')}
+                          value={proxy.password ?? ''}
+                          onChange={(event) => setProxy({ ...proxy, password: event.target.value, clearPassword: false })}
+                        />
+                      </div>
+                      {proxy.passwordSet && !proxy.clearPassword && (
+                        <button
+                          className="text-xs text-red-600 hover:text-red-700"
+                          onClick={() => setProxy({ ...proxy, password: '', passwordSet: false, clearPassword: true })}
+                        >
+                          {formatMessage('清除已保存代理密码')}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {proxy.mode === 'system' && (
+                    <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{formatMessage('当前来源')}: {network?.proxySource || formatMessage('检测中…')}</span>
+                        <button className="rounded border px-2.5 py-1 text-xs hover:bg-white hover:border-gray-300" onClick={() => void detectSystemProxy()}>
+                          {formatMessage('重新检测')}
+                        </button>
+                      </div>
+                      {network?.proxyWarning && <p className="mt-2 text-amber-600">{network.proxyWarning}</p>}
+                    </div>
                   )}
                 </div>
 
@@ -319,6 +374,10 @@ export default function SettingsDialog({ onClose }: Props) {
                       </div>
                     ))}
                   </div>
+                  {network?.tlsWarning && <p className="mt-2 text-xs text-amber-600">{network.tlsWarning}</p>}
+                  <p className="mt-2 text-xs text-gray-400">
+                    {network?.tlsActive ? formatMessage('自定义 TLS 配置已生效') : formatMessage('当前使用系统默认 TLS')}
+                  </p>
                 </div>
               </div>
             )}

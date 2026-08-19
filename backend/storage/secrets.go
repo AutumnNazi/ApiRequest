@@ -132,8 +132,47 @@ func (s *Store) UpdateSecretSetting(key string, update func(string, secrets.Secr
 	if update == nil {
 		return errors.New("secret setting update is required")
 	}
+	return s.UpdateSecretSettings(
+		[]string{key},
+		func(current map[string]string, writer secrets.SecretWriter) (map[string]string, error) {
+			next, err := update(current[key], writer)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]string{key: next}, nil
+		},
+	)
+}
+
+// UpdateSecretSettings atomically coordinates several setting rows with a
+// recoverable Vault batch. The declared keys define the read snapshot and the
+// only rows the callback may update.
+func (s *Store) UpdateSecretSettings(
+	keys []string,
+	update func(map[string]string, secrets.SecretWriter) (map[string]string, error),
+) error {
+	if update == nil {
+		return errors.New("secret settings update is required")
+	}
+	keys, err := normalizeSettingKeys(append([]string(nil), keys...))
+	if err != nil {
+		return err
+	}
+	if len(keys) == 0 {
+		return errors.New("at least one secret setting key is required")
+	}
+	allowed := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		allowed[key] = struct{}{}
+	}
+
 	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
-		current, err := s.GetSetting(key)
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		current, err := getSettings(tx, keys)
 		if err != nil {
 			return err
 		}
@@ -141,7 +180,15 @@ func (s *Store) UpdateSecretSetting(key string, update func(string, secrets.Secr
 		if err != nil {
 			return err
 		}
-		return s.SetSetting(key, next)
+		for key := range next {
+			if _, ok := allowed[key]; !ok {
+				return fmt.Errorf("secret setting %q was not declared", key)
+			}
+		}
+		if err := setSettings(tx, next); err != nil {
+			return err
+		}
+		return tx.Commit()
 	})
 }
 
@@ -365,6 +412,9 @@ func (s *Store) MigrateSecrets() error {
 		if err := s.migrateSyncPassword(); err != nil {
 			return err
 		}
+		if err := s.migrateSecretSettings(); err != nil {
+			return err
+		}
 		// migrateNodeSecrets now includes all structured request credentials.
 		// Mark the narrower migrations so the same rows are not scanned again
 		// during this or a later startup.
@@ -443,10 +493,71 @@ func (s *Store) normalizeStoredSecretReferences() (bool, error) {
 	if err := s.migrateSyncPassword(&pending); err != nil {
 		return pending, err
 	}
+	if err := s.migrateSecretSettings(&pending); err != nil {
+		return pending, err
+	}
 	if err := s.migrateCookieSecrets(&pending); err != nil {
 		return pending, err
 	}
 	return pending, nil
+}
+
+// migrateSecretSettings protects credential-bearing setting rows and promotes
+// file-backed references when the system keychain becomes available again.
+// The setting rows and Vault writes share one recoverable transaction so a
+// failed database update cannot strand newly written credentials.
+func (s *Store) migrateSecretSettings(pending ...*bool) error {
+	rows, err := s.db.Query(`
+		SELECT key, value FROM setting
+		WHERE key = 'proxy.password' OR key LIKE 'oauth.token.%'
+		ORDER BY key`)
+	if err != nil {
+		return err
+	}
+	type secretSetting struct{ key, value string }
+	stored := make([]secretSetting, 0)
+	for rows.Next() {
+		var row secretSetting
+		if err := rows.Scan(&row.key, &row.value); err != nil {
+			rows.Close()
+			return err
+		}
+		if row.value != "" {
+			stored = append(stored, row)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(stored) == 0 {
+		return nil
+	}
+
+	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
+		writer = newMigrationSecretWriter(writer, s.vault, pending...)
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, row := range stored {
+			ref, err := writer.Put("setting/"+row.key, row.value)
+			if err != nil {
+				return err
+			}
+			if ref == row.value {
+				continue
+			}
+			if _, err := tx.Exec(upsertSettingSQL, row.key, ref); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	})
 }
 
 func (s *Store) migrateRequestValueSecrets() error {

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,39 @@ type oauthRoundTripper func(*http.Request) (*http.Response, error)
 
 func (fn oauthRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
 	return fn(request)
+}
+
+type memoryTokenStore struct {
+	tokens    map[string]Token
+	saveErr   error
+	deleteErr error
+}
+
+func (s *memoryTokenStore) Load(key string) (*Token, error) {
+	token, ok := s.tokens[key]
+	if !ok {
+		return nil, nil
+	}
+	return &token, nil
+}
+
+func (s *memoryTokenStore) Save(key string, token *Token) error {
+	if s.saveErr != nil {
+		return s.saveErr
+	}
+	if s.tokens == nil {
+		s.tokens = map[string]Token{}
+	}
+	s.tokens[key] = *token
+	return nil
+}
+
+func (s *memoryTokenStore) Delete(key string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	delete(s.tokens, key)
+	return nil
 }
 
 // fakeTokenServer 模拟 token 端点
@@ -80,6 +114,60 @@ func TestTokenCacheAndClear(t *testing.T) {
 	m.GetToken(context.Background(), p)
 	if calls != 2 {
 		t.Errorf("calls = %d, want 2 after clear", calls)
+	}
+}
+
+func TestTokenPersistsAcrossManagerInstances(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "persisted", "expires_in": 3600})
+	}))
+	defer server.Close()
+	params := map[string]string{"grantType": "client_credentials", "tokenUrl": server.URL, "clientId": "client"}
+	store := &memoryTokenStore{}
+
+	first := NewTokenManagerWithStore(nil, store)
+	if _, err := first.GetToken(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	second := NewTokenManagerWithStore(nil, store)
+	token, err := second.GetToken(context.Background(), params)
+	if err != nil || token.AccessToken != "persisted" || calls != 1 {
+		t.Fatalf("persisted token = %+v, calls = %d, err = %v", token, calls, err)
+	}
+	if err := second.ClearToken(params); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.tokens) != 0 {
+		t.Fatalf("clear left persisted tokens: %+v", store.tokens)
+	}
+}
+
+func TestTokenPersistenceFailureIsReported(t *testing.T) {
+	server := fakeTokenServer(t, "client_credentials", 3600)
+	defer server.Close()
+	manager := NewTokenManagerWithStore(nil, &memoryTokenStore{saveErr: errors.New("Vault locked")})
+	_, err := manager.GetToken(context.Background(), map[string]string{
+		"grantType": "client_credentials", "tokenUrl": server.URL, "clientId": "client",
+	})
+	if err == nil || !strings.Contains(err.Error(), "Vault locked") {
+		t.Fatalf("persistence error = %v", err)
+	}
+}
+
+func TestClearTokenKeepsCacheWhenPersistentDeleteFails(t *testing.T) {
+	params := map[string]string{"grantType": "client_credentials", "tokenUrl": "https://token.example", "clientId": "client"}
+	store := &memoryTokenStore{deleteErr: errors.New("Vault unavailable")}
+	manager := NewTokenManagerWithStore(nil, store)
+	fp := fingerprint(params)
+	manager.cache[fp] = &Token{AccessToken: "cached-token"}
+
+	if err := manager.ClearToken(params); err == nil {
+		t.Fatal("persistent delete unexpectedly succeeded")
+	}
+	if manager.cache[fp] == nil || manager.cache[fp].AccessToken != "cached-token" {
+		t.Fatalf("cache was cleared after failed persistent delete: %+v", manager.cache)
 	}
 }
 

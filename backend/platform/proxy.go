@@ -26,11 +26,15 @@ func DetectSystemProxy() ProxyConfig {
 	config, found, err := systemProxyConfig()
 	if found {
 		if err != nil {
-			config.Warning = err.Error()
+			config.Warning = appendProxyWarning(config.Warning, err.Error())
 		}
 		return config
 	}
 
+	nativeWarning := config.Warning
+	if err != nil {
+		nativeWarning = appendProxyWarning(nativeWarning, err.Error())
+	}
 	environment := httpproxy.FromEnvironment()
 	config = ProxyConfig{
 		Source:     "environment",
@@ -41,9 +45,7 @@ func DetectSystemProxy() ProxyConfig {
 	if config.HTTPProxy == "" && config.HTTPSProxy == "" {
 		config.Source = "direct"
 	}
-	if err != nil {
-		config.Warning = err.Error()
-	}
+	config.Warning = nativeWarning
 	return config
 }
 
@@ -77,6 +79,14 @@ func SystemProxyFunc() func(*http.Request) (*url.URL, error) {
 
 // ManualProxyFunc validates and builds a single-proxy resolver.
 func ManualProxyFunc(rawURL string) (func(*http.Request) (*url.URL, error), error) {
+	proxyURL, err := parseManualProxyURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	return http.ProxyURL(proxyURL), nil
+}
+
+func parseManualProxyURL(rawURL string) (*url.URL, error) {
 	proxyURL, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || proxyURL.Host == "" {
 		return nil, errors.New("proxy URL must include a scheme and host")
@@ -87,7 +97,55 @@ func ManualProxyFunc(rawURL string) (func(*http.Request) (*url.URL, error), erro
 	default:
 		return nil, errors.New("proxy URL scheme must be http, https, socks5, or socks5h")
 	}
-	return http.ProxyURL(proxyURL), nil
+	return proxyURL, nil
+}
+
+// SplitProxyURLCredentials removes userinfo from a proxy URL so credentials
+// can be persisted separately in the Secret Vault.
+func SplitProxyURLCredentials(rawURL string) (cleanURL, username, password string, passwordSet bool, err error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return "", "", "", false, errors.New("invalid proxy URL")
+	}
+	if parsed.User != nil {
+		username = parsed.User.Username()
+		password, passwordSet = parsed.User.Password()
+		parsed.User = nil
+	}
+	return parsed.String(), username, password, passwordSet, nil
+}
+
+// ProxyURLWithCredentials validates a credential-free endpoint and adds the
+// runtime-only credentials resolved from the Secret Vault.
+func ProxyURLWithCredentials(rawURL, username, password string, passwordSet bool) (string, error) {
+	parsed, err := parseManualProxyURL(rawURL)
+	if err != nil {
+		return "", err
+	}
+	if parsed.User != nil {
+		return "", errors.New("proxy endpoint must not contain embedded credentials")
+	}
+	if passwordSet && username == "" {
+		return "", errors.New("proxy username is required when a password is set")
+	}
+	if username != "" {
+		if passwordSet {
+			parsed.User = url.UserPassword(username, password)
+		} else {
+			parsed.User = url.User(username)
+		}
+	}
+	return parsed.String(), nil
+}
+
+func appendProxyWarning(current, next string) string {
+	if current == "" {
+		return next
+	}
+	if next == "" || strings.Contains(current, next) {
+		return current
+	}
+	return current + "; " + next
 }
 
 func normalizeProxyURL(value, defaultScheme string) string {
