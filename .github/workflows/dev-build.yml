@@ -19,6 +19,7 @@ jobs:
   backend:
     name: Go tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -47,9 +48,45 @@ jobs:
             exit 1
           fi
 
+  race:
+    name: Go race detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # 首次引入 race detector：此前从未在 CI 跑过，先以非阻塞方式收集信号，
+    # 待确认无既存告警后再并入 backend job 并作为门禁。
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Go tests with race detector
+        shell: bash
+        # race detector 需要 cgo；modernc.org/sqlite 是纯 Go 实现，
+        # 开启 CGO_ENABLED 不改变它的行为。
+        env:
+          CGO_ENABLED: '1'
+        run: |
+          set -o pipefail
+          if ! go test -race ./backend/... ./cmd/... 2>&1 | tee race-out.log; then
+            {
+              echo '## Race detector findings'
+              echo '```'
+              grep -E "^(WARNING: DATA RACE|--- FAIL|FAIL|panic)" race-out.log | head -60
+              echo '```'
+              echo '_This job is non-blocking while the baseline is established._'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
   frontend:
     name: Frontend type-check and build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -114,6 +151,8 @@ jobs:
             arch: amd64
             asset_arch: Amd64
     runs-on: ${{ matrix.os }}
+    # 桌面打包含签名与安装包制作，耗时明显高于测试任务
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -350,6 +389,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     needs: desktop
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:

@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'
 
+# 同一 tag 重复触发时串行执行：发布任务会上传产物，取消进行中的运行可能
+# 留下不完整的 release，因此不设 cancel-in-progress。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -12,6 +18,7 @@ jobs:
   test:
     name: Test (Go + frontend)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -87,6 +94,8 @@ jobs:
             arch: amd64
             asset_arch: Amd64
     runs-on: ${{ matrix.os }}
+    # 桌面打包含签名、WiX 与 notarize，耗时明显高于测试任务
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -310,6 +319,7 @@ jobs:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
