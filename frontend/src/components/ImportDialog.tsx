@@ -63,11 +63,14 @@ export default function ImportDialog({ workspaceId, onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-dialog-title"
         className="bg-white rounded-lg shadow-xl w-[640px] max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">{formatMessage('导入')}</h2>
+          <h2 id="import-dialog-title" className="font-semibold text-sm">{formatMessage('导入')}</h2>
           <span className="ml-2 text-xs text-gray-400">{formatMessage('支持 Postman v2.1 JSON / cURL 命令')}</span>
           <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={onClose}>
             ×

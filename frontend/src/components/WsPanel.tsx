@@ -95,6 +95,9 @@ export default function WsPanel({ onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="WebSocket / SSE"
         className="bg-white rounded-lg shadow-xl w-[720px] h-[560px] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >

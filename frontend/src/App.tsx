@@ -17,6 +17,7 @@ import { formatMessage, useLocale, Verbatim } from './i18n/locale';
 import { collectVarRefs } from './utils/varRefs';
 import { ensureHttpScheme, splitRequestAuthHeader } from './utils/request';
 import { closeTabSafely, closeTabsSequentially } from './utils/tabClose';
+import { isHotkeySuppressed } from './utils/hotkeys';
 
 // 仅在打开时加载，降低初始渲染的脚本体积。
 const CookieManager = lazy(() => import('./components/CookieManager'));
@@ -129,6 +130,8 @@ export default function App() {
   // 布局持久化：侧栏宽度（px）与编辑区高度比例（0~1）
   const [sidebarWidth, setSidebarWidth] = usePersistentState('apirequest-layout-sidebar', 256);
   const [editorRatio, setEditorRatio] = usePersistentState('apirequest-layout-editor', 0.5);
+  // Ctrl/Cmd+E 展开环境下拉：每次按下递增，EnvSwitcher 侧按信号变化响应
+  const [envOpenSignal, setEnvOpenSignal] = useState(0);
 
   useEffect(() => onRequestProgress(setProgress), [setProgress]);
 
@@ -466,7 +469,7 @@ export default function App() {
     }
   };
 
-  // 快捷键：Ctrl/Cmd+Enter 发送、Ctrl/Cmd+S 保存、Ctrl/Cmd+T 新标签、Ctrl/Cmd+W 关标签
+  // 快捷键：Ctrl/Cmd+Enter 发送、Ctrl/Cmd+S 保存、Ctrl/Cmd+T 新标签、Ctrl/Cmd+W 关标签、Ctrl/Cmd+E 切环境
   // 用 ref 持有最新 handler，避免每次渲染都重新绑定 keydown（输入 URL 时频繁重渲染）
   const hotkeyRef = useRef({ handleSend, handleSave, openBlank, closeTab, workspace, active });
   hotkeyRef.current = { handleSend, handleSave, openBlank, closeTab, workspace, active };
@@ -474,7 +477,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
-      if ((e.target as HTMLElement | null)?.closest?.('[role="dialog"], [role="alertdialog"]')) return;
+      if (isHotkeySuppressed(e.target)) return;
       const { handleSend, handleSave, openBlank, closeTab, workspace, active } = hotkeyRef.current;
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -488,6 +491,9 @@ export default function App() {
       } else if (e.key === 'w') {
         e.preventDefault();
         if (active) void closeTab(active);
+      } else if (e.key === 'e') {
+        e.preventDefault();
+        setEnvOpenSignal((n) => n + 1);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -530,7 +536,7 @@ export default function App() {
             activeId={workspace.id}
             onSwitch={(id) => setWorkspaceOverride({ id, name: '' })}
           />
-          <EnvSwitcher workspaceId={workspace.id} />
+          <EnvSwitcher workspaceId={workspace.id} openSignal={envOpenSignal} />
 
           {/* 分组2：协议工具 */}
           <div className="ml-3 hidden items-center gap-1.5 border-l pl-3 lg:flex">

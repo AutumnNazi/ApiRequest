@@ -87,11 +87,14 @@ export default function GraphqlPanel({ onClose, onOpenRequest }: Props) {
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="graphql-panel-title"
         className="bg-white rounded-lg shadow-xl w-[860px] h-[600px] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm shrink-0">{formatMessage('GraphQL Schema 内省')}</h2>
+          <h2 id="graphql-panel-title" className="font-semibold text-sm shrink-0">{formatMessage('GraphQL Schema 内省')}</h2>
           <input
             className="flex-1 border rounded px-2 py-1 text-sm font-mono"
             placeholder="https://api.example.com/graphql"

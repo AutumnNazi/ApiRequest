@@ -117,11 +117,14 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => void requestClose()}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="runner-dialog-title"
         className="bg-white rounded-lg shadow-xl w-[720px] max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">Runner · <Verbatim value={collectionName} /></h2>
+          <h2 id="runner-dialog-title" className="font-semibold text-sm">Runner · <Verbatim value={collectionName} /></h2>
           <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={() => void requestClose()} aria-label={formatMessage('关闭 Runner')}>
             ×
           </button>

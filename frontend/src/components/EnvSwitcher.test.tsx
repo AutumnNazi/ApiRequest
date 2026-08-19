@@ -29,6 +29,19 @@ function renderSwitcher() {
   );
 }
 
+function renderWithSignal(openSignal: number) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const tree = (signal: number) => (
+    <QueryClientProvider client={client}>
+      <DialogProvider>
+        <EnvSwitcher workspaceId="workspace-1" openSignal={signal} />
+      </DialogProvider>
+    </QueryClientProvider>
+  );
+  const view = render(tree(openSignal));
+  return { ...view, bump: (next: number) => view.rerender(tree(next)) };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   ipc.listEnvironments.mockResolvedValue([]);
@@ -77,5 +90,31 @@ describe('EnvSwitcher failures', () => {
     await waitFor(() => expect(switcher).toBeDisabled());
     expect(screen.getByRole('button', { name: '管理' })).toBeDisabled();
     expect(ipc.setActiveEnvironment).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('EnvSwitcher 的 Ctrl+E 展开信号', () => {
+  beforeEach(() => {
+    ipc.listEnvironments.mockResolvedValue([
+      { id: 'environment-1', name: 'Development', isActive: true, variables: [] },
+      { id: 'environment-2', name: 'Staging', isActive: false, variables: [] },
+    ]);
+  });
+
+  it('信号递增时展开环境列表', async () => {
+    const { bump } = renderWithSignal(0);
+    await screen.findByRole('button', { name: 'Development' });
+    expect(screen.queryByRole('button', { name: 'Staging' })).toBeNull();
+
+    bump(1);
+
+    expect(await screen.findByRole('button', { name: 'Staging' })).toBeInTheDocument();
+  });
+
+  it('首次渲染不因初值自动展开', async () => {
+    renderWithSignal(5);
+    await screen.findByRole('button', { name: 'Development' });
+
+    expect(screen.queryByRole('button', { name: 'Staging' })).toBeNull();
   });
 });

@@ -43,11 +43,14 @@ export default function ThemeDialog({ onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="theme-dialog-title"
         className="bg-white rounded-lg shadow-xl w-[720px] max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">{formatMessage('主题')}</h2>
+          <h2 id="theme-dialog-title" className="font-semibold text-sm">{formatMessage('主题')}</h2>
           <span className="ml-2 text-xs text-gray-400">
             {formatMessage('预设即点即用；「自定义」基于所选主题创建可编辑副本')}
           </span>

@@ -41,11 +41,14 @@ export default function CodegenDialog({ request, onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="codegen-dialog-title"
         className="bg-white rounded-lg shadow-xl w-[640px] h-[480px] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">{formatMessage('生成代码')}</h2>
+          <h2 id="codegen-dialog-title" className="font-semibold text-sm">{formatMessage('生成代码')}</h2>
           <select
             className="border rounded px-2 py-1 text-xs"
             value={target}

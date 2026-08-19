@@ -14,6 +14,9 @@ interface Props {
   placeholder?: string;
   title?: string;
   disabled?: boolean;
+  // 外部请求展开的信号：数值每次变化即展开一次（首次渲染不生效）。
+  // 用信号而非受控 open，避免把开合状态提升到父层、也不影响既有调用方。
+  openSignal?: number;
   children?: ReactNode; // 右侧额外内容（如"管理"按钮）
 }
 
@@ -25,10 +28,18 @@ export default function Dropdown({
   placeholder = '',
   title,
   disabled = false,
+  openSignal,
   children,
 }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const lastOpenSignal = useRef(openSignal);
+
+  useEffect(() => {
+    if (openSignal === undefined || openSignal === lastOpenSignal.current) return;
+    lastOpenSignal.current = openSignal;
+    if (!disabled) setOpen(true);
+  }, [disabled, openSignal]);
 
   useEffect(() => {
     if (!open) return;

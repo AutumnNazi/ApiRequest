@@ -18,9 +18,11 @@ import QueryErrorState from './QueryErrorState';
 
 interface Props {
   workspaceId: string;
+  // Ctrl/Cmd+E 的展开信号，由 App 的快捷键处理递增
+  openSignal?: number;
 }
 
-export default function EnvSwitcher({ workspaceId }: Props) {
+export default function EnvSwitcher({ workspaceId, openSignal }: Props) {
   const dialog = useDialog();
   const qc = useQueryClient();
   const [managing, setManaging] = useState(false);
@@ -67,6 +69,7 @@ export default function EnvSwitcher({ workspaceId }: Props) {
         onChange={(v) => activate.mutate(v)}
         title={formatMessage('切换环境 (Ctrl+E)')}
         disabled={unavailable}
+        openSignal={openSignal}
       >
         <button
           className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 ml-1 disabled:cursor-not-allowed disabled:opacity-50"
@@ -145,11 +148,14 @@ function EnvManager({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="env-manager-title"
         className="bg-white rounded-lg shadow-xl w-[720px] h-[480px] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">{formatMessage('环境管理')}</h2>
+          <h2 id="env-manager-title" className="font-semibold text-sm">{formatMessage('环境管理')}</h2>
           <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={onClose}>
             ×
           </button>
