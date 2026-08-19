@@ -31,4 +31,22 @@ describe('English localization boundaries', () => {
     );
     expect(translate('退出失败')).toBe('Quit failed');
   });
+
+  // 目录键可能只含全角标点（如全角冒号），英文环境仍需替换为半角形式。
+  it('translates catalog entries whose only CJK characters are full-width punctuation', () => {
+    useLocale.getState().setLocale('en');
+
+    expect(formatMessage('{message}：{detail}', { message: 'Load failed', detail: 'timeout' })).toBe(
+      'Load failed: timeout',
+    );
+  });
+
+  it('leaves punctuation-only templates untouched in both locales', () => {
+    const values = { pushed: 2, pulled: 3, deleted: '' };
+
+    expect(formatMessage('↑{pushed} ↓{pulled}{deleted}', values)).toBe('↑2 ↓3');
+
+    useLocale.getState().setLocale('en');
+    expect(formatMessage('↑{pushed} ↓{pulled}{deleted}', values)).toBe('↑2 ↓3');
+  });
 });
