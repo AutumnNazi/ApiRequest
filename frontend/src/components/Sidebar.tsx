@@ -25,7 +25,7 @@ import RunnerDialog from './RunnerDialog';
 import MockPanel from './MockPanel';
 import { useTabs } from '../stores/tabs';
 import { newDefaultRequest } from '../ipc';
-import { formatMessage, Verbatim } from '../i18n/locale';
+import { formatMessage, useLocale, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 import { canMoveNodesInto, canMoveNodesToRoot, orderedTopLevelSelection } from '../utils/treeMove';
 
@@ -42,8 +42,11 @@ interface Props {
   workspaceId: string;
 }
 
-// memo：App 在编辑请求草稿时频繁重渲染，Sidebar 仅依赖 workspaceId，无需跟着重渲染
+// memo：App 在编辑请求草稿时频繁重渲染，Sidebar 仅依赖 workspaceId，无需跟着重渲染。
+// 但 translateExact 读的是 useLocale 快照而非响应式值，memo 会拦住语言切换导致的重渲染，
+// 故显式订阅 locale（与 ResponseViewer 同做法），保证切换语言时文案跟着更新。
 const Sidebar = memo(function Sidebar({ workspaceId }: Props) {
+  useLocale((state) => state.locale);
   const [pane, setPane] = useState<'collections' | 'history'>('collections');
   return (
     <div className="flex flex-col h-full border-r bg-gray-50">
