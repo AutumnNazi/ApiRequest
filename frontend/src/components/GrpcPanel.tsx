@@ -18,6 +18,7 @@ import {
 import { translate, Verbatim, formatMessage } from '../i18n/locale';
 import { useRecentTargets } from '../hooks/useRecentTargets';
 import RecentTargets from './RecentTargets';
+import ModalFrame from './ModalFrame';
 
 interface Props {
   onClose(): void;
@@ -242,14 +243,11 @@ export default function GrpcPanel({ onClose }: Props) {
   const showStreamLog = streaming && (streamId !== '' || streamLog.length > 0);
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="grpc-panel-title"
-        className="bg-white rounded-lg shadow-xl w-[900px] h-[640px] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <ModalFrame
+      onClose={onClose}
+      titleId="grpc-panel-title"
+      className="bg-white rounded-lg shadow-xl w-[900px] h-[640px] flex flex-col"
+    >
         {/* 连接行 */}
         <div className="flex items-center gap-2 px-4 py-3 border-b">
           <h2 id="grpc-panel-title" className="font-semibold text-sm shrink-0">gRPC</h2>
@@ -439,8 +437,7 @@ export default function GrpcPanel({ onClose }: Props) {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }
 

@@ -249,10 +249,7 @@ func (s *Store) migrateHistoryResponseBlobs() error {
 }
 
 // InsertHistory writes one redacted detail record and returns its generated id.
-func (s *Store) InsertHistory(item model.HistoryDetail) (string, error) {
-	if item.BodyRef != "" {
-		return "", errors.New("history response blob persistence is disabled")
-	}
+func (s *Store) InsertHistory(item model.HistoryRecord) (string, error) {
 	if item.Id == "" {
 		item.Id = newId()
 	}
@@ -293,7 +290,7 @@ func (s *Store) InsertHistory(item model.HistoryDetail) (string, error) {
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		item.Id, item.WorkspaceId, string(snapshot), item.RequestSnap.Method, item.RequestSnap.Url,
 		item.Status, item.DurationMs, item.SizeBytes, string(meta),
-		sql.NullString{String: item.BodyRef, Valid: item.BodyRef != ""},
+		sql.NullString{},
 		sql.NullString{String: item.BodyInline, Valid: item.BodyInline != ""},
 		tests, item.CreatedAt)
 	if err != nil {

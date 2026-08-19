@@ -548,7 +548,7 @@ func TestHistory(t *testing.T) {
 	s := openTestStore(t)
 	w, _ := s.EnsureDefaultWorkspace()
 
-	id, err := s.InsertHistory(model.HistoryItem{
+	id, err := s.InsertHistory(model.HistoryRecord{
 		WorkspaceId: w.Id,
 		RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.com/a"},
 		Status:      200, DurationMs: 12, SizeBytes: 34,
@@ -643,7 +643,7 @@ func TestListHistorySearchTreatsWildcardsLiterally(t *testing.T) {
 		`https://example.test/literal\slash`,
 		"https://example.test/plain",
 	} {
-		if _, err := s.InsertHistory(model.HistoryDetail{
+		if _, err := s.InsertHistory(model.HistoryRecord{
 			WorkspaceId: workspace.Id,
 			RequestSnap: model.HttpRequest{Method: "GET", Url: rawURL},
 		}); err != nil {
@@ -675,23 +675,11 @@ func TestInsertHistoryRejectsDeletedWorkspace(t *testing.T) {
 	if err := s.DeleteWorkspace(workspace.Id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertHistory(model.HistoryDetail{
+	if _, err := s.InsertHistory(model.HistoryRecord{
 		WorkspaceId: workspace.Id,
 		RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.test/orphan"},
 	}); err == nil {
 		t.Fatal("history was inserted after its workspace had been deleted")
-	}
-}
-
-func TestInsertHistoryRejectsResponseBlob(t *testing.T) {
-	s := openTestStore(t)
-	workspace, _ := s.EnsureDefaultWorkspace()
-	if _, err := s.InsertHistory(model.HistoryDetail{
-		WorkspaceId: workspace.Id,
-		RequestSnap: model.HttpRequest{Method: "GET", Url: "https://example.test"},
-		BodyRef:     "raw-response.bin",
-	}); err == nil {
-		t.Fatal("history accepted a raw response blob")
 	}
 }
 
@@ -700,7 +688,7 @@ func TestHistoryCursorPaginationIsStable(t *testing.T) {
 	w, _ := s.EnsureDefaultWorkspace()
 	const createdAt = int64(123456789)
 	for i := 0; i < 5; i++ {
-		if _, err := s.InsertHistory(model.HistoryDetail{
+		if _, err := s.InsertHistory(model.HistoryRecord{
 			WorkspaceId: w.Id,
 			RequestSnap: model.HttpRequest{Method: "GET", Url: fmt.Sprintf("https://example.com/%d", i)},
 			CreatedAt:   createdAt,
@@ -794,7 +782,7 @@ func TestInsertHistoryPrunesOldestWorkspaceRowsAndBlobs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := s.InsertHistory(model.HistoryDetail{
+	if _, err := s.InsertHistory(model.HistoryRecord{
 		Id:          "zz-new-history",
 		WorkspaceId: workspace.Id,
 		RequestSnap: model.HttpRequest{Method: "POST", Url: "https://example.com/new"},

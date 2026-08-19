@@ -25,6 +25,7 @@ type RequestApi struct {
 	engine     *httpengine.Engine
 	store      *storage.Store
 	operations *operationRegistry
+	progress   func(progressPayload)
 	blobMu     sync.RWMutex
 	liveBlobs  map[string]string // blob ref -> workspace id
 }
@@ -76,10 +77,15 @@ type progressPayload struct {
 }
 
 func (a *RequestApi) emitProgress(sendId, phase string, bytesReceived, totalBytes int64) {
+	payload := progressPayload{
+		SendId: sendId, Phase: phase, BytesReceived: bytesReceived, TotalBytes: totalBytes,
+	}
+	if a.progress != nil {
+		a.progress(payload)
+		return
+	}
 	if a.ctx != nil {
-		wailsrt.EventsEmit(a.ctx, "request:progress", progressPayload{
-			SendId: sendId, Phase: phase, BytesReceived: bytesReceived, TotalBytes: totalBytes,
-		})
+		wailsrt.EventsEmit(a.ctx, "request:progress", payload)
 	}
 }
 
@@ -154,7 +160,6 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	res, err := a.engine.SendWithProgress(ctx, resolved, func(progress httpengine.Progress) {
 		a.emitProgress(sendId, progress.Phase, progress.BytesReceived, progress.TotalBytes)
 	})
-	a.emitProgress(sendId, "done", res.SizeBytes, res.SizeBytes)
 	if err != nil {
 		return res, model.WrapError(model.KindNetwork, err)
 	}
@@ -199,7 +204,7 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	res.TestResults = redactor.TestResults(res.TestResults)
 
 	// 8. 落历史（存已解析请求快照；大响应仅作为 live Blob 返回，不进入审计历史）
-	histItem := model.HistoryItem{
+	histItem := model.HistoryRecord{
 		WorkspaceId: sendCtx.WorkspaceId,
 		RequestSnap: resolved,
 		Status:      res.Status,
@@ -218,6 +223,7 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	} else {
 		res.ScriptLogs = append(res.ScriptLogs, redactor.String("[warning] save history: "+herr.Error()))
 	}
+	a.emitProgress(sendId, "done", res.SizeBytes, res.SizeBytes)
 	return res, nil
 }
 

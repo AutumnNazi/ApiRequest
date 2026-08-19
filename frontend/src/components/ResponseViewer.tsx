@@ -140,19 +140,22 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
     setLoadingChunk(true);
     setBlobError('');
     try {
-      let next = blobBytes;
+      const chunks: Uint8Array[] = blobBytes.byteLength > 0 ? [blobBytes] : [];
+      let loaded = blobBytes.byteLength;
       let eof: boolean = blobEof;
-      while (!eof && next.byteLength < blobSize) {
+      while (!eof && loaded < blobSize) {
         const chunk = await readResponseBlobRange(
           ref,
-          next.byteLength,
-          Math.min(1 << 20, blobSize - next.byteLength),
+          loaded,
+          Math.min(1 << 20, blobSize - loaded),
         );
         if (activeBlobRef.current !== ref) return;
-        next = concatBytes(next, decodeBase64(chunk.dataBase64));
+        const decoded = decodeBase64(chunk.dataBase64);
+        chunks.push(decoded);
+        loaded += decoded.byteLength;
         eof = chunk.eof;
       }
-      setBlobBytes(next);
+      setBlobBytes(concatByteChunks(chunks, loaded));
       setBlobEof(eof);
     } catch (error) {
       if (activeBlobRef.current === ref) setBlobError(toAppError(error).detail);
@@ -894,6 +897,16 @@ function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
   const combined = new Uint8Array(left.byteLength + right.byteLength);
   combined.set(left, 0);
   combined.set(right, left.byteLength);
+  return combined;
+}
+
+function concatByteChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array {
+  const combined = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   return combined;
 }
 

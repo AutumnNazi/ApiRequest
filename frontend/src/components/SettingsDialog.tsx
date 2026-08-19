@@ -23,6 +23,7 @@ import {
   type VaultStatus,
 } from '../ipc';
 import { useLocale, Verbatim, formatMessage, type Locale } from '../i18n/locale';
+import ModalFrame from './ModalFrame';
 
 interface Props {
   onClose(): void;
@@ -70,14 +71,6 @@ export default function SettingsDialog({ onClose }: Props) {
       })
       .catch((cause) => setError(toAppError(cause).detail));
   }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
 
   const save = async () => {
     setError('');
@@ -152,14 +145,11 @@ export default function SettingsDialog({ onClose }: Props) {
         : formatMessage('加密文件（已锁定）');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-        className="flex h-[520px] w-[680px] max-w-full rounded-lg bg-white shadow-xl overflow-hidden"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <ModalFrame
+      onClose={onClose}
+      titleId="settings-title"
+      className="flex h-[520px] w-[680px] max-w-full rounded-lg bg-white shadow-xl overflow-hidden"
+    >
         {/* 左侧导航 */}
         <nav className="w-36 shrink-0 border-r bg-gray-50 p-2">
           <h2 id="settings-title" className="px-2 py-2 text-sm font-semibold text-gray-700">{formatMessage('设置')}</h2>
@@ -471,7 +461,6 @@ export default function SettingsDialog({ onClose }: Props) {
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }

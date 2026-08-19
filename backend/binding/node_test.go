@@ -43,7 +43,7 @@ func TestListNodesReturnsSummariesWithoutUnlockingVault(t *testing.T) {
 	}
 	vault.Lock()
 
-	nodes, err := NewNodeApi(store).ListNodes(workspace.Id)
+	nodes, err := NewNodeApi(store, nil).ListNodes(workspace.Id)
 	if err != nil {
 		t.Fatalf("list summaries while Vault is locked: %v", err)
 	}
@@ -88,8 +88,7 @@ func TestDeleteWorkspaceCancelsRequestsAndReleasesLiveBlobs(t *testing.T) {
 	engine := httpengine.New()
 	engine.SetBlobsDir(store.BlobsDir())
 	requestApi := NewRequestApi(engine, store)
-	runnerApi := NewRunnerApi(requestApi, store)
-	nodeApi := NewNodeApi(store, runnerApi, requestApi)
+	nodeApi := NewNodeApi(store, requestApi)
 
 	large, err := requestApi.SendRequest(
 		"workspace-live-blob",

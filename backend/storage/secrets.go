@@ -225,9 +225,13 @@ func appendStoredNodeReferences(counts map[string]int, requestData, authData, va
 	return nil
 }
 
-func (s *Store) storedNodeSecretReferences(id string) ([]string, error) {
+type rowQueryer interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func storedNodeSecretReferencesFrom(queryer rowQueryer, id string) ([]string, error) {
 	var requestData, authData, variablesData sql.NullString
-	err := s.db.QueryRow("SELECT request_data, auth, variables FROM node WHERE id = ?", id).
+	err := queryer.QueryRow("SELECT request_data, auth, variables FROM node WHERE id = ?", id).
 		Scan(&requestData, &authData, &variablesData)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -242,9 +246,13 @@ func (s *Store) storedNodeSecretReferences(id string) ([]string, error) {
 	return sortedSecretReferences(counts), nil
 }
 
-func (s *Store) storedEnvironmentSecretReferences(id string) ([]string, error) {
+func (s *Store) storedNodeSecretReferences(id string) ([]string, error) {
+	return storedNodeSecretReferencesFrom(s.db, id)
+}
+
+func storedEnvironmentSecretReferencesFrom(queryer rowQueryer, id string) ([]string, error) {
 	var raw string
-	err := s.db.QueryRow("SELECT variables FROM environment WHERE id = ?", id).Scan(&raw)
+	err := queryer.QueryRow("SELECT variables FROM environment WHERE id = ?", id).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -258,9 +266,13 @@ func (s *Store) storedEnvironmentSecretReferences(id string) ([]string, error) {
 	return secrets.VariableReferences(variables), nil
 }
 
-func (s *Store) storedGlobalSecretReferences(workspaceID string) ([]string, error) {
+func (s *Store) storedEnvironmentSecretReferences(id string) ([]string, error) {
+	return storedEnvironmentSecretReferencesFrom(s.db, id)
+}
+
+func storedGlobalSecretReferencesFrom(queryer rowQueryer, workspaceID string) ([]string, error) {
 	var raw string
-	err := s.db.QueryRow("SELECT variables FROM global_var WHERE workspace_id = ?", workspaceID).Scan(&raw)
+	err := queryer.QueryRow("SELECT variables FROM global_var WHERE workspace_id = ?", workspaceID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -272,6 +284,10 @@ func (s *Store) storedGlobalSecretReferences(workspaceID string) ([]string, erro
 		return nil, fmt.Errorf("decode stored global credentials: %w", err)
 	}
 	return secrets.VariableReferences(variables), nil
+}
+
+func (s *Store) storedGlobalSecretReferences(workspaceID string) ([]string, error) {
+	return storedGlobalSecretReferencesFrom(s.db, workspaceID)
 }
 
 func (s *Store) storedWorkspaceSecretReferences(workspaceID string) ([]string, error) {

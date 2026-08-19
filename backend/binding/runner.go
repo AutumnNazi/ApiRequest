@@ -197,18 +197,6 @@ func (a *RunnerApi) CancelRun(runId string) error {
 	return nil
 }
 
-func (a *RunnerApi) shutdown(ctx context.Context) error {
-	return a.operations.shutdown(ctx)
-}
-
-func (a *RunnerApi) cancelWorkspace(ctx context.Context, workspaceId string) error {
-	return a.operations.cancelScope(ctx, workspaceId)
-}
-
-func (a *RunnerApi) resumeWorkspace(workspaceId string) {
-	a.operations.resumeScope(workspaceId)
-}
-
 // ExportReport 导出报告 JSON（供 CI/存档）
 func (a *RunnerApi) ExportReport(runId string) (string, error) {
 	a.mu.Lock()

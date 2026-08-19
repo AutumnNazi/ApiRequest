@@ -1,9 +1,10 @@
 // Workspace Session store：每个工作区独立保存标签、活动页与可恢复草稿。
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { AppError, HttpRequest, RequestProgress, ResponseResult } from '../ipc';
+import type { AppError, HttpRequest, ResponseResult } from '../ipc';
 import { newDefaultRequest } from '../ipc';
 import { formatMessage } from '../i18n/locale';
+import { isSensitiveRequestValueKey, shouldOmitAuthParam } from '../authPolicy';
 
 export interface Tab {
   id: string;
@@ -17,8 +18,9 @@ export interface Tab {
   sendId?: string;
   response?: ResponseResult;
   error?: AppError;
-  progress?: RequestProgress;
 }
+
+type LegacyTab = Tab & { progress?: unknown };
 
 export interface WorkspaceSession {
   tabs: Tab[];
@@ -45,7 +47,6 @@ interface TabsState {
   setSending(tabId: string, sending: boolean, sendId?: string): void;
   setResponse(tabId: string, sendId: string, response: ResponseResult): boolean;
   setError(tabId: string, sendId: string, error: AppError): boolean;
-  setProgress(progress: RequestProgress): void;
 }
 
 let seq = 0;
@@ -97,11 +98,20 @@ export function serializeWorkspaceSessions(sessions: Record<string, WorkspaceSes
   for (const [workspaceId, session] of Object.entries(sessions)) {
     const tabs = session.tabs
       .filter((tab) => tab.dirty)
-      .map(({ response: _response, error: _error, sendId: _sendId, progress: _progress, ...tab }) => ({
-        ...tab,
-        draft: draftWithoutPersistedCredentials(tab.draft),
-        sending: false,
-      }));
+      .map((current) => {
+        const {
+          response: _response,
+          error: _error,
+          sendId: _sendId,
+          progress: _progress,
+          ...tab
+        } = current as LegacyTab;
+        return {
+          ...tab,
+          draft: draftWithoutPersistedCredentials(tab.draft),
+          sending: false,
+        };
+      });
     if (tabs.length === 0) continue;
     persisted[workspaceId] = {
       tabs,
@@ -121,16 +131,18 @@ export function migrateWorkspaceSessions(persistedState: unknown): PersistedTabs
     if (!session || !Array.isArray(session.tabs)) continue;
     const tabs = session.tabs
       .filter((tab) => tab?.draft && tab.dirty)
-      .map((tab) => ({
-        ...tab,
-        revision: Number.isFinite(tab.revision) ? tab.revision : 0,
-        draft: draftWithoutPersistedCredentials(tab.draft),
-        sending: false,
-        sendId: undefined,
-        response: undefined,
-        error: undefined,
-        progress: undefined,
-      }));
+      .map((current) => {
+        const { progress: _progress, ...tab } = current as LegacyTab;
+        return {
+          ...tab,
+          revision: Number.isFinite(tab.revision) ? tab.revision : 0,
+          draft: draftWithoutPersistedCredentials(tab.draft),
+          sending: false,
+          sendId: undefined,
+          response: undefined,
+          error: undefined,
+        };
+      });
     if (tabs.length === 0) continue;
     sessions[workspaceId] = {
       tabs,
@@ -140,29 +152,14 @@ export function migrateWorkspaceSessions(persistedState: unknown): PersistedTabs
   return { sessions };
 }
 
-const sensitiveAuthParams: Record<string, Set<string>> = {
-  basic: new Set(['password']),
-  digest: new Set(['password']),
-  bearer: new Set(['token']),
-  apikey: new Set(['value']),
-  oauth1: new Set(['consumersecret', 'token', 'tokensecret']),
-  oauth2: new Set(['clientsecret', 'password', 'accesstoken', 'refreshtoken']),
-  awsv4: new Set(['secretkey', 'sessiontoken']),
-};
-
-const normalizedAuthKey = (key: string) => key.toLowerCase().replace(/[_\-\s]/g, '');
-
 function draftWithoutPersistedCredentials(draft: HttpRequest): HttpRequest {
-  const sensitive = sensitiveAuthParams[draft.auth?.type?.toLowerCase() ?? ''];
-  const isSensitiveKey = (key: string) =>
-    /authorization|cookie|token|secret|api[-_]?key|password|passwd/i.test(key.trim());
   const headers = draft.headers?.map((header) =>
-    isSensitiveKey(header.key)
+    isSensitiveRequestValueKey(header.key)
       ? { ...header, value: '' }
       : header,
   );
   const params = draft.params?.map((param) =>
-    isSensitiveKey(param.key) ? { ...param, value: '' } : param,
+    isSensitiveRequestValueKey(param.key) ? { ...param, value: '' } : param,
   );
   const body = draft.body
     ? {
@@ -170,7 +167,7 @@ function draftWithoutPersistedCredentials(draft: HttpRequest): HttpRequest {
         ...(draft.body.items
           ? {
               items: draft.body.items.map((item) =>
-                item.type !== 'file' && isSensitiveKey(item.key) ? { ...item, value: '' } : item,
+                item.type !== 'file' && isSensitiveRequestValueKey(item.key) ? { ...item, value: '' } : item,
               ),
             }
           : {}),
@@ -188,7 +185,7 @@ function draftWithoutPersistedCredentials(draft: HttpRequest): HttpRequest {
             params: Object.fromEntries(
               Object.entries(draft.auth.params).map(([key, value]) => [
                 key,
-                !sensitive || sensitive.has(normalizedAuthKey(key)) ? '' : value,
+                shouldOmitAuthParam(draft.auth?.type, key) ? '' : value,
               ]),
             ),
           },
@@ -412,7 +409,6 @@ export const useTabs = create<TabsState>()(
               ? {
                   sendId,
                   error: undefined,
-                  progress: { sendId: sendId ?? '', phase: 'sending', bytesReceived: 0, totalBytes: 0 },
                 }
               : { sendId: undefined }),
           })),
@@ -431,7 +427,6 @@ export const useTabs = create<TabsState>()(
               error: undefined,
               sending: false,
               sendId: undefined,
-              progress: undefined,
             };
           }),
         }));
@@ -449,24 +444,12 @@ export const useTabs = create<TabsState>()(
               error,
               sending: false,
               sendId: undefined,
-              progress: undefined,
             };
           }),
         }));
         return accepted;
       },
 
-      setProgress(progress) {
-        set((state) => {
-          for (const session of Object.values(state.sessions)) {
-            const tab = session.tabs.find((candidate) => candidate.sendId === progress.sendId);
-            if (tab) {
-              return { sessions: updateTab(state.sessions, tab.id, (current) => ({ ...current, progress })) };
-            }
-          }
-          return state;
-        });
-      },
     }),
     {
       name: 'apirequest.workspace-sessions.v1',

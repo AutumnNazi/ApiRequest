@@ -563,7 +563,7 @@ func TestHistoryCredentialsAreIrreversiblyRedacted(t *testing.T) {
 	if _, err := store.Vault().Put("test/history-variable", "vault-history-secret"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := store.InsertHistory(model.HistoryItem{
+	_, err := store.InsertHistory(model.HistoryRecord{
 		WorkspaceId: workspace.Id,
 		RequestSnap: model.HttpRequest{
 			Url:     "https://example.test/vault-history-secret",
@@ -596,7 +596,7 @@ func TestHistoryCredentialsAreIrreversiblyRedacted(t *testing.T) {
 func TestHistoryRedactsShortAndOverlappingCredentialEchoes(t *testing.T) {
 	store := openStoreWithMemoryKeyring(t, t.TempDir(), &memoryKeyring{})
 	workspace, _ := store.EnsureDefaultWorkspace()
-	id, err := store.InsertHistory(model.HistoryItem{
+	id, err := store.InsertHistory(model.HistoryRecord{
 		WorkspaceId: workspace.Id,
 		RequestSnap: model.HttpRequest{Params: []model.KV{
 			{Key: "token", Value: "abc", Enabled: true},
@@ -1434,7 +1434,7 @@ func TestHistoryRedactsResponseCredentialsBeforePersistence(t *testing.T) {
 	if _, err := store.Vault().Put("test/history-response", knownSecret); err != nil {
 		t.Fatal(err)
 	}
-	id, err := store.InsertHistory(model.HistoryItem{
+	id, err := store.InsertHistory(model.HistoryRecord{
 		WorkspaceId: workspace.Id,
 		RequestSnap: model.HttpRequest{Method: "POST", Url: "https://example.test/login"},
 		RespHeaders: []model.KV{

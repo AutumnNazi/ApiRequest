@@ -11,6 +11,7 @@ import {
 import { Verbatim, formatMessage } from '../i18n/locale';
 import { useRecentTargets } from '../hooks/useRecentTargets';
 import RecentTargets from './RecentTargets';
+import ModalFrame from './ModalFrame';
 
 interface Props {
   onClose(): void;
@@ -93,14 +94,11 @@ export default function WsPanel({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="WebSocket / SSE"
-        className="bg-white rounded-lg shadow-xl w-[720px] h-[560px] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <ModalFrame
+      onClose={onClose}
+      ariaLabel="WebSocket / SSE"
+      className="bg-white rounded-lg shadow-xl w-[720px] h-[560px] flex flex-col"
+    >
         <div className="flex items-center gap-2 px-4 py-3 border-b">
           <select
             className="border rounded px-2 py-1 text-xs"
@@ -188,7 +186,6 @@ export default function WsPanel({ onClose }: Props) {
             </button>
           </div>
         )}
-      </div>
-    </div>
+    </ModalFrame>
   );
 }

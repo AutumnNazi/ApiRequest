@@ -27,6 +27,7 @@ const GrpcPanel = lazy(() => import('./components/GrpcPanel'));
 const GraphqlPanel = lazy(() => import('./components/GraphqlPanel'));
 const ThemeDialog = lazy(() => import('./components/ThemeDialog'));
 import { flushWorkspaceSessions, useTabs, type Tab } from './stores/tabs';
+import { useRequestProgress } from './stores/requestProgress';
 import {
   getDefaultWorkspace,
   renameWorkspace,
@@ -56,6 +57,21 @@ function findTab(tabId: string): Tab | undefined {
   return undefined;
 }
 
+function ActiveResponse({ tab }: { tab: Tab }) {
+  const progress = useRequestProgress((state) =>
+    tab.sendId ? state.bySendId[tab.sendId] : undefined,
+  );
+  return (
+    <ResponseViewer
+      response={tab.response}
+      error={tab.error}
+      sending={tab.sending}
+      progress={progress}
+      nodeId={tab.nodeId}
+    />
+  );
+}
+
 export default function App() {
   const qc = useQueryClient();
   const dialog = useDialog();
@@ -69,7 +85,7 @@ export default function App() {
   const setResponse = useTabs((s) => s.setResponse);
   const setError = useTabs((s) => s.setError);
   const markSaved = useTabs((s) => s.markSaved);
-  const setProgress = useTabs((s) => s.setProgress);
+  const updateProgress = useRequestProgress((state) => state.update);
 
   const workspaceQuery = useQuery({
     queryKey: ['workspace'],
@@ -133,7 +149,7 @@ export default function App() {
   // Ctrl/Cmd+E 展开环境下拉：每次按下递增，EnvSwitcher 侧按信号变化响应
   const [envOpenSignal, setEnvOpenSignal] = useState(0);
 
-  useEffect(() => onRequestProgress(setProgress), [setProgress]);
+  useEffect(() => onRequestProgress(updateProgress), [updateProgress]);
 
   const requestClose = async () => {
     if (closingRef.current) return;
@@ -355,6 +371,7 @@ export default function App() {
       if (!current || current.sendId || current.workspaceId !== active.workspaceId) return;
       const sendId = `${tabId}-${Date.now()}`;
       setSending(tabId, true, sendId);
+      useRequestProgress.getState().start(sendId);
       const previousBlobRef = active.response?.body?.blobRef;
       try {
         const res = await sendRequest(sendId, draft, {
@@ -384,6 +401,8 @@ export default function App() {
         qc.invalidateQueries({ queryKey: ['globals', active.workspaceId] });
       } catch (e) {
         setError(tabId, sendId, toAppError(e));
+      } finally {
+        useRequestProgress.getState().clear(sendId);
       }
     } finally {
       sendingTabsRef.current.delete(tabId);
@@ -792,13 +811,7 @@ export default function App() {
                 onRatio={setEditorRatio}
               />
               <div className="flex-1 min-h-0">
-                <ResponseViewer
-                  response={active.response}
-                  error={active.error}
-                  sending={active.sending}
-                  progress={active.progress}
-                  nodeId={active.nodeId}
-                />
+                <ActiveResponse tab={active} />
               </div>
             </div>
           ) : (

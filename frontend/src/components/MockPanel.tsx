@@ -9,6 +9,7 @@ import {
   type MockLogEntry,
 } from '../ipc';
 import { Verbatim, formatMessage } from '../i18n/locale';
+import ModalFrame from './ModalFrame';
 
 interface Props {
   collectionId: string;
@@ -24,7 +25,7 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
   // 初始查询未落地前禁用启停：否则先完成的启动结果会被随后到达的旧快照覆盖，
   // UI 显示"已停止"而服务仍在运行，再次点击会重启并换掉端口。
   const [initializing, setInitializing] = useState(true);
-  // 操作序号：runningMocks 的快照只有仍是最新一轮时才允许写入 addr。
+  // 启停操作序号：只有最新一轮异步操作才允许回写状态。
   const revision = useRef(0);
   const mounted = useRef(false);
 
@@ -38,7 +39,8 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
 
   useEffect(() => {
     let active = true;
-    const issued = ++revision.current;
+    // 集合切换会使上一集合仍在飞行中的启停操作失效；本 effect 自身由 active 保护。
+    revision.current += 1;
     // 这些状态都属于当前集合。切换集合时不能继续展示上一集合的操作状态或日志。
     setAddr('');
     setError('');
@@ -47,18 +49,18 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
     setInitializing(true);
     runningMocks()
       .then((m) => {
-        if (active && mounted.current && issued === revision.current) {
+        if (active && mounted.current) {
           setAddr(m[collectionId] ?? '');
         }
       })
       // 查询失败不应静默：否则面板显示"未启动"，用户误以为可以重复启动
       .catch((cause) => {
-        if (active && mounted.current && issued === revision.current) {
+        if (active && mounted.current) {
           setError(toAppError(cause).detail);
         }
       })
       .finally(() => {
-        if (active && mounted.current && issued === revision.current) {
+        if (active && mounted.current) {
           setInitializing(false);
         }
       });
@@ -99,14 +101,11 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="mock-panel-title"
-        className="bg-white rounded-lg shadow-xl w-[640px] h-[460px] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <ModalFrame
+      onClose={onClose}
+      titleId="mock-panel-title"
+      className="bg-white rounded-lg shadow-xl w-[640px] h-[460px] flex flex-col"
+    >
         <div className="flex items-center gap-3 px-4 py-3 border-b">
           <h2 id="mock-panel-title" className="font-semibold text-sm">Mock · <Verbatim value={collectionName} /></h2>
           <span
@@ -172,7 +171,6 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
             </table>
           )}
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }

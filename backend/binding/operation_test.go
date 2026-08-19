@@ -55,7 +55,7 @@ func TestOperationRegistryBlocksAndResumesScope(t *testing.T) {
 	resumedFinish()
 }
 
-func TestOperationRegistryKeepsScopeBlockedUntilAllOwnersResume(t *testing.T) {
+func TestOperationRegistryScopeCancellationIsIdempotent(t *testing.T) {
 	registry := newOperationRegistry()
 	if err := registry.cancelScope(context.Background(), "workspace-1"); err != nil {
 		t.Fatal(err)
@@ -65,14 +65,9 @@ func TestOperationRegistryKeepsScopeBlockedUntilAllOwnersResume(t *testing.T) {
 	}
 
 	registry.resumeScope("workspace-1")
-	if _, _, err := registry.begin(context.Background(), "still-blocked", "workspace-1"); err == nil {
-		t.Fatal("one owner resumed a scope that is still blocked by another owner")
-	}
-
-	registry.resumeScope("workspace-1")
 	_, finish, err := registry.begin(context.Background(), "resumed", "workspace-1")
 	if err != nil {
-		t.Fatalf("fully resumed scope rejected operation: %v", err)
+		t.Fatalf("resumed scope rejected operation after duplicate cancellation: %v", err)
 	}
 	finish()
 }

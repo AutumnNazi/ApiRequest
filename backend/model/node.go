@@ -99,11 +99,27 @@ type HistoryPage struct {
 	HasMore    bool             `json:"hasMore"`
 }
 
+// HistoryRecord is the redacted payload accepted by history persistence.
+// Response Blob references are intentionally absent from this write Interface.
+type HistoryRecord struct {
+	Id          string       `json:"id"`
+	WorkspaceId string       `json:"workspaceId"`
+	RequestSnap HttpRequest  `json:"requestSnap"` // 实际发送快照，凭证已不可逆脱敏
+	Status      int          `json:"status"`
+	DurationMs  int64        `json:"durationMs"`
+	SizeBytes   int64        `json:"sizeBytes"`
+	Timing      Timing       `json:"timing"`
+	RespHeaders []KV         `json:"respHeaders"`
+	BodyInline  string       `json:"bodyInline,omitempty"`
+	TestResults []TestResult `json:"testResults,omitempty"`
+	CreatedAt   int64        `json:"createdAt"`
+}
+
 // HistoryDetail 是单条历史的 replay/detail 投影。
 type HistoryDetail struct {
 	Id          string       `json:"id"`
 	WorkspaceId string       `json:"workspaceId"`
-	RequestSnap HttpRequest  `json:"requestSnap"` // 实际发送快照，凭证已不可逆脱敏
+	RequestSnap HttpRequest  `json:"requestSnap"`
 	Status      int          `json:"status"`
 	DurationMs  int64        `json:"durationMs"`
 	SizeBytes   int64        `json:"sizeBytes"`
@@ -114,9 +130,6 @@ type HistoryDetail struct {
 	TestResults []TestResult `json:"testResults,omitempty"`
 	CreatedAt   int64        `json:"createdAt"`
 }
-
-// HistoryItem keeps internal callers source-compatible; public APIs use Summary/Detail explicitly.
-type HistoryItem = HistoryDetail
 
 // Example 请求的示例响应（"保存为示例"落点，Mock Server 数据源）
 type Example struct {

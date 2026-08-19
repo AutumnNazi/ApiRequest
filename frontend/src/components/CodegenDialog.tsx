@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { codegenTargets, generateCode, type HttpRequest } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
+import ModalFrame from './ModalFrame';
 
 interface Props {
   request: HttpRequest;
@@ -39,14 +40,11 @@ export default function CodegenDialog({ request, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="codegen-dialog-title"
-        className="bg-white rounded-lg shadow-xl w-[640px] h-[480px] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <ModalFrame
+      onClose={onClose}
+      titleId="codegen-dialog-title"
+      className="bg-white rounded-lg shadow-xl w-[640px] h-[480px] flex flex-col"
+    >
         <div className="flex items-center gap-3 px-4 py-3 border-b">
           <h2 id="codegen-dialog-title" className="font-semibold text-sm">{formatMessage('生成代码')}</h2>
           <select
@@ -73,7 +71,6 @@ export default function CodegenDialog({ request, onClose }: Props) {
         <pre className="flex-1 overflow-auto p-4 text-xs font-mono bg-gray-50 whitespace-pre-wrap break-all rounded-b-lg">
           <Verbatim value={code} />
         </pre>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }

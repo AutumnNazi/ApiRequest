@@ -17,11 +17,11 @@ type workspaceOperationOwner interface {
 // NodeApi 集合树 CRUD 域
 type NodeApi struct {
 	store     *storage.Store
-	operation []workspaceOperationOwner
+	operation workspaceOperationOwner
 }
 
 // NewNodeApi 构造
-func NewNodeApi(store *storage.Store, operation ...workspaceOperationOwner) *NodeApi {
+func NewNodeApi(store *storage.Store, operation workspaceOperationOwner) *NodeApi {
 	return &NodeApi{store: store, operation: operation}
 }
 
@@ -77,15 +77,15 @@ func (a *NodeApi) DeleteWorkspace(id string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	blocked := make([]workspaceOperationOwner, 0, len(a.operation))
+	blocked := false
 	resumeBlocked := func() {
-		for _, owner := range blocked {
-			owner.resumeWorkspace(id)
+		if blocked {
+			a.operation.resumeWorkspace(id)
 		}
 	}
-	for _, owner := range a.operation {
-		blocked = append(blocked, owner)
-		if err := owner.cancelWorkspace(ctx, id); err != nil {
+	if a.operation != nil {
+		blocked = true
+		if err := a.operation.cancelWorkspace(ctx, id); err != nil {
 			resumeBlocked()
 			return model.WrapError(model.KindStorage, fmt.Errorf("stop workspace operations: %w", err))
 		}

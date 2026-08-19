@@ -64,6 +64,73 @@ func TestSendRequestPersistsHistory(t *testing.T) {
 	}
 }
 
+func TestSendRequestEmitsDoneOnlyAfterHistoryIsReadable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	store, err := storage.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	api := NewRequestApi(httpengine.New(), store)
+	doneObserved := false
+	api.progress = func(progress progressPayload) {
+		if progress.Phase != "done" {
+			return
+		}
+		doneObserved = true
+		page, listErr := store.ListHistory(workspace.Id, model.HistoryQuery{})
+		if listErr != nil {
+			t.Errorf("list history when done emitted: %v", listErr)
+		} else if len(page.Items) != 1 {
+			t.Errorf("history count when done emitted = %d, want 1", len(page.Items))
+		}
+	}
+
+	if _, err := api.SendRequest(
+		"progress-success",
+		model.HttpRequest{Method: "GET", Url: srv.URL, Settings: model.DefaultSettings()},
+		model.SendContext{WorkspaceId: workspace.Id},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !doneObserved {
+		t.Fatal("done progress was not emitted")
+	}
+}
+
+func TestSendRequestDoesNotEmitDoneOnNetworkFailure(t *testing.T) {
+	store, err := storage.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+	api := NewRequestApi(httpengine.New(), store)
+	var phases []string
+	api.progress = func(progress progressPayload) {
+		phases = append(phases, progress.Phase)
+	}
+
+	_, err = api.SendRequest(
+		"progress-failure",
+		model.HttpRequest{Method: "GET", Url: "http://127.0.0.1:0", Settings: model.DefaultSettings()},
+		model.SendContext{WorkspaceId: workspace.Id},
+	)
+	if err == nil {
+		t.Fatal("network failure was not returned")
+	}
+	for _, phase := range phases {
+		if phase == "done" {
+			t.Fatalf("failed request emitted done: %v", phases)
+		}
+	}
+}
+
 func TestSendRequestReportsCookiePersistenceFailureWithoutDiscardingResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "session", Value: "response-secret", HttpOnly: true})

@@ -4,6 +4,7 @@ import { useTheme } from '../theme/store';
 import type { ThemeDefinition, ThemePalette } from '../theme/themes';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
+import ModalFrame from './ModalFrame';
 
 interface Props {
   onClose(): void;
@@ -41,14 +42,11 @@ export default function ThemeDialog({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="theme-dialog-title"
-        className="bg-white rounded-lg shadow-xl w-[720px] max-h-[85vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <ModalFrame
+      onClose={onClose}
+      titleId="theme-dialog-title"
+      className="bg-white rounded-lg shadow-xl w-[720px] max-h-[85vh] flex flex-col"
+    >
         <div className="flex items-center px-4 py-3 border-b">
           <h2 id="theme-dialog-title" className="font-semibold text-sm">{formatMessage('主题')}</h2>
           <span className="ml-2 text-xs text-gray-400">
@@ -135,8 +133,7 @@ export default function ThemeDialog({ onClose }: Props) {
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }
 

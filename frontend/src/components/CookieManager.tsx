@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   clearCookies,
@@ -13,6 +13,7 @@ import {
 } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
+import ModalFrame from './ModalFrame';
 
 interface Props {
   onClose(): void;
@@ -36,16 +37,6 @@ export default function CookieManager({ onClose }: Props) {
   const query = useQuery({ queryKey: ['cookies'], queryFn: () => listCookies() });
   const cookies = query.data ?? [];
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['cookies'] });
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      if (editor) setEditor(null);
-      else onClose();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [editor, onClose]);
 
   const save = useMutation({
     mutationFn: (cookie: Cookie) => upsertCookie(cookie),
@@ -153,14 +144,12 @@ export default function CookieManager({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cookie-manager-title"
-        className="flex h-[560px] max-h-[calc(100vh-2rem)] w-[820px] max-w-full flex-col overflow-hidden rounded-lg bg-white shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <ModalFrame
+      onClose={onClose}
+      onEscape={() => editor ? setEditor(null) : onClose()}
+      titleId="cookie-manager-title"
+      className="flex h-[560px] max-h-[calc(100vh-2rem)] w-[820px] max-w-full flex-col overflow-hidden rounded-lg bg-white shadow-xl"
+    >
         <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
           <h2 id="cookie-manager-title" className="text-sm font-semibold text-gray-800">
             {formatMessage('Cookie 管理')}
@@ -217,8 +206,7 @@ export default function CookieManager({ onClose }: Props) {
             <CookieTable cookies={cookies} onEdit={openEdit} onDelete={(cookie) => remove.mutate(cookie)} />
           )}
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }
 

@@ -175,24 +175,14 @@ func applyToLocal(store *storage.Store, workspaceId string, merged *Snapshot) er
 		node.WorkspaceId = workspaceId
 		rows[i] = storage.SyncNodeRow{Node: node.Node, DeletedAt: node.DeletedAt}
 	}
-	if err := store.ValidateSyncOwnership(workspaceId, rows, merged.Environments); err != nil {
-		return err
-	}
-	if err := store.EnsureWorkspace(workspaceId, merged.WorkspaceName); err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if err := store.ApplySyncNode(row); err != nil {
-			return err
-		}
-	}
-	for _, e := range merged.Environments {
-		e.WorkspaceId = workspaceId
-		if err := store.ApplySyncEnvironment(e); err != nil {
-			return err
-		}
-	}
-	return store.ApplySyncGlobalVariables(workspaceId, merged.Globals, merged.GlobalsRev)
+	return store.ApplySyncSnapshot(storage.SyncSnapshotWrite{
+		WorkspaceId:     workspaceId,
+		WorkspaceName:   merged.WorkspaceName,
+		Nodes:           rows,
+		Environments:    merged.Environments,
+		Globals:         merged.Globals,
+		GlobalsRevision: merged.GlobalsRev,
+	})
 }
 
 const maxSnapshotEntities = 100_000

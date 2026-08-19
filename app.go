@@ -62,7 +62,7 @@ func NewApp() *App {
 		mocks:     mocks,
 		protocols: protocols,
 		Request:   request,
-		Node:      binding.NewNodeApi(store, runner, request),
+		Node:      binding.NewNodeApi(store, request),
 		History:   binding.NewHistoryApi(store),
 		Env:       binding.NewEnvApi(store),
 		Cookie:    binding.NewCookieApi(store),
@@ -90,7 +90,7 @@ func (a *App) beforeClose(ctx context.Context) bool { return binding.BeforeClose
 func (a *App) shutdown(ctx context.Context) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := binding.Shutdown(shutdownCtx, a.Runner, a.Request); err != nil {
+	if err := binding.Shutdown(shutdownCtx, a.Request); err != nil {
 		log.Printf("stop request operations: %v", err)
 	}
 	a.mocks.StopAll()

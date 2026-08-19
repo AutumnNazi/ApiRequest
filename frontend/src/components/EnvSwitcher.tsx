@@ -15,6 +15,7 @@ import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 import Dropdown from './Dropdown';
 import QueryErrorState from './QueryErrorState';
+import ModalFrame from './ModalFrame';
 
 interface Props {
   workspaceId: string;
@@ -143,17 +144,11 @@ function EnvManager({
   });
 
   return (
-    <div
-      className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
-      onClick={onClose}
+    <ModalFrame
+      onClose={onClose}
+      titleId="env-manager-title"
+      className="bg-white rounded-lg shadow-xl w-[720px] h-[480px] flex flex-col"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="env-manager-title"
-        className="bg-white rounded-lg shadow-xl w-[720px] h-[480px] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
         <div className="flex items-center px-4 py-3 border-b">
           <h2 id="env-manager-title" className="font-semibold text-sm">{formatMessage('环境管理')}</h2>
           <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={onClose}>
@@ -205,8 +200,7 @@ function EnvManager({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }
 

@@ -3,59 +3,7 @@ import { useState } from 'react';
 import { getOAuth2Token, clearOAuth2Token, toAppError } from '../ipc';
 import type { Auth } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
-
-const AUTH_TYPES: [string, string][] = [
-  ['none', 'No Auth'],
-  ['basic', 'Basic Auth'],
-  ['bearer', 'Bearer Token'],
-  ['apikey', 'API Key'],
-  ['digest', 'Digest'],
-  ['oauth1', 'OAuth 1.0'],
-  ['oauth2', 'OAuth 2.0'],
-  ['awsv4', 'AWS Signature V4'],
-];
-
-// 每种类型的参数字段定义：[param key, label, secret?]
-const FIELDS: Record<string, [string, string, boolean?][]> = {
-  basic: [
-    ['username', '用户名'],
-    ['password', '密码', true],
-  ],
-  bearer: [['token', 'Token', true]],
-  apikey: [
-    ['key', 'Key 名称'],
-    ['value', '值', true],
-    ['in', '位置（header/query）'],
-  ],
-  digest: [
-    ['username', '用户名'],
-    ['password', '密码', true],
-  ],
-  oauth1: [
-    ['consumerKey', 'Consumer Key'],
-    ['consumerSecret', 'Consumer Secret', true],
-    ['token', 'Token'],
-    ['tokenSecret', 'Token Secret', true],
-    ['signatureMethod', '签名方法（HMAC-SHA1/HMAC-SHA256）'],
-  ],
-  oauth2: [
-    ['grantType', '授权模式（authorization_code/client_credentials/password）'],
-    ['authUrl', '授权端点（authorization_code 用）'],
-    ['tokenUrl', 'Token 端点'],
-    ['clientId', 'Client ID'],
-    ['clientSecret', 'Client Secret', true],
-    ['scope', 'Scope（可选）'],
-    ['username', '用户名（password 模式）'],
-    ['password', '密码（password 模式）', true],
-  ],
-  awsv4: [
-    ['accessKey', 'Access Key'],
-    ['secretKey', 'Secret Key', true],
-    ['region', 'Region（默认 us-east-1）'],
-    ['service', 'Service（默认 execute-api）'],
-    ['sessionToken', 'Session Token（可选）', true],
-  ],
-};
+import { AUTH_FIELDS, AUTH_TYPES } from '../authPolicy';
 
 interface Props {
   auth: Auth;
@@ -65,7 +13,7 @@ interface Props {
 export default function AuthEditor({ auth, onChange }: Props) {
   const type = auth?.type ?? 'none';
   const params = auth?.params ?? {};
-  const fields = FIELDS[type] ?? [];
+  const fields = AUTH_FIELDS[type] ?? [];
   const [tokenState, setTokenState] = useState<'idle' | 'fetching' | 'ok' | 'error'>('idle');
   const [tokenMsg, setTokenMsg] = useState('');
 

@@ -205,22 +205,6 @@ describe('Workspace Session store', () => {
     expect(useTabs.getState().sessions['workspace-a'].tabs[0].draft.params[0].value).toBe('');
   });
 
-  it('routes progress to the tab that owns the send id', () => {
-    const first = useTabs.getState().openBlank('workspace-a');
-    const second = useTabs.getState().openBlank('workspace-b');
-    useTabs.getState().setSending(first, true, 'send-a');
-    useTabs.getState().setSending(second, true, 'send-b');
-    useTabs.getState().setProgress({
-      sendId: 'send-a',
-      phase: 'downloading',
-      bytesReceived: 64,
-      totalBytes: 128,
-    });
-
-    expect(useTabs.getState().sessions['workspace-a'].tabs[0].progress?.bytesReceived).toBe(64);
-    expect(useTabs.getState().sessions['workspace-b'].tabs[0].progress?.phase).toBe('sending');
-  });
-
   it('rejects stale or orphaned request completions by send id', () => {
     const tabId = useTabs.getState().openBlank('workspace-a');
     useTabs.getState().setSending(tabId, true, 'send-current');

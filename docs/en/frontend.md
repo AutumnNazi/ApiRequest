@@ -40,8 +40,8 @@ All invocations of Wails-generated binding functions go through domain-specific 
 
 ## 4. UI/UX Interaction Conventions
 
-- **Overall layout**: top workspace/environment switcher -> collapsible collection/history sidebar -> central multi-tab editor -> response area below or beside the request, switchable between vertical and horizontal layouts.
-- **Multiple tabs**: one tab per request or protocol session; a dot marks unsaved state; tabs can be pinned, dragged to reorder, and middle-clicked to close.
+- **Overall layout**: top workspace/environment switcher -> collection/history sidebar with a draggable width -> central multi-tab editor -> response area below the request with a draggable height.
+- **Multiple tabs**: one tab per request; a dot marks unsaved state; tabs can be dragged to reorder and middle-clicked to close.
 - **Key-value tables**: Headers, Query, and forms share behavior: an empty final row is added automatically; rows have enable toggles; pasted `k: v` or tabular clipboard content is split into columns; users can switch to `Bulk Edit` text mode.
 - **Variable hints**: typing `{{` opens variable completion. Hovering a defined variable shows its source and value, with secrets masked. Undefined variables receive a red underline.
 - **Response area**: Pretty/Raw/Preview modes and search highlighting. Render at most 500,000 body characters, inspect blobs through bounded chunks, and stream full content to a native save destination. Never render an HTML blob's preview fragment as a complete document.
@@ -54,11 +54,8 @@ All invocations of Wails-generated binding functions go through domain-specific 
 | Save | Ctrl+S | Cmd+S |
 | New tab | Ctrl+T | Cmd+T |
 | Close tab | Ctrl+W | Cmd+W |
-| Command palette | Ctrl+K | Cmd+K |
 | Switch environment | Ctrl+E | Cmd+E |
-| Focus sidebar search | Ctrl+P | Cmd+P |
 
-- **Command palette** (Ctrl/Cmd+K): global actions and fast navigation to collections/requests, designed for keyboard-first use.
-- **Themes and accessibility**: light/dark/system; visible focus, sufficient contrast, and complete keyboard navigation. Radix supplies accessible primitives.
+- **Themes and accessibility**: light/dark/system; forms and primary actions provide visible focus and keyboard access.
 - **Platform consistency**: map shortcuts as shown above. File selection, drag and drop, clipboard access, and the system browser use Wails runtime capabilities rather than private WebView APIs. Include these critical flows in Windows/macOS smoke tests.
-- **Empty states and onboarding**: start first-time users with a sample collection and a "Send your first request" path.
+- **Empty states and onboarding**: when no tab is active, prompt users to create a request with Ctrl/Cmd+T.
