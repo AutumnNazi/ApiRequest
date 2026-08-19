@@ -361,8 +361,8 @@ func (s *Store) ListHistory(workspaceId string, query model.HistoryQuery) (model
 	where := []string{"workspace_id = ?"}
 	args := []any{workspaceId}
 	if query.Search != "" {
-		where = append(where, "(method LIKE ? OR url LIKE ?)")
-		search := "%" + query.Search + "%"
+		where = append(where, `(method LIKE ? ESCAPE '\' OR url LIKE ? ESCAPE '\')`)
+		search := "%" + escapeLikePattern(query.Search) + "%"
 		args = append(args, search, search)
 	}
 	if query.Cursor != "" {
@@ -408,6 +408,14 @@ func (s *Store) ListHistory(workspaceId string, query model.HistoryQuery) (model
 		page.NextCursor = encodeHistoryCursor(last.CreatedAt, last.Id)
 	}
 	return page, nil
+}
+
+func escapeLikePattern(value string) string {
+	return strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+	).Replace(value)
 }
 
 // GetHistory loads one detail record and enforces workspace ownership.

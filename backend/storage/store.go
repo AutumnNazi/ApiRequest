@@ -172,6 +172,10 @@ var migrations = []string{
 	CREATE INDEX idx_history_ws_time ON history(workspace_id, created_at DESC);
 	CREATE INDEX idx_history_ws_cursor ON history(workspace_id, created_at DESC, id DESC);
 	`,
+	// 0009: Blob reference cleanup must not scan the complete history table.
+	`
+	CREATE INDEX idx_history_body_ref ON history(body_ref);
+	`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录
@@ -489,6 +493,7 @@ func (s *Store) removeBlobFile(ref string) {
 }
 
 func (s *Store) removeUnreferencedBlobFiles(refs []string) {
+	unique := make([]string, 0, len(refs))
 	seen := make(map[string]struct{}, len(refs))
 	for _, ref := range refs {
 		if ref == "" {
@@ -498,9 +503,48 @@ func (s *Store) removeUnreferencedBlobFiles(refs []string) {
 			continue
 		}
 		seen[ref] = struct{}{}
-		var marker int
-		err := s.db.QueryRow("SELECT 1 FROM history WHERE body_ref = ? LIMIT 1", ref).Scan(&marker)
-		if errors.Is(err, sql.ErrNoRows) {
+		unique = append(unique, ref)
+	}
+	if len(unique) == 0 {
+		return
+	}
+
+	// Stay below SQLite builds that retain the historical 999-variable limit.
+	// A workspace keeps at most 1000 history rows, so cleanup normally needs at
+	// most two indexed queries rather than one query per deleted row.
+	const refsPerQuery = 500
+	referenced := make(map[string]struct{}, len(unique))
+	for start := 0; start < len(unique); start += refsPerQuery {
+		end := min(start+refsPerQuery, len(unique))
+		chunk := unique[start:end]
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(chunk)), ",")
+		args := make([]any, len(chunk))
+		for index, ref := range chunk {
+			args[index] = ref
+		}
+		rows, err := s.db.Query(
+			"SELECT DISTINCT body_ref FROM history WHERE body_ref IN ("+placeholders+")",
+			args...,
+		)
+		if err != nil {
+			return // Conservatively retain files when ownership cannot be verified.
+		}
+		for rows.Next() {
+			var ref string
+			if err := rows.Scan(&ref); err != nil {
+				rows.Close()
+				return
+			}
+			referenced[ref] = struct{}{}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return
+		}
+		rows.Close()
+	}
+	for _, ref := range unique {
+		if _, ok := referenced[ref]; !ok {
 			s.removeBlobFile(ref)
 		}
 	}

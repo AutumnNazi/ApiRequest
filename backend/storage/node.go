@@ -511,6 +511,13 @@ func (s *Store) MoveNodes(workspaceId string, moves []model.NodeMove) error {
 	return tx.Commit()
 }
 
+const moveCycleQuery = `WITH RECURSIVE sub(id) AS (
+	SELECT id FROM node WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+	UNION ALL
+	SELECT n.id FROM node n JOIN sub ON n.parent_id = sub.id
+	WHERE n.workspace_id = ? AND n.deleted_at IS NULL
+) SELECT EXISTS(SELECT 1 FROM sub WHERE id = ?)`
+
 func moveNodeTx(tx *sql.Tx, workspaceId string, move model.NodeMove) error {
 	var kind string
 	if err := tx.QueryRow("SELECT kind FROM node WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL", move.Id, workspaceId).Scan(&kind); err != nil {
@@ -545,11 +552,10 @@ func moveNodeTx(tx *sql.Tx, workspaceId string, move model.NodeMove) error {
 			return errors.New("parent must be a collection or folder")
 		}
 		var createsCycle bool
-		if err := tx.QueryRow(`WITH RECURSIVE sub(id) AS (
-			SELECT id FROM node WHERE id = ? AND deleted_at IS NULL
-			UNION ALL
-			SELECT n.id FROM node n JOIN sub ON n.parent_id = sub.id WHERE n.deleted_at IS NULL
-		) SELECT EXISTS(SELECT 1 FROM sub WHERE id = ?)`, move.Id, move.ParentId).Scan(&createsCycle); err != nil {
+		if err := tx.QueryRow(
+			moveCycleQuery,
+			move.Id, workspaceId, workspaceId, move.ParentId,
+		).Scan(&createsCycle); err != nil {
 			return err
 		}
 		if createsCycle {

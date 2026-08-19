@@ -108,6 +108,7 @@ CREATE TABLE history (
   created_at    INTEGER NOT NULL
 );
 CREATE INDEX idx_history_ws_time ON history(workspace_id, created_at DESC);
+CREATE INDEX idx_history_body_ref ON history(body_ref);
 
 -- 示例（Example）：请求的示例响应，"保存为示例"的落点，也是 Mock Server 的数据源
 CREATE TABLE example (

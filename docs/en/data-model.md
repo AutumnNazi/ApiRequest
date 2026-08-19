@@ -108,6 +108,7 @@ CREATE TABLE history (
   created_at    INTEGER NOT NULL
 );
 CREATE INDEX idx_history_ws_time ON history(workspace_id, created_at DESC);
+CREATE INDEX idx_history_body_ref ON history(body_ref);
 
 -- Examples are saved responses attached to requests and are also Mock Server data sources.
 CREATE TABLE example (

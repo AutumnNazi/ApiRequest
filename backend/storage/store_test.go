@@ -48,6 +48,81 @@ func TestMigrateAndReopen(t *testing.T) {
 	s2.Close()
 }
 
+func TestMigrateCreatesHistoryBodyRefIndex(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "apirequest.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < len(migrations)-1; index++ {
+		if _, err := db.Exec(migrations[index]); err != nil {
+			db.Close()
+			t.Fatalf("apply migration %d: %v", index+1, err)
+		}
+	}
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", len(migrations)-1)); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	rows, err := s.db.Query("PRAGMA index_list('history')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var seq, unique, partial int
+		var name, origin string
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			t.Fatal(err)
+		}
+		if name == "idx_history_body_ref" {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("history.body_ref index is missing")
+	}
+
+	planRows, err := s.db.Query(
+		"EXPLAIN QUERY PLAN SELECT DISTINCT body_ref FROM history WHERE body_ref IN (?, ?)",
+		"first.bin", "second.bin",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer planRows.Close()
+	usesBodyRefIndex := false
+	for planRows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := planRows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(detail, "idx_history_body_ref") {
+			usesBodyRefIndex = true
+		}
+	}
+	if err := planRows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !usesBodyRefIndex {
+		t.Fatal("history blob ownership query does not use idx_history_body_ref")
+	}
+}
+
 func TestOpenCreatesBlobDirectory(t *testing.T) {
 	store := openTestStore(t)
 	info, err := os.Stat(store.BlobsDir())
@@ -522,6 +597,75 @@ func TestHistory(t *testing.T) {
 	page, _ = s.ListHistory(w.Id, model.HistoryQuery{})
 	if len(page.Items) != 0 {
 		t.Errorf("after clear len = %d, want 0", len(page.Items))
+	}
+}
+
+func TestMoveCycleQueryUsesWorkspaceParentIndex(t *testing.T) {
+	s := openTestStore(t)
+	if _, err := s.db.Exec("PRAGMA automatic_index = OFF"); err != nil {
+		t.Fatal(err)
+	}
+	defer s.db.Exec("PRAGMA automatic_index = ON")
+
+	rows, err := s.db.Query(
+		"EXPLAIN QUERY PLAN "+moveCycleQuery,
+		"node-id", "workspace-id", "workspace-id", "parent-id",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	usesWorkspaceParentIndex := false
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(detail, "idx_node_ws_parent") {
+			usesWorkspaceParentIndex = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !usesWorkspaceParentIndex {
+		t.Fatal("move cycle query does not use idx_node_ws_parent")
+	}
+}
+
+func TestListHistorySearchTreatsWildcardsLiterally(t *testing.T) {
+	s := openTestStore(t)
+	workspace, _ := s.EnsureDefaultWorkspace()
+	for _, rawURL := range []string{
+		"https://example.test/literal%percent",
+		"https://example.test/literal_under",
+		`https://example.test/literal\slash`,
+		"https://example.test/plain",
+	} {
+		if _, err := s.InsertHistory(model.HistoryDetail{
+			WorkspaceId: workspace.Id,
+			RequestSnap: model.HttpRequest{Method: "GET", Url: rawURL},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, test := range []struct {
+		search  string
+		wantURL string
+	}{
+		{search: "%", wantURL: "https://example.test/literal%percent"},
+		{search: "_", wantURL: "https://example.test/literal_under"},
+		{search: `\`, wantURL: `https://example.test/literal\slash`},
+	} {
+		page, err := s.ListHistory(workspace.Id, model.HistoryQuery{Search: test.search})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) != 1 || page.Items[0].Url != test.wantURL {
+			t.Fatalf("search %q returned %+v, want only %q", test.search, page.Items, test.wantURL)
+		}
 	}
 }
 
