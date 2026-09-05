@@ -161,3 +161,58 @@ describe('RunnerDialog run history', () => {
     expect(await screen.findByText('db locked')).toBeInTheDocument();
   });
 });
+
+// ── 断言聚合视图 ──
+describe('RunnerDialog assertion summary', () => {
+  it('renders the collapsed aggregation section when the report has assertions', async () => {
+    ipc.runCollection.mockResolvedValueOnce({
+      runId: 'run-agg',
+      total: 2, passed: 1, failed: 1, skipped: 0, durationMs: 20, canceled: false,
+      results: [
+        { iteration: 1, requestName: 'login', nodeId: 'n1', status: 200, durationMs: 10, failed: false,
+          testResults: [{ name: 'status is 2xx', pass: true }] },
+        { iteration: 2, requestName: 'login', nodeId: 'n1', status: 500, durationMs: 10, failed: true,
+          testResults: [{ name: 'status is 2xx', pass: false, error: '500 != 2xx' }] },
+      ],
+    } as never);
+    render(
+      <DialogProvider>
+        <RunnerDialog
+          workspaceId="workspace-1"
+          collectionId="collection-1"
+          collectionName="agg collection"
+          onClose={vi.fn()}
+        />
+      </DialogProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '开始运行' }));
+    const summary = await screen.findByText(/断言聚合/);
+    expect(summary).toBeInTheDocument();
+    fireEvent.click(summary);
+    expect(await screen.findByText('失败于：login')).toBeInTheDocument();
+    expect(screen.getByText(/1\/2/)).toBeInTheDocument();
+  });
+
+  it('omits the section when no assertions ran', async () => {
+    ipc.runCollection.mockResolvedValueOnce({
+      runId: 'run-plain',
+      total: 1, passed: 1, failed: 0, skipped: 0, durationMs: 5, canceled: false,
+      results: [
+        { iteration: 1, requestName: 'plain', nodeId: 'n1', status: 200, durationMs: 5, failed: false },
+      ],
+    } as never);
+    render(
+      <DialogProvider>
+        <RunnerDialog
+          workspaceId="workspace-1"
+          collectionId="collection-1"
+          collectionName="plain collection"
+          onClose={vi.fn()}
+        />
+      </DialogProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '开始运行' }));
+    await screen.findByText('plain');
+    expect(screen.queryByText(/断言聚合/)).not.toBeInTheDocument();
+  });
+});

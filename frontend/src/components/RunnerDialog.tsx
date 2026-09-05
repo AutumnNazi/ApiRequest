@@ -17,6 +17,7 @@ import {
   type RunnerRunSummary,
 } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
+import { aggregateAssertions } from '../utils/runnerAggregate';
 import { useDialog } from './DialogProvider';
 import ModalFrame from './ModalFrame';
 
@@ -316,6 +317,34 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                   {(report.durationMs / 1000).toFixed(1)}s{report.canceled ? formatMessage('（已取消）') : ''}
                 </span>
               </div>
+              {(() => {
+                const rows = aggregateAssertions(report);
+                if (rows.length === 0) return null;
+                return (
+                  <details className="border rounded text-xs">
+                    <summary className="px-2 py-1.5 cursor-pointer select-none text-gray-600 bg-gray-50">
+                      {formatMessage('断言聚合')} · {rows.length}
+                    </summary>
+                    <div className="p-2 space-y-1">
+                      {rows.map((row) => (
+                        <div key={row.name} className="flex items-center gap-3 flex-wrap">
+                          <span className={`font-mono ${row.failed ? 'text-red-600' : 'text-green-600'}`}>
+                            {row.failed ? '✗' : '✓'} <Verbatim value={row.name} />
+                          </span>
+                          <span className="text-gray-400">
+                            {row.passed}/{row.total} {formatMessage('通过')}
+                          </span>
+                          {row.failingRequests.length > 0 && (
+                            <span className="text-red-500 truncate" title={row.failingRequests.join(', ')}>
+                              {formatMessage('失败于：{names}', { names: row.failingRequests.join(', ') })}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })()}
               <table className="w-full text-xs border rounded">
                 <thead className="bg-gray-50 text-gray-500">
                   <tr className="text-left">
