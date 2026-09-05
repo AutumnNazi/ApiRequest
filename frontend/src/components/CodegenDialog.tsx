@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { codegenTargets, generateCode, type HttpRequest } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import ModalFrame from './ModalFrame';
+import { useLatestTimeout } from '../hooks/useLatestTimeout';
 
 interface Props {
   request: HttpRequest;
@@ -14,6 +15,7 @@ export default function CodegenDialog({ request, onClose }: Props) {
   const [target, setTarget] = useState('curl');
   const [code, setCode] = useState('');
   const [copied, setCopied] = useState(false);
+  const clearCopied = useLatestTimeout();
 
   const { data: targets = [] } = useQuery({
     queryKey: ['codegen-targets'],
@@ -36,7 +38,7 @@ export default function CodegenDialog({ request, onClose }: Props) {
   const copy = async () => {
     await navigator.clipboard.writeText(code);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    clearCopied(() => setCopied(false), 1500);
   };
 
   return (

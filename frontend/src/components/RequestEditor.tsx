@@ -7,6 +7,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import KVTable, { COMMON_HEADERS } from './KVTable';
 import AuthEditor from './AuthEditor';
 import CodegenDialog from './CodegenDialog';
+import { useLatestTimeout } from '../hooks/useLatestTimeout';
 import VarPreview, { useActiveVariables, VarPreviewMulti } from './VarPreview';
 import type { Tab } from '../stores/tabs';
 import { useTabs } from '../stores/tabs';
@@ -66,6 +67,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
   }
 
   // URL 输入建议：基于历史记录联想最近使用的地址（输入停顿后查询）
+  const closeUrlSuggest = useLatestTimeout();
   useEffect(() => {
     const timer = setTimeout(() => setUrlSuggestDebounced(d.url), 400);
     return () => clearTimeout(timer);
@@ -135,7 +137,8 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
             value={d.url}
             onFocus={() => setUrlSuggestOpen(true)}
             onBlur={() => {
-              setTimeout(() => setUrlSuggestOpen(false), 150);
+              // 延迟 150ms 关闭，给建议项的 click 留出先于 blur 落地的窗口
+              closeUrlSuggest(() => setUrlSuggestOpen(false), 150);
               syncParamsFromUrlChange(lastSyncedUrlRef.current, d.url ?? '');
             }}
             onChange={(e) => {

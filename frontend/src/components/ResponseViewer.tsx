@@ -13,6 +13,7 @@ import {
   type RequestProgress,
 } from '../ipc';
 import { formatMessage, useLocale, Verbatim } from '../i18n/locale';
+import { useLatestTimeout } from '../hooks/useLatestTimeout';
 
 interface Props {
   response?: ResponseResult;
@@ -47,6 +48,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   // 当前命中的序号（整数下标，-1=无）；搜索词变化时重置
   const [searchIndex, setSearchIndex] = useState(-1);
   const [exampleSaved, setExampleSaved] = useState(false);
+  const clearExampleSaved = useLatestTimeout();
   const [savingExample, setSavingExample] = useState(false);
   const [exampleError, setExampleError] = useState('');
   const [blobBytes, setBlobBytes] = useState<Uint8Array>(() => new Uint8Array());
@@ -204,7 +206,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
       } as unknown as Example);
       if (exampleSaveRef.current !== saveId) return;
       setExampleSaved(true);
-      window.setTimeout(() => {
+      clearExampleSaved(() => {
         if (exampleSaveRef.current === saveId) setExampleSaved(false);
       }, 1500);
     } catch (cause) {

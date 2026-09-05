@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { translate, useLocale } from '../i18n/locale';
+import { useLatestTimeout } from '../hooks/useLatestTimeout';
 
 type DialogKind = 'alert' | 'confirm' | 'prompt';
 type ToastKind = 'info' | 'success' | 'error';
@@ -57,6 +58,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<DialogRequest | null>(null);
   const [promptValue, setPromptValue] = useState('');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const clearToast = useLatestTimeout();
   const queue = useRef<DialogRequest[]>([]);
   const activeRef = useRef<DialogRequest | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -121,8 +123,8 @@ export function DialogProvider({ children }: { children: ReactNode }) {
   const toast = useCallback((message: string, kind: ToastKind = 'info') => {
     const id = nextId++;
     setToasts((items) => [...items, { id, message, kind }]);
-    window.setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), 3500);
-  }, []);
+    clearToast(() => setToasts((items) => items.filter((item) => item.id !== id)), 3500);
+  }, [clearToast]);
 
   // 以 activeRef 为唯一真相：闭包里的 active 只是渲染期快照。
   const finish = useCallback((id: number, value: string | boolean | null) => {

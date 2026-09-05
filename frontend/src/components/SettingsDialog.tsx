@@ -24,6 +24,7 @@ import {
 } from '../ipc';
 import { useLocale, Verbatim, formatMessage, type Locale } from '../i18n/locale';
 import ModalFrame from './ModalFrame';
+import { useLatestTimeout } from '../hooks/useLatestTimeout';
 
 interface Props {
   onClose(): void;
@@ -60,6 +61,7 @@ export default function SettingsDialog({ onClose }: Props) {
   const [vaultPassword, setVaultPassword] = useState('');
   const [vaultBusy, setVaultBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const clearMsg = useLatestTimeout();
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -87,7 +89,7 @@ export default function SettingsDialog({ onClose }: Props) {
       await qc.invalidateQueries({ queryKey: ['syncConfig'] });
       setVault(await getVaultStatus());
       setMsg(formatMessage('已保存并生效'));
-      window.setTimeout(() => setMsg(''), 1500);
+      clearMsg(() => setMsg(''), 1500);
     } catch (cause) {
       setError(toAppError(cause).detail);
     }
@@ -98,7 +100,7 @@ export default function SettingsDialog({ onClose }: Props) {
     try {
       setNetwork(await refreshSystemProxy());
       setMsg(formatMessage('系统代理已重新检测'));
-      window.setTimeout(() => setMsg(''), 1500);
+      clearMsg(() => setMsg(''), 1500);
     } catch (cause) {
       setError(toAppError(cause).detail);
     }

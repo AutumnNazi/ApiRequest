@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import type { KV } from '../ipc';
 import { useStableRowIds } from '../hooks/useStableRowIds';
+import { useLatestTimeout } from '../hooks/useLatestTimeout';
 import { formatMessage } from '../i18n/locale';
 import { formatBatchLines, parseBatchLines } from '../utils/urlParams';
 
@@ -72,6 +73,8 @@ export default function KVTable({ items, onChange, keySuggestions }: Props) {
   const { rowIds, promoteGhostRow, removeRow } = useStableRowIds(rows.length);
   // Key 自动补全：记录当前编辑行与输入值
   const [autoIdx, setAutoIdx] = useState<number | null>(null);
+  // 延迟 150ms 收起提示，给建议项的 click 留出先于 blur 落地的窗口；卸载时清理
+  const closeAutoIdx = useLatestTimeout();
   const [autoQuery, setAutoQuery] = useState('');
   // 批量编辑：null = 行模式，字符串 = 批量模式当前文本
   const [batchText, setBatchText] = useState<string | null>(null);
@@ -211,7 +214,7 @@ export default function KVTable({ items, onChange, keySuggestions }: Props) {
                         setAutoQuery(r.key);
                       }
                     }}
-                    onBlur={() => setTimeout(() => setAutoIdx(null), 150)}
+                    onBlur={() => closeAutoIdx(() => setAutoIdx(null), 150)}
                   />
                   {autoIdx === i && filtered.length > 0 && (
                     <div className="absolute top-full left-0 z-20 max-h-[200px] min-w-[200px] overflow-auto rounded border bg-white py-1 text-xs shadow-lg">

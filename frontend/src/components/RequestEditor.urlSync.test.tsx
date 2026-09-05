@@ -235,3 +235,38 @@ describe('KVTable batch edit mode', () => {
     expect(urlInput().value).toBe('https://x.test/p?a=1'); // Headers 不参与 URL 序列化
   });
 });
+
+describe('定时器清理', () => {
+  // 回归背景：CI 上 jsdom 环境在文件结束后销毁（window 被移除），此前 onBlur 里
+  // 裸调度的 setTimeout 仍在 pending，回调 setState 时读 window.event 直接崩溃
+  // （本地因时序侥幸不触发）。用间谍跟踪两个 150ms 失焦定时器的调度与清理，
+  // 断言卸载后全部清干净（不数 getTimerCount，避免混入 react-query gc 等无关定时器）。
+  it('卸载时清理失焦延迟定时器，不逃逸出组件生命周期', () => {
+    const origSet = globalThis.setTimeout.bind(globalThis);
+    const origClear = globalThis.clearTimeout.bind(globalThis);
+    const scheduled = new Set<ReturnType<typeof setTimeout>>();
+    const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, delay?: number) => {
+      const id = origSet(fn, delay);
+      if (delay === 150) scheduled.add(id);
+      return id;
+    }) as typeof globalThis.setTimeout);
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(((id?: ReturnType<typeof setTimeout>) => {
+      if (id != null) scheduled.delete(id);
+      return origClear(id);
+    }) as typeof globalThis.clearTimeout);
+    try {
+      const view = renderEditor(makeTab('tab-timers', 'https://api.example.com/x?a=1', [
+        { key: 'a', value: '1', enabled: true },
+      ]));
+      fireEvent.blur(urlInput()); // URL 建议框延迟关闭
+      fireEvent.blur(view.getAllByPlaceholderText('Key')[0] as HTMLInputElement); // KVTable 自动聚焦提示延迟关闭
+      expect(scheduled.size).toBe(2); // 两个失焦延迟定时器已调度
+      view.unmount();
+      expect(scheduled.size).toBe(0); // 卸载时必须全部清理
+    } finally {
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
+      for (const id of scheduled) origClear(id);
+    }
+  });
+});
