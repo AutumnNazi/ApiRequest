@@ -10,21 +10,31 @@ import (
 	"time"
 
 	"apirequest/backend/httpengine"
+	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 	appsync "apirequest/backend/sync"
 )
+
+// newScopeTestStore 建测试库：内存 keyring 而非 storage.Open——CI（Linux 无
+// D-Bus secret service）下系统凭据管理器不可写，vault 锁死会让 SetSyncConfig
+// 在到达被测逻辑前就报 storage 错误
+func newScopeTestStore(t *testing.T) *storage.Store {
+	t.Helper()
+	vault := secrets.NewWithKeyring(t.TempDir(), &bindingMemoryKeyring{})
+	store, err := storage.OpenWithVault(t.TempDir(), vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	return store
+}
 
 // 并发 SyncNow 的去重语义：同一 workspace 已有同步在跑时，第二次调用必须立刻
 // 失败（operation already in flight），而不是排队各自完整跑一轮 GET→merge→PUT。
 // 用阻塞 handler 做确定性会合：第一个同步卡在 GET 中（此刻必然在途），
 // 第二次调用必须在此时被拒——不依赖两个 goroutine 的启动时序
 func TestSyncNowRejectsConcurrentDuplicate(t *testing.T) {
-	dir := t.TempDir()
-	store, err := storage.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := newScopeTestStore(t)
 	ws, err := store.EnsureDefaultWorkspace()
 	if err != nil {
 		t.Fatal(err)
@@ -85,12 +95,7 @@ func TestSyncNowRejectsConcurrentDuplicate(t *testing.T) {
 // 请求并等待其退出。SyncApi 与 Request/Runner 共享同一注册表（app.go 接线），
 // 这里直接对共享注册表走与 DeleteWorkspace 相同的调用链验证传播
 func TestSyncNowIsInterruptedByWorkspaceScopeCancel(t *testing.T) {
-	dir := t.TempDir()
-	store, err := storage.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := newScopeTestStore(t)
 	ws, err := store.EnsureDefaultWorkspace()
 	if err != nil {
 		t.Fatal(err)

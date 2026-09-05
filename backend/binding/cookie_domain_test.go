@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"apirequest/backend/model"
+	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 )
 
@@ -11,7 +12,10 @@ import (
 // 越权条目必须被丢弃，但同一响应里其余合法 cookie 仍须落库
 // （早先的实现遇到一条坏 domain 就整批报错，等于让坏服务器丢掉全部 cookie）。
 func TestPersistCookiesDropsCrossDomainAndKeepsValidOnes(t *testing.T) {
-	store, err := storage.Open(t.TempDir())
+	// 内存 keyring 而非 storage.Open：CI（Linux 无 D-Bus secret service）下
+	// 系统凭据管理器不可写，vault 锁死会让本测试误报 storage 错误
+	vault := secrets.NewWithKeyring(t.TempDir(), &bindingMemoryKeyring{})
+	store, err := storage.OpenWithVault(t.TempDir(), vault)
 	if err != nil {
 		t.Fatal(err)
 	}
