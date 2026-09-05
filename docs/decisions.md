@@ -84,6 +84,14 @@
 - **替代方案**：继续仅内存 + 手动导出（被推翻：体验差）；报告写独立 JSON 文件目录（不利于工作区隔离与清理）。
 - **兼容**：`runner.Report` 新增 `createdAt`（内存报告为 0，导出 JSON 不出现）；游标分页与 History 一致（(created_at, id) opaque cursor）。CLI `--report` 写文件路径不受影响。
 
+### ADR-016 Cookie Jar 按工作区隔离（已定 2026-09-04；落地 data-model.md 备注的演进路径）
+
+- **决定**：cookie 表增加 `workspace_id` 列（schema 0011 表重建，`UNIQUE(workspace_id, domain, path, name)`），Jar 与请求发送按工作区隔离；存量 cookie 归入最早创建的工作区。
+- **理由**：原"跨工作区全局共享"下，不同项目命中同一域名（如 SSO、api.example.com）会互相污染登录态，串环境是 API 测试的高频事故；隔离后每个工作区有自己的会话。
+- **取舍**：多工作区用户此前共享的登录态现在只在第一个工作区可见（重新登录即可获取，成本可控）；CookieManager 与绑定方法均需携带 workspaceId（破坏性接口变更，wailsjs 重生成）。
+- **替代方案**：保留全局 + `workspace_id IN (ws, '')` 全局回退（否决：同名 (domain,path,name) 会同时命中全局行与工作区行，Cookie 头出现重复项，需额外去重逻辑）；环境级隔离（粒度过细：staging/prod 常用同一域名区分路径，按环境切会导致复用困难）。
+- **边界**：删除工作区级联清空其 Jar（`ON DELETE CASCADE`）；Vault 引用格式不变（`cookie/<id>/value`），迁移保留行 id，密钥引用无需重写。
+
 ---
 
 ## 倾向（有推荐，可推翻）

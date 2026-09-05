@@ -16,6 +16,7 @@ import { useDialog } from './DialogProvider';
 import ModalFrame from './ModalFrame';
 
 interface Props {
+  workspaceId: string;
   onClose(): void;
 }
 
@@ -29,17 +30,17 @@ interface CookieEditor {
 const inputClass =
   'w-full rounded border border-gray-200 bg-white px-2.5 py-1.5 text-xs outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100 disabled:text-gray-500';
 
-export default function CookieManager({ onClose }: Props) {
+export default function CookieManager({ workspaceId, onClose }: Props) {
   const dialog = useDialog();
   const queryClient = useQueryClient();
   const [editor, setEditor] = useState<CookieEditor | null>(null);
   const [editorError, setEditorError] = useState('');
-  const query = useQuery({ queryKey: ['cookies'], queryFn: () => listCookies() });
+  const query = useQuery({ queryKey: ['cookies', workspaceId], queryFn: () => listCookies(workspaceId) });
   const cookies = query.data ?? [];
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['cookies'] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['cookies', workspaceId] });
 
   const save = useMutation({
-    mutationFn: (cookie: Cookie) => upsertCookie(cookie),
+    mutationFn: (cookie: Cookie) => upsertCookie(workspaceId, cookie),
     onSuccess: async () => {
       await invalidate();
       setEditor(null);
@@ -49,7 +50,7 @@ export default function CookieManager({ onClose }: Props) {
   });
   const remove = useMutation({
     mutationFn: (cookie: { domain: string; path: string; name: string }) =>
-      deleteCookie(cookie.domain, cookie.path, cookie.name),
+      deleteCookie(workspaceId, cookie.domain, cookie.path, cookie.name),
     onSuccess: invalidate,
     onError: (cause) => void dialog.alert(
       formatMessage('删除 Cookie 失败: {detail}', { detail: toAppError(cause).detail }),
@@ -57,7 +58,7 @@ export default function CookieManager({ onClose }: Props) {
     ),
   });
   const clearAll = useMutation({
-    mutationFn: () => clearCookies(),
+    mutationFn: () => clearCookies(workspaceId),
     onSuccess: invalidate,
     onError: (cause) => void dialog.alert(
       formatMessage('清空 Cookie 失败: {detail}', { detail: toAppError(cause).detail }),
@@ -121,7 +122,7 @@ export default function CookieManager({ onClose }: Props) {
   const importCookies = async (content: string) => {
     try {
       const cookiesToImport = normalizeImportedCookies(JSON.parse(content) as unknown);
-      await upsertCookies(cookiesToImport);
+      await upsertCookies(workspaceId, cookiesToImport);
       await invalidate();
     } catch (cause) {
       void dialog.alert(

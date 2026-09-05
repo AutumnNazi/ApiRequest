@@ -162,8 +162,8 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 		redactor.Add(value)
 	}
 
-	// 3.5 Cookie Jar：为目标 host 注入存储的 cookie（用户已手写 Cookie 头则不覆盖）
-	if err := attachCookies(a.store, &resolved); err != nil {
+	// 3.5 Cookie Jar：为目标 host 注入工作区 Jar 中存储的 cookie（用户已手写 Cookie 头则不覆盖）
+	if err := attachCookies(a.store, sendCtx.WorkspaceId, &resolved); err != nil {
 		return zero, model.WrapError(model.KindStorage, fmt.Errorf("load cookies: %w", err))
 	}
 
@@ -184,8 +184,8 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 		redactor.Add(value)
 	}
 
-	// 5.5 响应 Set-Cookie 写回 Jar
-	cookiePersistErr := persistCookies(a.store, resolved.Url, res.Cookies)
+	// 5.5 响应 Set-Cookie 写回工作区 Jar
+	cookiePersistErr := persistCookies(a.store, sendCtx.WorkspaceId, resolved.Url, res.Cookies)
 
 	// 6. 测试脚本（继承链 + 请求级）
 	sandbox.SetResponse(&res)

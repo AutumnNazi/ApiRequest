@@ -138,12 +138,16 @@ export const setGlobalVariables = (workspaceId: string, vars: Variable[]) =>
 
 // ── Cookie ──
 
-export const listCookies = (domain = '') => call(() => CookieApi.ListCookies(domain));
-export const upsertCookie = (c: Cookie) => call(() => CookieApi.UpsertCookie(c));
-export const upsertCookies = (cookies: Cookie[]) => call(() => CookieApi.UpsertCookies(cookies));
-export const deleteCookie = (domain: string, path: string, name: string) =>
-  call(() => CookieApi.DeleteCookie(domain, path, name));
-export const clearCookies = (domain = '') => call(() => CookieApi.ClearCookies(domain));
+export const listCookies = (workspaceId: string, domain = '') =>
+  call(() => CookieApi.ListCookies(workspaceId, domain));
+export const upsertCookie = (workspaceId: string, c: Cookie) =>
+  call(() => CookieApi.UpsertCookie(workspaceId, c));
+export const upsertCookies = (workspaceId: string, cookies: Cookie[]) =>
+  call(() => CookieApi.UpsertCookies(workspaceId, cookies));
+export const deleteCookie = (workspaceId: string, domain: string, path: string, name: string) =>
+  call(() => CookieApi.DeleteCookie(workspaceId, domain, path, name));
+export const clearCookies = (workspaceId: string, domain = '') =>
+  call(() => CookieApi.ClearCookies(workspaceId, domain));
 
 // ── 导入导出与代码生成 ──
 

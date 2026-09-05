@@ -10,9 +10,9 @@ import (
 	"apirequest/backend/storage"
 )
 
-// attachCookies 把 Jar 中适用的 cookie 合并进请求 Cookie 头。
+// attachCookies 把工作区 Jar 中适用的 cookie 合并进请求 Cookie 头。
 // 用户已手写 Cookie 头时不覆盖（显式优先）。
-func attachCookies(store *storage.Store, req *model.HttpRequest) error {
+func attachCookies(store *storage.Store, workspaceId string, req *model.HttpRequest) error {
 	for _, h := range req.Headers {
 		if h.Enabled && strings.EqualFold(h.Key, "Cookie") {
 			return nil
@@ -22,7 +22,7 @@ func attachCookies(store *storage.Store, req *model.HttpRequest) error {
 	if err != nil || u.Host == "" {
 		return nil
 	}
-	cookies, err := store.CookiesForHost(u.Hostname())
+	cookies, err := store.CookiesForHost(workspaceId, u.Hostname())
 	if err != nil {
 		return err
 	}
@@ -49,8 +49,8 @@ func attachCookies(store *storage.Store, req *model.HttpRequest) error {
 	return nil
 }
 
-// persistCookies 把响应的 Set-Cookie 写回 Jar
-func persistCookies(store *storage.Store, reqUrl string, cookies []model.Cookie) error {
+// persistCookies 把响应的 Set-Cookie 写回工作区 Jar
+func persistCookies(store *storage.Store, workspaceId, reqUrl string, cookies []model.Cookie) error {
 	if len(cookies) == 0 {
 		return nil
 	}
@@ -83,7 +83,7 @@ func persistCookies(store *storage.Store, reqUrl string, cookies []model.Cookie)
 		}
 		normalized = append(normalized, c)
 	}
-	return store.UpsertCookies(normalized)
+	return store.UpsertCookies(workspaceId, normalized)
 }
 
 func defaultCookiePath(requestPath string) string {
@@ -105,9 +105,9 @@ type CookieApi struct {
 // NewCookieApi 构造
 func NewCookieApi(store *storage.Store) *CookieApi { return &CookieApi{store: store} }
 
-// ListCookies 列出 cookie（domain 空 = 全部）
-func (a *CookieApi) ListCookies(domain string) ([]model.Cookie, error) {
-	out, err := a.store.ListCookies(domain)
+// ListCookies 列出工作区 cookie（domain 空 = 全部）
+func (a *CookieApi) ListCookies(workspaceId, domain string) ([]model.Cookie, error) {
+	out, err := a.store.ListCookies(workspaceId, domain)
 	if err != nil {
 		return nil, model.WrapError(model.KindStorage, err)
 	}
@@ -115,24 +115,24 @@ func (a *CookieApi) ListCookies(domain string) ([]model.Cookie, error) {
 }
 
 // UpsertCookie 手动新增/编辑 cookie
-func (a *CookieApi) UpsertCookie(c model.Cookie) error {
+func (a *CookieApi) UpsertCookie(workspaceId string, c model.Cookie) error {
 	if err := validateManagedCookie(c); err != nil {
 		return err
 	}
-	if err := a.store.UpsertCookie(c); err != nil {
+	if err := a.store.UpsertCookie(workspaceId, c); err != nil {
 		return model.WrapError(model.KindStorage, err)
 	}
 	return nil
 }
 
 // UpsertCookies validates and commits an import batch atomically.
-func (a *CookieApi) UpsertCookies(cookies []model.Cookie) error {
+func (a *CookieApi) UpsertCookies(workspaceId string, cookies []model.Cookie) error {
 	for _, cookie := range cookies {
 		if err := validateManagedCookie(cookie); err != nil {
 			return err
 		}
 	}
-	if err := a.store.UpsertCookies(cookies); err != nil {
+	if err := a.store.UpsertCookies(workspaceId, cookies); err != nil {
 		return model.WrapError(model.KindStorage, err)
 	}
 	return nil
@@ -156,16 +156,16 @@ func validateManagedCookie(cookie model.Cookie) error {
 }
 
 // DeleteCookie 删除单个 cookie
-func (a *CookieApi) DeleteCookie(domain, path, name string) error {
-	if err := a.store.DeleteCookie(domain, path, name); err != nil {
+func (a *CookieApi) DeleteCookie(workspaceId, domain, path, name string) error {
+	if err := a.store.DeleteCookie(workspaceId, domain, path, name); err != nil {
 		return model.WrapError(model.KindStorage, err)
 	}
 	return nil
 }
 
-// ClearCookies 清空（domain 空 = 全部）
-func (a *CookieApi) ClearCookies(domain string) error {
-	if err := a.store.ClearCookies(domain); err != nil {
+// ClearCookies 清空工作区 jar（domain 空 = 全部）
+func (a *CookieApi) ClearCookies(workspaceId, domain string) error {
+	if err := a.store.ClearCookies(workspaceId, domain); err != nil {
 		return model.WrapError(model.KindStorage, err)
 	}
 	return nil

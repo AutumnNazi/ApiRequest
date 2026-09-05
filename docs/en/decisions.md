@@ -84,6 +84,14 @@ Status markers: `Accepted` = adopted and reflected in the design docs; `Preferre
 - **Alternatives**: keep memory-only plus manual export (rejected: poor experience); write reports to a directory of JSON files (loses workspace isolation and easy cleanup).
 - **Compatibility**: `runner.Report` gains `createdAt` (0 for in-memory reports, absent from exported JSON). Cursor pagination matches History (an opaque (created_at, id) cursor). The CLI `--report` file path is unaffected.
 
+### ADR-016 Isolate the Cookie Jar per Workspace (Accepted 2026-09-04; Lands the Evolution Path Noted in data-model.md)
+
+- **Decision**: the cookie table gains a `workspace_id` column (schema 0011 rebuilds the table, `UNIQUE(workspace_id, domain, path, name)`); the jar and request sending are isolated per workspace. Existing cookies are assigned to the earliest-created workspace.
+- **Rationale**: under the previous cross-workspace sharing, different projects hitting the same domains (SSO, api.example.com) polluted each other's login state — cross-environment leakage is a frequent API-testing incident. Each workspace now owns its sessions.
+- **Tradeoffs**: previously shared login state is now visible only in the first workspace (re-login restores it, an acceptable cost); CookieManager and the binding methods all carry a workspaceId (a breaking interface change; wailsjs regenerated).
+- **Alternatives**: keep a global jar plus a `workspace_id IN (ws, '')` fallback (rejected: the same (domain, path, name) can match both a global row and a workspace row, emitting duplicate cookies that require extra de-duplication); environment-level isolation (too fine-grained: staging and prod often share a domain and differ by path, so switching by environment harms reuse).
+- **Boundary**: deleting a workspace cascades to clear its jar (`ON DELETE CASCADE`); Vault reference format is unchanged (`cookie/<id>/value`) and the migration preserves row ids, so secret references need no rewrite.
+
 ---
 
 ## Preferred Decisions (Recommended, Reversible)

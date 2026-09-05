@@ -194,6 +194,34 @@ var migrations = []string{
 	);
 	CREATE INDEX idx_runner_run_ws_time ON runner_run(workspace_id, created_at DESC);
 	`,
+	// 0011: Cookie Jar 按工作区隔离（data-model.md 备注的演进路径，ADR-016）。
+	// SQLite 不能改 UNIQUE 约束 → 表重建；存量 cookie 归入最早创建的工作区。
+	`
+	CREATE TABLE cookie_next (
+	  id            TEXT PRIMARY KEY,
+	  workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+	  domain        TEXT NOT NULL,
+	  path          TEXT NOT NULL DEFAULT '/',
+	  name          TEXT NOT NULL,
+	  value         TEXT NOT NULL,
+	  expires_at    INTEGER,
+	  http_only     INTEGER NOT NULL DEFAULT 0,
+	  secure        INTEGER NOT NULL DEFAULT 0,
+	  same_site     TEXT,
+	  host_only     INTEGER NOT NULL DEFAULT 1,
+	  UNIQUE(workspace_id, domain, path, name)
+	);
+	INSERT INTO cookie_next (id, workspace_id, domain, path, name, value,
+	                         expires_at, http_only, secure, same_site, host_only)
+	SELECT c.id,
+	       COALESCE((SELECT w.id FROM workspace w ORDER BY w.created_at, w.id LIMIT 1), ''),
+	       c.domain, c.path, c.name, c.value, c.expires_at,
+	       c.http_only, c.secure, c.same_site, c.host_only
+	FROM cookie c;
+	DROP TABLE cookie;
+	ALTER TABLE cookie_next RENAME TO cookie;
+	CREATE INDEX idx_cookie_ws_domain ON cookie(workspace_id, domain);
+	`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录

@@ -14,7 +14,7 @@ func TestCookieValuesAreStoredInVaultAndResolvedAtInterface(t *testing.T) {
 	cookie := model.Cookie{
 		Name: "session", Value: "session-secret", Domain: "example.test", Path: "/", HttpOnly: true,
 	}
-	if err := store.UpsertCookie(cookie); err != nil {
+	if err := store.UpsertCookie(firstWorkspaceId(t, store), cookie); err != nil {
 		t.Fatal(err)
 	}
 
@@ -25,19 +25,19 @@ func TestCookieValuesAreStoredInVaultAndResolvedAtInterface(t *testing.T) {
 	if strings.Contains(raw, cookie.Value) || !secrets.IsRef(raw) {
 		t.Fatalf("cookie value stored unsafely: %q", raw)
 	}
-	listed, err := store.ListCookies("example.test")
+	listed, err := store.ListCookies(firstWorkspaceId(t, store), "example.test")
 	if err != nil || len(listed) != 1 || listed[0].Value != cookie.Value {
 		t.Fatalf("cookies = %+v, err = %v", listed, err)
 	}
 
 	cookie.Value = "rotated-secret"
-	if err := store.UpsertCookie(cookie); err != nil {
+	if err := store.UpsertCookie(firstWorkspaceId(t, store), cookie); err != nil {
 		t.Fatal(err)
 	}
 	if len(adapter.values) != 1 {
 		t.Fatalf("rotation left %d Vault entries, want 1", len(adapter.values))
 	}
-	if err := store.DeleteCookie(cookie.Domain, cookie.Path, cookie.Name); err != nil {
+	if err := store.DeleteCookie(firstWorkspaceId(t, store), cookie.Domain, cookie.Path, cookie.Name); err != nil {
 		t.Fatal(err)
 	}
 	if len(adapter.values) != 0 {
@@ -55,7 +55,7 @@ func TestUpsertCookiesRollsBackVaultAndDatabaseAsOneBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := store.UpsertCookies([]model.Cookie{
+	err := store.UpsertCookies(firstWorkspaceId(t, store), []model.Cookie{
 		{Name: "first", Value: "first-secret", Domain: "example.test", Path: "/"},
 		{Name: "second", Value: "second-secret", Domain: "example.test", Path: "/"},
 	})
@@ -78,8 +78,8 @@ func TestLegacyPlaintextCookiesMigrateOnReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := locked.db.Exec(`
-		INSERT INTO cookie (id, domain, path, name, value, http_only, secure)
-		VALUES ('legacy-cookie', 'example.test', '/', 'session', 'legacy-cookie-secret', 1, 1)`); err != nil {
+		INSERT INTO cookie (id, workspace_id, domain, path, name, value, http_only, secure)
+		VALUES ('legacy-cookie', ?, 'example.test', '/', 'session', 'legacy-cookie-secret', 1, 1)`, firstWorkspaceId(t, locked)); err != nil {
 		t.Fatal(err)
 	}
 	if err := locked.Close(); err != nil {
@@ -94,7 +94,7 @@ func TestLegacyPlaintextCookiesMigrateOnReopen(t *testing.T) {
 	if strings.Contains(raw, "legacy-cookie-secret") || !secrets.IsRef(raw) {
 		t.Fatalf("legacy cookie was not migrated: %q", raw)
 	}
-	listed, err := migrated.ListCookies("example.test")
+	listed, err := migrated.ListCookies(firstWorkspaceId(t, migrated), "example.test")
 	if err != nil || len(listed) != 1 || listed[0].Value != "legacy-cookie-secret" {
 		t.Fatalf("migrated cookies = %+v, err = %v", listed, err)
 	}
@@ -106,8 +106,8 @@ func TestV2CookieMigrationRekeysReferenceLikeLiteral(t *testing.T) {
 	store := openStoreWithMemoryKeyring(t, dir, adapter)
 	const literal = "secret://file/literal-cookie-value"
 	if _, err := store.db.Exec(`
-		INSERT INTO cookie (id, domain, path, name, value, http_only, secure)
-		VALUES ('legacy-literal-cookie', 'example.test', '/', 'session', ?, 1, 1)`, literal); err != nil {
+		INSERT INTO cookie (id, workspace_id, domain, path, name, value, http_only, secure)
+		VALUES ('legacy-literal-cookie', ?, 'example.test', '/', 'session', ?, 1, 1)`, firstWorkspaceId(t, store), literal); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetSetting("secrets.cookie.migration.v1", "1"); err != nil {
@@ -121,7 +121,7 @@ func TestV2CookieMigrationRekeysReferenceLikeLiteral(t *testing.T) {
 	}
 
 	reopened := openStoreWithMemoryKeyring(t, dir, adapter)
-	cookies, err := reopened.ListCookies("example.test")
+	cookies, err := reopened.ListCookies(firstWorkspaceId(t, reopened), "example.test")
 	if err != nil || len(cookies) != 1 || cookies[0].Value != literal {
 		t.Fatalf("migrated reference-like cookie = %+v, err = %v", cookies, err)
 	}
@@ -134,23 +134,23 @@ func TestCookiesForHostEnforcesScopeAndLongestPathOrder(t *testing.T) {
 		{Name: "domain", Value: "domain-wide", Domain: ".example.test", Path: "/"},
 		{Name: "specific", Value: "specific-path", Domain: "example.test", Path: "/api", HostOnly: true},
 	} {
-		if err := store.UpsertCookie(cookie); err != nil {
+		if err := store.UpsertCookie(firstWorkspaceId(t, store), cookie); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	root, err := store.CookiesForHost("example.test")
+	root, err := store.CookiesForHost(firstWorkspaceId(t, store), "example.test")
 	if err != nil || len(root) != 3 {
 		t.Fatalf("root cookies = %+v, err = %v", root, err)
 	}
 	if root[0].Name != "specific" {
 		t.Fatalf("cookie order = %+v, want longest path first", root)
 	}
-	subdomain, err := store.CookiesForHost("sub.example.test")
+	subdomain, err := store.CookiesForHost(firstWorkspaceId(t, store), "sub.example.test")
 	if err != nil || len(subdomain) != 1 || subdomain[0].Name != "domain" {
 		t.Fatalf("subdomain cookies = %+v, err = %v", subdomain, err)
 	}
-	if err := store.UpsertCookie(model.Cookie{
+	if err := store.UpsertCookie(firstWorkspaceId(t, store), model.Cookie{
 		Name: "unsafe", Value: "value", Domain: "com", Path: "/",
 	}); err == nil {
 		t.Fatal("public-suffix cookie domain was accepted")

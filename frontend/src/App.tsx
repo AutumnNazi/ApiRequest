@@ -640,7 +640,7 @@ export default function App() {
           <WindowControls onClose={() => void requestClose()} />
       </header>
       <Suspense fallback={null}>
-        {showCookies && <CookieManager onClose={() => setShowCookies(false)} />}
+        {workspace && <CookieManager workspaceId={workspace.id} onClose={() => setShowCookies(false)} />}
         {showWs && <WsPanel onClose={() => setShowWs(false)} />}
         {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
         {showGrpc && <GrpcPanel onClose={() => setShowGrpc(false)} />}

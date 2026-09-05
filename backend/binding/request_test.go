@@ -179,7 +179,7 @@ func TestSendRequestRedactsCookieJarValuesFromScriptOutput(t *testing.T) {
 	}
 	defer store.Close()
 	workspace, _ := store.EnsureDefaultWorkspace()
-	if err := store.UpsertCookie(model.Cookie{
+	if err := store.UpsertCookie(workspace.Id, model.Cookie{
 		Name: "session", Value: cookieSecret, Domain: "127.0.0.1", Path: "/", HostOnly: true,
 	}); err != nil {
 		t.Fatal(err)

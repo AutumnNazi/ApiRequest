@@ -16,11 +16,12 @@ import (
 
 const cookieSecretPrefix = "cookie/"
 
-// ListCookies lists unexpired cookies and resolves their values at the Secret Vault seam.
-func (s *Store) ListCookies(domain string) ([]model.Cookie, error) {
+// ListCookies lists unexpired cookies of the workspace jar and resolves their values
+// at the Secret Vault seam.
+func (s *Store) ListCookies(workspaceId, domain string) ([]model.Cookie, error) {
 	query := `SELECT name, value, domain, path, expires_at, http_only, secure, same_site, host_only
-	          FROM cookie WHERE (expires_at IS NULL OR expires_at = 0 OR expires_at > ?)`
-	args := []any{time.Now().UnixMilli()}
+	          FROM cookie WHERE workspace_id = ? AND (expires_at IS NULL OR expires_at = 0 OR expires_at > ?)`
+	args := []any{workspaceId, time.Now().UnixMilli()}
 	if domain != "" {
 		// LIKE 模式须转义 %/_，否则 "%" 之类输入会匹配全部行
 		query += " AND domain LIKE ? ESCAPE '\\'"
@@ -30,21 +31,23 @@ func (s *Store) ListCookies(domain string) ([]model.Cookie, error) {
 	return s.queryCookies(query, args...)
 }
 
-// CookiesForHost returns only cookies eligible for host. Filtering happens in SQLite so unrelated
-// secret values are not fetched from the keychain on every request.
-func (s *Store) CookiesForHost(host string) ([]model.Cookie, error) {
+// CookiesForHost returns only cookies eligible for host within the workspace jar.
+// Filtering happens in SQLite so unrelated secret values are not fetched from the
+// keychain on every request.
+func (s *Store) CookiesForHost(workspaceId, host string) ([]model.Cookie, error) {
 	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
 	if host == "" {
 		return []model.Cookie{}, nil
 	}
 	query := `SELECT name, value, domain, path, expires_at, http_only, secure, same_site, host_only
 	          FROM cookie
-	          WHERE (expires_at IS NULL OR expires_at = 0 OR expires_at > ?)
+	          WHERE workspace_id = ?
+	            AND (expires_at IS NULL OR expires_at = 0 OR expires_at > ?)
 	            AND ((host_only = 1 AND lower(ltrim(domain, '.')) = ?)
 	              OR (host_only = 0 AND (? = lower(ltrim(domain, '.'))
 	                OR ? LIKE '%.' || lower(ltrim(domain, '.')))))
 	          ORDER BY length(path) DESC, path, name`
-	return s.queryCookies(query, time.Now().UnixMilli(), host, host, host)
+	return s.queryCookies(query, workspaceId, time.Now().UnixMilli(), host, host, host)
 }
 
 func (s *Store) queryCookies(query string, args ...any) ([]model.Cookie, error) {
@@ -82,13 +85,13 @@ func (s *Store) queryCookies(query string, args ...any) ([]model.Cookie, error) 
 }
 
 // UpsertCookie atomically coordinates one cookie metadata update with its Vault value.
-func (s *Store) UpsertCookie(cookie model.Cookie) error {
-	return s.UpsertCookies([]model.Cookie{cookie})
+func (s *Store) UpsertCookie(workspaceId string, cookie model.Cookie) error {
+	return s.UpsertCookies(workspaceId, []model.Cookie{cookie})
 }
 
 // UpsertCookies applies a response or import batch as one SQLite transaction and one recoverable
 // Vault write batch. A failed item leaves neither partial cookie rows nor orphaned secrets.
-func (s *Store) UpsertCookies(cookies []model.Cookie) error {
+func (s *Store) UpsertCookies(workspaceId string, cookies []model.Cookie) error {
 	if len(cookies) == 0 {
 		return nil
 	}
@@ -99,7 +102,7 @@ func (s *Store) UpsertCookies(cookies []model.Cookie) error {
 		}
 		defer tx.Rollback()
 		for _, cookie := range cookies {
-			if err := upsertCookie(tx, writer, cookie); err != nil {
+			if err := upsertCookie(tx, writer, workspaceId, cookie); err != nil {
 				return err
 			}
 		}
@@ -107,7 +110,7 @@ func (s *Store) UpsertCookies(cookies []model.Cookie) error {
 	})
 }
 
-func upsertCookie(tx *sql.Tx, writer secrets.SecretWriter, cookie model.Cookie) error {
+func upsertCookie(tx *sql.Tx, writer secrets.SecretWriter, workspaceId string, cookie model.Cookie) error {
 	cookie.Domain = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(cookie.Domain)), ".")
 	if cookie.Domain == "" || cookie.Name == "" {
 		return errors.New("cookie domain and name are required")
@@ -122,8 +125,8 @@ func upsertCookie(tx *sql.Tx, writer secrets.SecretWriter, cookie model.Cookie) 
 
 	var id, oldValue string
 	err := tx.QueryRow(
-		"SELECT id, value FROM cookie WHERE domain = ? AND path = ? AND name = ?",
-		cookie.Domain, cookie.Path, cookie.Name,
+		"SELECT id, value FROM cookie WHERE workspace_id = ? AND domain = ? AND path = ? AND name = ?",
+		workspaceId, cookie.Domain, cookie.Path, cookie.Name,
 	).Scan(&id, &oldValue)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -167,16 +170,16 @@ func upsertCookie(tx *sql.Tx, writer secrets.SecretWriter, cookie model.Cookie) 
 		expires = sql.NullInt64{Int64: cookie.Expires, Valid: true}
 	}
 	_, err = tx.Exec(`
-		INSERT INTO cookie (id, domain, path, name, value, expires_at, http_only, secure, same_site, host_only)
-		VALUES (?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(domain, path, name) DO UPDATE SET
+		INSERT INTO cookie (id, workspace_id, domain, path, name, value, expires_at, http_only, secure, same_site, host_only)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(workspace_id, domain, path, name) DO UPDATE SET
 		  value = excluded.value,
 		  expires_at = excluded.expires_at,
 		  http_only = excluded.http_only,
 		  secure = excluded.secure,
 		  same_site = excluded.same_site,
 		  host_only = excluded.host_only`,
-		id, cookie.Domain, cookie.Path, cookie.Name, storedValue, expires,
+		id, workspaceId, cookie.Domain, cookie.Path, cookie.Name, storedValue, expires,
 		boolInt(cookie.HttpOnly), boolInt(cookie.Secure),
 		sql.NullString{String: cookie.SameSite, Valid: cookie.SameSite != ""}, boolInt(cookie.HostOnly),
 	)
@@ -193,28 +196,28 @@ func isPublicSuffixCookieDomain(domain string) bool {
 }
 
 // DeleteCookie removes both the metadata row and its referenced Vault value.
-func (s *Store) DeleteCookie(domain, path, name string) error {
+func (s *Store) DeleteCookie(workspaceId, domain, path, name string) error {
 	if path == "" {
 		path = "/"
 	}
-	return s.UpsertCookie(model.Cookie{
+	return s.UpsertCookie(workspaceId, model.Cookie{
 		Domain: domain, Path: path, Name: name, MaxAge: -1,
 	})
 }
 
-// ClearCookies clears a domain filter or the complete global Jar and removes owned Vault values.
-func (s *Store) ClearCookies(domain string) error {
+// ClearCookies clears a domain filter or the complete workspace jar and removes owned Vault values.
+func (s *Store) ClearCookies(workspaceId, domain string) error {
 	return s.withSecretWrite(func(writer secrets.SecretWriter) error {
 		tx, err := s.db.Begin()
 		if err != nil {
 			return err
 		}
 		defer tx.Rollback()
-		query := "SELECT value FROM cookie"
-		args := []any{}
+		query := "SELECT value FROM cookie WHERE workspace_id = ?"
+		args := []any{workspaceId}
 		if domain != "" {
 			// LIKE 模式须转义 %/_，否则 "%" 之类输入会清空全部 cookie
-			query += " WHERE domain LIKE ? ESCAPE '\\'"
+			query += " AND domain LIKE ? ESCAPE '\\'"
 			args = append(args, "%"+escapeLikePattern(domain))
 		}
 		rows, err := tx.Query(query, args...)
@@ -242,9 +245,9 @@ func (s *Store) ClearCookies(domain string) error {
 				return err
 			}
 		}
-		deleteQuery := "DELETE FROM cookie"
+		deleteQuery := "DELETE FROM cookie WHERE workspace_id = ?"
 		if domain != "" {
-			deleteQuery += " WHERE domain LIKE ? ESCAPE '\\'"
+			deleteQuery += " AND domain LIKE ? ESCAPE '\\'"
 		}
 		if _, err := tx.Exec(deleteQuery, args...); err != nil {
 			return err

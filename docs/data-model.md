@@ -141,19 +141,21 @@ CREATE TABLE runner_run (
 );
 CREATE INDEX idx_runner_run_ws_time ON runner_run(workspace_id, created_at DESC);
 
--- Cookie Jar（跨工作区全局共享——与浏览器行为一致，Cookie 按域名而非业务分组隔离；
--- 若后续需要按工作区隔离，加 workspace_id 列并迁移）
+-- Cookie Jar（按工作区隔离——ADR-016 落地原备注的演进路径；Cookie 值存 Secret Vault，
+-- 表内 value 列是 Vault 引用）
 CREATE TABLE cookie (
-  id          TEXT PRIMARY KEY,
-  domain      TEXT NOT NULL,
-  path        TEXT NOT NULL DEFAULT '/',
-  name        TEXT NOT NULL,
-  value       TEXT NOT NULL,
-  expires_at  INTEGER,
-  http_only   INTEGER NOT NULL DEFAULT 0,
-  secure      INTEGER NOT NULL DEFAULT 0,
-  same_site   TEXT,
-  UNIQUE(domain, path, name)
+  id            TEXT PRIMARY KEY,
+  workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  domain        TEXT NOT NULL,
+  path          TEXT NOT NULL DEFAULT '/',
+  name          TEXT NOT NULL,
+  value         TEXT NOT NULL,
+  expires_at    INTEGER,
+  http_only     INTEGER NOT NULL DEFAULT 0,
+  secure        INTEGER NOT NULL DEFAULT 0,
+  same_site     TEXT,
+  host_only     INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(workspace_id, domain, path, name)
 );
 
 -- 应用设置（KV）

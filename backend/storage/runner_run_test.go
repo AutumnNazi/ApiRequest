@@ -16,13 +16,14 @@ func newRunnerRunTestStore(t *testing.T) *Store {
 	return s
 }
 
-func runnerRunWorkspaceId(t *testing.T, s *Store) string {
+func firstWorkspaceId(t *testing.T, s *Store) string {
 	t.Helper()
-	list, err := s.ListWorkspaces()
-	if err != nil || len(list) == 0 {
+	// 幂等：库为空时创建默认工作区（cookie jar 等测试需要归属）
+	w, err := s.EnsureDefaultWorkspace()
+	if err != nil {
 		t.Fatalf("no workspace: %v", err)
 	}
-	return list[0].Id
+	return w.Id
 }
 
 func sampleReport(runId string, results ...runner.RequestResult) *runner.Report {
@@ -34,7 +35,7 @@ func sampleReport(runId string, results ...runner.RequestResult) *runner.Report 
 
 func TestSaveAndGetRunnerRun(t *testing.T) {
 	s := newRunnerRunTestStore(t)
-	ws := runnerRunWorkspaceId(t, s)
+	ws := firstWorkspaceId(t, s)
 	rep := sampleReport("run-1",
 		runner.RequestResult{Iteration: 1, RequestName: "list", NodeId: "n1", Status: 200, DurationMs: 12,
 			TestResults: []model.TestResult{{Name: "status is 2xx", Pass: true}}},
@@ -57,7 +58,7 @@ func TestSaveAndGetRunnerRun(t *testing.T) {
 
 func TestGetRunnerRunRejectsForeignWorkspace(t *testing.T) {
 	s := newRunnerRunTestStore(t)
-	ws := runnerRunWorkspaceId(t, s)
+	ws := firstWorkspaceId(t, s)
 	if err := s.SaveRunnerRun(ws, "col-1", sampleReport("run-1")); err != nil {
 		t.Fatalf("SaveRunnerRun: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestGetRunnerRunRejectsForeignWorkspace(t *testing.T) {
 
 func TestListRunnerRunsPaginatesNewestFirstWithoutResults(t *testing.T) {
 	s := newRunnerRunTestStore(t)
-	ws := runnerRunWorkspaceId(t, s)
+	ws := firstWorkspaceId(t, s)
 	for i := 0; i < 5; i++ {
 		rep := sampleReport(string(rune('a' + i)))
 		rep.Failed = i
@@ -107,7 +108,7 @@ func TestListRunnerRunsPaginatesNewestFirstWithoutResults(t *testing.T) {
 
 func TestSaveRunnerRunIsIdempotentByRunId(t *testing.T) {
 	s := newRunnerRunTestStore(t)
-	ws := runnerRunWorkspaceId(t, s)
+	ws := firstWorkspaceId(t, s)
 	first := sampleReport("run-1")
 	first.Passed = 1
 	if err := s.SaveRunnerRun(ws, "col-1", first); err != nil {
@@ -130,7 +131,7 @@ func TestSaveRunnerRunIsIdempotentByRunId(t *testing.T) {
 
 func TestDeleteAndClearRunnerRuns(t *testing.T) {
 	s := newRunnerRunTestStore(t)
-	ws := runnerRunWorkspaceId(t, s)
+	ws := firstWorkspaceId(t, s)
 	if err := s.SaveRunnerRun(ws, "col-1", sampleReport("run-1")); err != nil {
 		t.Fatalf("SaveRunnerRun: %v", err)
 	}

@@ -142,19 +142,21 @@ CREATE TABLE runner_run (
 );
 CREATE INDEX idx_runner_run_ws_time ON runner_run(workspace_id, created_at DESC);
 
--- Cookie Jar is shared across workspaces, like browser behavior: cookies are isolated by domain,
--- not by business grouping. Add workspace_id and migrate if workspace isolation is needed later.
+-- Cookie Jar is isolated per workspace (ADR-016 lands the evolution path noted earlier).
+-- Cookie values live in the Secret Vault; the in-table value column holds a Vault reference.
 CREATE TABLE cookie (
-  id          TEXT PRIMARY KEY,
-  domain      TEXT NOT NULL,
-  path        TEXT NOT NULL DEFAULT '/',
-  name        TEXT NOT NULL,
-  value       TEXT NOT NULL,
-  expires_at  INTEGER,
-  http_only   INTEGER NOT NULL DEFAULT 0,
-  secure      INTEGER NOT NULL DEFAULT 0,
-  same_site   TEXT,
-  UNIQUE(domain, path, name)
+  id            TEXT PRIMARY KEY,
+  workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  domain        TEXT NOT NULL,
+  path          TEXT NOT NULL DEFAULT '/',
+  name          TEXT NOT NULL,
+  value         TEXT NOT NULL,
+  expires_at    INTEGER,
+  http_only     INTEGER NOT NULL DEFAULT 0,
+  secure        INTEGER NOT NULL DEFAULT 0,
+  same_site     TEXT,
+  host_only     INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(workspace_id, domain, path, name)
 );
 
 -- Application settings (key/value).

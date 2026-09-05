@@ -20,6 +20,10 @@ func TestPersistCookiesDropsCrossDomainAndKeepsValidOnes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	ws, err := store.EnsureDefaultWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	cookies := []model.Cookie{
 		{Name: "evil", Value: "1", Domain: "attacker.example"}, // 越权：与 host 无关
@@ -28,11 +32,11 @@ func TestPersistCookiesDropsCrossDomainAndKeepsValidOnes(t *testing.T) {
 		{Name: "parent", Value: "4", Domain: "app.test"},       // 合法：host 的父域
 		{Name: "exact", Value: "5", Domain: "api.app.test"},    // 合法：与 host 完全相同
 	}
-	if err := persistCookies(store, "https://api.app.test/v1/login", cookies); err != nil {
+	if err := persistCookies(store, ws.Id, "https://api.app.test/v1/login", cookies); err != nil {
 		t.Fatalf("persistCookies returned error, want cross-domain entries skipped: %v", err)
 	}
 
-	stored, err := store.ListCookies("")
+	stored, err := store.ListCookies(ws.Id, "")
 	if err != nil {
 		t.Fatal(err)
 	}
