@@ -52,9 +52,7 @@ jobs:
     name: Go race detector
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # 首次引入 race detector：此前从未在 CI 跑过，先以非阻塞方式收集信号，
-    # 待确认无既存告警后再并入 backend job 并作为门禁。
-    continue-on-error: true
+    # 基线确立后转正：race 失败即阻断合入，防止并发回归逃逸到桌面端
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -78,7 +76,7 @@ jobs:
               echo '```'
               grep -E "^(WARNING: DATA RACE|--- FAIL|FAIL|panic)" race-out.log | head -60
               echo '```'
-              echo '_This job is non-blocking while the baseline is established._'
+              echo '_The race detector is a blocking gate; fix findings before merge._'
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
