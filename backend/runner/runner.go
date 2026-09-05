@@ -41,6 +41,7 @@ type Report struct {
 	DurationMs int64           `json:"durationMs"`
 	Results    []RequestResult `json:"results"`
 	Canceled   bool            `json:"canceled"`
+	CreatedAt  int64           `json:"createdAt,omitempty"` // 落库时间戳（内存报告为 0，导出时不出现）
 }
 
 // ParseDataFile 解析数据文件为迭代行（docs/advanced.md：每行注入 data 作用域）

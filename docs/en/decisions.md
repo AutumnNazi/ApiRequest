@@ -76,6 +76,14 @@ Status markers: `Accepted` = adopted and reflected in the design docs; `Preferre
 - **Tradeoff**: fallback mode requires entering a master password on first use. A forgotten master password cannot recover encrypted secrets; users must clear and reauthorize them.
 - **Boundary**: only `backend/platform` may call the OS keychain directly. `backend/secrets` owns Vault policy, fallback persistence, reference formats, and error normalization; other business modules do not know which backend is active. Secret changes and SQLite writes use a recoverable Vault batch: a database failure restores old values or deletes new entries without pretending the two systems provide a shared ACID transaction. See [ops.md](./ops.md#1-security-considerations).
 
+### ADR-015 Persist Runner Run Reports to the Database (Accepted 2026-09-04; Reverses the Earlier In-Memory Decision)
+
+- **Decision**: a Runner run report is written to the SQLite `runner_run` table when the run finishes (summary columns plus a detail JSON column, schema 0010). The Runner dialog offers a "run history" view for reviewing past runs, deleting one, or clearing all. This reverses the earlier "explicitly not persisted" entry in data-model.md; this ADR records that reversal.
+- **Rationale**: with memory-only storage, reports vanished on restart, and checking "how did the last run go" required manual exports. Run history is a routine regression-comparison need, and the summary list query (without the detail JSON) is cheap.
+- **Tradeoffs**: database size grows with run count (details include every assertion result). Reports contain request names and status codes but no request/response body payloads, so the exposure surface matches the history table. A persistence failure logs a warning and never blocks returning the report, keeping the core path independent of storage health.
+- **Alternatives**: keep memory-only plus manual export (rejected: poor experience); write reports to a directory of JSON files (loses workspace isolation and easy cleanup).
+- **Compatibility**: `runner.Report` gains `createdAt` (0 for in-memory reports, absent from exported JSON). Cursor pagination matches History (an opaque (created_at, id) cursor). The CLI `--report` file path is unaffected.
+
 ---
 
 ## Preferred Decisions (Recommended, Reversible)

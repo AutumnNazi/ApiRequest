@@ -1,16 +1,16 @@
 export namespace auth {
-
+	
 	export class Token {
 	    accessToken: string;
 	    refreshToken?: string;
 	    tokenType?: string;
 	    expiresAt?: number;
 	    scope?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Token(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.accessToken = source["accessToken"];
@@ -24,21 +24,41 @@ export namespace auth {
 }
 
 export namespace binding {
-
+	
 	export class MockStatus {
 	    collectionId: string;
 	    addr: string;
 	    routes: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MockStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.collectionId = source["collectionId"];
 	        this.addr = source["addr"];
 	        this.routes = source["routes"];
+	    }
+	}
+	export class NetworkStatus {
+	    proxyMode: string;
+	    proxySource: string;
+	    proxyWarning?: string;
+	    tlsActive: boolean;
+	    tlsWarning?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NetworkStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.proxyMode = source["proxyMode"];
+	        this.proxySource = source["proxySource"];
+	        this.proxyWarning = source["proxyWarning"];
+	        this.tlsActive = source["tlsActive"];
+	        this.tlsWarning = source["tlsWarning"];
 	    }
 	}
 	export class ProxySettings {
@@ -48,11 +68,11 @@ export namespace binding {
 	    password?: string;
 	    passwordSet?: boolean;
 	    clearPassword?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ProxySettings(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mode = source["mode"];
@@ -63,28 +83,9 @@ export namespace binding {
 	        this.clearPassword = source["clearPassword"];
 	    }
 	}
-	export class NetworkStatus {
-	    proxyMode: string;
-	    proxySource: string;
-	    proxyWarning?: string;
-	    tlsActive: boolean;
-	    tlsWarning?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new NetworkStatus(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.proxyMode = source["proxyMode"];
-	        this.proxySource = source["proxySource"];
-	        this.proxyWarning = source["proxyWarning"];
-	        this.tlsActive = source["tlsActive"];
-	        this.tlsWarning = source["tlsWarning"];
-	    }
-	}
 
 }
+
 export namespace codegen {
 	
 	export class Target {
@@ -851,11 +852,11 @@ export namespace model {
 	    id: string;
 	    parentId?: string;
 	    sortOrder: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new NodeMove(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -873,11 +874,11 @@ export namespace model {
 	    method?: string;
 	    createdAt: number;
 	    updatedAt: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new NodeSummary(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -990,6 +991,85 @@ export namespace model {
 		    return a;
 		}
 	}
+	export class RunnerRunSummary {
+	    runId: string;
+	    collectionId: string;
+	    total: number;
+	    passed: number;
+	    failed: number;
+	    skipped: number;
+	    durationMs: number;
+	    canceled: boolean;
+	    createdAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunnerRunSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.runId = source["runId"];
+	        this.collectionId = source["collectionId"];
+	        this.total = source["total"];
+	        this.passed = source["passed"];
+	        this.failed = source["failed"];
+	        this.skipped = source["skipped"];
+	        this.durationMs = source["durationMs"];
+	        this.canceled = source["canceled"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
+	export class RunnerRunPage {
+	    items: RunnerRunSummary[];
+	    nextCursor?: string;
+	    hasMore: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunnerRunPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], RunnerRunSummary);
+	        this.nextCursor = source["nextCursor"];
+	        this.hasMore = source["hasMore"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RunnerRunQuery {
+	    collectionId?: string;
+	    limit?: number;
+	    cursor?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunnerRunQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.limit = source["limit"];
+	        this.cursor = source["cursor"];
+	    }
+	}
+	
 	export class SendContext {
 	    requestId?: string;
 	    workspaceId: string;
@@ -1146,6 +1226,7 @@ export namespace runner {
 	    durationMs: number;
 	    results: RequestResult[];
 	    canceled: boolean;
+	    createdAt?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Report(source);
@@ -1161,6 +1242,7 @@ export namespace runner {
 	        this.durationMs = source["durationMs"];
 	        this.results = this.convertValues(source["results"], RequestResult);
 	        this.canceled = source["canceled"];
+	        this.createdAt = source["createdAt"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1257,3 +1339,4 @@ export namespace sync {
 	}
 
 }
+

@@ -176,6 +176,24 @@ var migrations = []string{
 	`
 	CREATE INDEX idx_history_body_ref ON history(body_ref);
 	`,
+	// 0010: Runner 运行报告落库（docs/data-model.md：决策由"不持久化"翻转为
+	// 摘要列 + 明细 JSON；详见 docs/decisions.md ADR-015）。
+	`
+	CREATE TABLE runner_run (
+	  id            TEXT PRIMARY KEY,
+	  workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+	  collection_id TEXT NOT NULL,
+	  created_at    INTEGER NOT NULL,
+	  total         INTEGER NOT NULL,
+	  passed        INTEGER NOT NULL,
+	  failed        INTEGER NOT NULL,
+	  skipped       INTEGER NOT NULL,
+	  duration_ms   INTEGER NOT NULL,
+	  canceled      INTEGER NOT NULL DEFAULT 0,
+	  results       TEXT NOT NULL DEFAULT '[]'
+	);
+	CREATE INDEX idx_runner_run_ws_time ON runner_run(workspace_id, created_at DESC);
+	`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录

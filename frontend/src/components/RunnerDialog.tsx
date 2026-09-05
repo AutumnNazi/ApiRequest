@@ -1,4 +1,4 @@
-// Collection Runner 弹窗：配置 → 运行进度 → 报告
+// Collection Runner 弹窗：配置 → 运行进度 → 报告；报告持久化后可回看历史运行
 import { useEffect, useRef, useState } from 'react';
 import {
   runCollection,
@@ -7,9 +7,14 @@ import {
   openNativeFile,
   readNativeTextFile,
   onRunnerProgress,
+  listRunnerRuns,
+  getRunnerRun,
+  deleteRunnerRun,
+  clearRunnerRuns,
   toAppError,
   type RunnerReport,
   type RunnerProgress,
+  type RunnerRunSummary,
 } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
@@ -35,6 +40,53 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
   const runIdRef = useRef('');
+  // 历史运行视图：null = 常规（配置/进度/报告），list = 历史列表
+  const [historyRuns, setHistoryRuns] = useState<RunnerRunSummary[] | null>(null);
+  const [historyError, setHistoryError] = useState('');
+
+  const openHistory = async () => {
+    setError('');
+    setHistoryError('');
+    try {
+      const page = await listRunnerRuns(workspaceId, { collectionId });
+      setHistoryRuns(page.items ?? []);
+    } catch (cause) {
+      // 面板必须打开，错误才有地方显示
+      setHistoryRuns([]);
+      setHistoryError(toAppError(cause).detail);
+    }
+  };
+
+  const showHistoricalReport = async (runId: string) => {
+    setError('');
+    try {
+      const detail = await getRunnerRun(workspaceId, runId);
+      setHistoryRuns(null);
+      setReport(detail);
+    } catch (cause) {
+      setError(toAppError(cause).detail);
+    }
+  };
+
+  const removeHistoricalRun = async (runId: string) => {
+    setHistoryError('');
+    try {
+      await deleteRunnerRun(workspaceId, runId);
+      setHistoryRuns((prev) => (prev ? prev.filter((r) => r.runId !== runId) : prev));
+    } catch (cause) {
+      setHistoryError(toAppError(cause).detail);
+    }
+  };
+
+  const clearAllRuns = async () => {
+    setHistoryError('');
+    try {
+      await clearRunnerRuns(workspaceId);
+      setHistoryRuns([]);
+    } catch (cause) {
+      setHistoryError(toAppError(cause).detail);
+    }
+  };
 
   useEffect(() => {
     const unsub = onRunnerProgress((p) => {
@@ -123,14 +175,69 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
     >
         <div className="flex items-center px-4 py-3 border-b">
           <h2 id="runner-dialog-title" className="font-semibold text-sm">Runner · <Verbatim value={collectionName} /></h2>
-          <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={() => void requestClose()} aria-label={formatMessage('关闭 Runner')}>
+          {!running && (
+            <button
+              className="ml-auto mr-2 text-xs text-blue-600 hover:underline"
+              title={formatMessage('查看历史运行')}
+              onClick={() => {
+                if (historyRuns !== null) setHistoryRuns(null);
+                else void openHistory();
+              }}
+            >
+              {formatMessage('运行历史')}
+            </button>
+          )}
+          <button className={`${running ? 'ml-auto' : ''} text-gray-400 hover:text-gray-700`} onClick={() => void requestClose()} aria-label={formatMessage('关闭 Runner')}>
             ×
           </button>
         </div>
 
+        {/* 历史运行列表（持久化报告回看） */}
+        {historyRuns !== null && (
+          <div className="border-b px-4 py-3 max-h-64 overflow-auto">
+            <div className="flex items-center mb-2">
+              <h3 className="text-xs font-medium text-gray-600">{formatMessage('运行历史')}</h3>
+              {historyRuns.length > 0 && (
+                <button
+                  className="ml-auto text-xs text-red-500 hover:underline"
+                  onClick={() => void dialog.confirm(formatMessage('清空全部历史运行？')).then((ok) => {
+                    if (ok) void clearAllRuns();
+                  })}
+                >
+                  {formatMessage('清空')}
+                </button>
+              )}
+            </div>
+            {historyError && <p className="text-xs text-red-600"><Verbatim value={historyError} /></p>}
+            {historyRuns.length === 0 && !historyError && (
+              <p className="text-xs text-gray-400 py-2 text-center">{formatMessage('暂无历史运行')}</p>
+            )}
+            {historyRuns.map((r) => (
+              <div key={r.runId} className="flex items-center gap-3 px-2 py-1.5 border-b border-gray-100 text-xs hover:bg-gray-50">
+                <button className="flex-1 flex items-center gap-3 text-left" onClick={() => void showHistoricalReport(r.runId)}>
+                  <span className="font-mono text-gray-500"><Verbatim value={r.runId} /></span>
+                  <span className="text-green-600">✓ {r.passed}</span>
+                  <span className={r.failed > 0 ? 'text-red-600' : 'text-gray-400'}>✗ {r.failed}</span>
+                  {r.skipped > 0 && <span className="text-gray-400">− {r.skipped}</span>}
+                  {r.canceled && <span className="text-gray-400">{formatMessage('已取消')}</span>}
+                  <span className="text-gray-400">{(r.durationMs / 1000).toFixed(1)}s</span>
+                  <span className="ml-auto text-gray-400">{new Date(r.createdAt).toLocaleString()}</span>
+                </button>
+                <button
+                  className="text-gray-400 hover:text-red-500"
+                  title={formatMessage('删除该次运行')}
+                  onClick={() => void removeHistoricalRun(r.runId)}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="flex-1 overflow-auto p-4 space-y-4">
           {/* 配置区 */}
-          {!running && !report && (
+          {!running && !report && historyRuns === null && (
             <div className="space-y-3 text-sm">
               <div className="flex items-center gap-3">
                 <label className="text-gray-600 w-24">{formatMessage('迭代次数')}</label>

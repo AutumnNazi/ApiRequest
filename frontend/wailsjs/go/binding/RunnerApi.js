@@ -6,8 +6,24 @@ export function CancelRun(arg1) {
   return window['go']['binding']['RunnerApi']['CancelRun'](arg1);
 }
 
+export function ClearRunnerRuns(arg1) {
+  return window['go']['binding']['RunnerApi']['ClearRunnerRuns'](arg1);
+}
+
+export function DeleteRunnerRun(arg1, arg2) {
+  return window['go']['binding']['RunnerApi']['DeleteRunnerRun'](arg1, arg2);
+}
+
 export function ExportReport(arg1) {
   return window['go']['binding']['RunnerApi']['ExportReport'](arg1);
+}
+
+export function GetRunnerRun(arg1, arg2) {
+  return window['go']['binding']['RunnerApi']['GetRunnerRun'](arg1, arg2);
+}
+
+export function ListRunnerRuns(arg1, arg2) {
+  return window['go']['binding']['RunnerApi']['ListRunnerRuns'](arg1, arg2);
 }
 
 export function RunCollection(arg1, arg2, arg3, arg4) {

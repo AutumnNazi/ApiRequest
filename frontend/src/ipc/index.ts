@@ -47,6 +47,9 @@ export type ImportResult = convert.ImportResult;
 export type CodegenTarget = codegen.Target;
 export type RunnerOptions = runner.Options;
 export type RunnerReport = runner.Report;
+export type RunnerRunQuery = model.RunnerRunQuery;
+export type RunnerRunPage = model.RunnerRunPage;
+export type RunnerRunSummary = model.RunnerRunSummary;
 export type Example = model.Example;
 export type MockOptions = mock.Options;
 export type MockStatus = binding.MockStatus;
@@ -168,6 +171,15 @@ export const runCollection = (
 ) => call(() => RunnerApi.RunCollection(runId, workspaceId, collectionId, runner.Options.createFrom(opts)));
 export const cancelRun = (runId: string) => call(() => RunnerApi.CancelRun(runId));
 export const exportReport = (runId: string) => call(() => RunnerApi.ExportReport(runId));
+
+// 运行历史（持久化报告；docs/decisions.md ADR-015）
+export const listRunnerRuns = (workspaceId: string, q: Partial<RunnerRunQuery> = {}) =>
+  call(() => RunnerApi.ListRunnerRuns(workspaceId, model.RunnerRunQuery.createFrom(q)));
+export const getRunnerRun = (workspaceId: string, runId: string) =>
+  call(() => RunnerApi.GetRunnerRun(workspaceId, runId));
+export const deleteRunnerRun = (workspaceId: string, runId: string) =>
+  call(() => RunnerApi.DeleteRunnerRun(workspaceId, runId));
+export const clearRunnerRuns = (workspaceId: string) => call(() => RunnerApi.ClearRunnerRuns(workspaceId));
 
 // ── Example / Mock ──
 

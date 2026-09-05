@@ -174,6 +174,12 @@ loop:
 	report.DurationMs = time.Since(start).Milliseconds()
 
 	a.rememberReport(report)
+	// 运行历史落库（docs/decisions.md ADR-015：翻转原"仅内存"决策；失败不阻断返回报告）
+	if err := a.store.SaveRunnerRun(workspaceId, collectionId, report); err != nil {
+		if a.ctx != nil {
+			wailsrt.LogWarningf(a.ctx, "persist runner run %s: %v", runId, err)
+		}
+	}
 	return report, nil
 }
 
@@ -219,4 +225,24 @@ func (a *RunnerApi) ExportReport(runId string) (string, error) {
 		return "", model.WrapError(model.KindValidation, err)
 	}
 	return string(b), nil
+}
+
+// ListRunnerRuns 查询持久化的运行历史摘要页（时间倒序）
+func (a *RunnerApi) ListRunnerRuns(workspaceId string, q model.RunnerRunQuery) (model.RunnerRunPage, error) {
+	return a.store.ListRunnerRuns(workspaceId, q)
+}
+
+// GetRunnerRun 取单次运行的完整报告（含明细），支持重启后查看
+func (a *RunnerApi) GetRunnerRun(workspaceId, runId string) (*runner.Report, error) {
+	return a.store.GetRunnerRun(workspaceId, runId)
+}
+
+// DeleteRunnerRun 删除单次运行历史
+func (a *RunnerApi) DeleteRunnerRun(workspaceId, runId string) error {
+	return a.store.DeleteRunnerRun(workspaceId, runId)
+}
+
+// ClearRunnerRuns 清空工作区全部运行历史
+func (a *RunnerApi) ClearRunnerRuns(workspaceId string) error {
+	return a.store.ClearRunnerRuns(workspaceId)
 }

@@ -4,9 +4,9 @@ import {binding} from '../models';
 import {httpengine} from '../models';
 import {secrets} from '../models';
 
-export function GetProxySettings():Promise<binding.ProxySettings>;
-
 export function GetNetworkStatus():Promise<binding.NetworkStatus>;
+
+export function GetProxySettings():Promise<binding.ProxySettings>;
 
 export function GetTLSSettings():Promise<httpengine.TLSSettings>;
 
@@ -14,10 +14,10 @@ export function GetVaultStatus():Promise<secrets.Status>;
 
 export function LockVault():Promise<secrets.Status>;
 
+export function RefreshSystemProxy():Promise<binding.NetworkStatus>;
+
 export function SetProxySettings(arg1:binding.ProxySettings):Promise<void>;
 
 export function SetTLSSettings(arg1:httpengine.TLSSettings):Promise<void>;
 
 export function UnlockVault(arg1:string):Promise<secrets.Status>;
-
-export function RefreshSystemProxy():Promise<binding.NetworkStatus>;
