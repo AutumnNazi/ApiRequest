@@ -14,6 +14,7 @@ import { generateCode, openNativeFile, toAppError, listHistory, type Body, type 
 import { useStableRowIds } from '../hooks/useStableRowIds';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
+import { syncParamsFromUrl, withParamsQuery } from '../utils/urlParams';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
@@ -53,6 +54,16 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
   const urlInputRef = useRef<HTMLInputElement>(null);
   const d = tab.draft;
   const activeVars = useActiveVariables(workspaceId);
+  // 上一次已同步进 Params 表格的 URL query。URL→Params 只在失焦/回车/选建议时
+  // 触发，避免逐字符输入的中间态反复重建表格；Params→URL 则每次编辑实时回写。
+  const lastSyncedUrlRef = useRef<string>(d.url ?? '');
+  // RequestEditor 不随标签切换重挂载：切标签时基准必须跟到新标签的 URL，
+  // 否则失焦同步会拿上一个标签的 query 做对比，误清当前标签的表格。
+  const lastSyncedTabRef = useRef(tab.id);
+  if (lastSyncedTabRef.current !== tab.id) {
+    lastSyncedTabRef.current = tab.id;
+    lastSyncedUrlRef.current = d.url ?? '';
+  }
 
   // URL 输入建议：基于历史记录联想最近使用的地址（输入停顿后查询）
   useEffect(() => {
@@ -74,9 +85,25 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
   });
 
   const applyUrlSuggestion = (url: string) => {
+    syncParamsFromUrlChange(d.url ?? '', url);
     patchDraft(tab.id, { url });
     setUrlSuggestOpen(false);
     urlInputRef.current?.focus();
+  };
+
+  // URL→Params：query 段变化时重建表格行（base/fragment 编辑不动表格）
+  const syncParamsFromUrlChange = (oldUrl: string, newUrl: string) => {
+    const next = syncParamsFromUrl(oldUrl, newUrl, d.params ?? []);
+    if (!next) return;
+    lastSyncedUrlRef.current = newUrl;
+    patchDraft(tab.id, { params: next });
+  };
+
+  // Params→URL：表格行实时序列化回 URL query 段
+  const setParams = (params: KV[]) => {
+    const url = withParamsQuery(d.url ?? '', params);
+    lastSyncedUrlRef.current = url;
+    patchDraft(tab.id, { url, params });
   };
 
   const patchBody = (patch: Partial<Body>) =>
@@ -107,7 +134,10 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
             placeholder="https://api.example.com/path"
             value={d.url}
             onFocus={() => setUrlSuggestOpen(true)}
-            onBlur={() => setTimeout(() => setUrlSuggestOpen(false), 150)}
+            onBlur={() => {
+              setTimeout(() => setUrlSuggestOpen(false), 150);
+              syncParamsFromUrlChange(lastSyncedUrlRef.current, d.url ?? '');
+            }}
             onChange={(e) => {
               patchDraft(tab.id, { url: e.target.value });
               setUrlSuggestOpen(true);
@@ -116,6 +146,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
               if (e.key === 'Enter') {
                 e.preventDefault();
                 e.stopPropagation();
+                syncParamsFromUrlChange(lastSyncedUrlRef.current, d.url ?? '');
                 onSend();
               }
               if (e.key === 'Escape') setUrlSuggestOpen(false);
@@ -248,7 +279,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
           <KVTable
             key={`${tab.id}:params`}
             items={d.params ?? []}
-            onChange={(items) => patchDraft(tab.id, { params: items })}
+            onChange={(items) => setParams(items)}
           />
         )}
         {pane === 'headers' && (

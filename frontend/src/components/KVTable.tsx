@@ -1,8 +1,10 @@
 // 键值表格：Header/Query 共用。末行自动新增空行（docs/frontend.md §4）。
+// 支持批量编辑模式：textarea 按 "key:value" 逐行编辑，// 前缀表示禁用行。
 import { useMemo, useState } from 'react';
 import type { KV } from '../ipc';
 import { useStableRowIds } from '../hooks/useStableRowIds';
 import { formatMessage } from '../i18n/locale';
+import { formatBatchLines, parseBatchLines } from '../utils/urlParams';
 
 // 常用 HTTP 请求头，用于 Headers Key 自动补全
 export const COMMON_HEADERS = [
@@ -71,6 +73,8 @@ export default function KVTable({ items, onChange, keySuggestions }: Props) {
   // Key 自动补全：记录当前编辑行与输入值
   const [autoIdx, setAutoIdx] = useState<number | null>(null);
   const [autoQuery, setAutoQuery] = useState('');
+  // 批量编辑：null = 行模式，字符串 = 批量模式当前文本
+  const [batchText, setBatchText] = useState<string | null>(null);
   // 重复 Key 检测：同一组内同名 Key 是常见踩坑点（后者覆盖前者），红色高亮提示。
   const dupKeys = useMemo(() => {
     const seen = new Set<string>();
@@ -107,8 +111,61 @@ export default function KVTable({ items, onChange, keySuggestions }: Props) {
     onChange(items.filter((_, i) => i !== idx));
   };
 
+  // 批量应用：按 key+value 匹配保留旧行对象，避免丢掉 description 等表格外的字段
+  const applyBatch = () => {
+    if (batchText === null) return;
+    const parsed = parseBatchLines(batchText);
+    const remaining = new Map(items.map((it) => [`${it.key}\u0000${it.value}`, it] as const));
+    onChange(parsed.map((p) => {
+      const prior = remaining.get(`${p.key}\u0000${p.value}`);
+      remaining.delete(`${p.key}\u0000${p.value}`);
+      return { ...(prior ?? {}), key: p.key, value: p.value, enabled: p.enabled } as KV;
+    }));
+    setBatchText(null);
+  };
+
+  if (batchText !== null) {
+    return (
+      <div className="flex flex-col gap-2">
+        <textarea
+          className="w-full h-64 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400 resize-y"
+          spellCheck={false}
+          placeholder={formatMessage('每行一条 key:value 或 key=value，行首 // 表示禁用')}
+          value={batchText}
+          onChange={(e) => setBatchText(e.target.value)}
+        />
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-400">{formatMessage('// 开头的行不会随请求发送')}</span>
+          <div className="flex gap-2">
+            <button
+              className="border rounded px-3 py-1 text-sm hover:bg-gray-50"
+              onClick={() => setBatchText(null)}
+            >
+              {formatMessage('取消')}
+            </button>
+            <button
+              className="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700"
+              onClick={applyBatch}
+            >
+              {formatMessage('应用')}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <table className="w-full text-sm">
+    <>
+      <div className="flex justify-end mb-1">
+        <button
+          className="text-xs text-gray-500 hover:text-gray-700"
+          onClick={() => setBatchText(formatBatchLines(items))}
+        >
+          {formatMessage('批量编辑')}
+        </button>
+      </div>
+      <table className="w-full text-sm">
       <thead>
         <tr className="text-left text-gray-500 border-b">
           <th className="w-8 p-1"></th>
@@ -200,5 +257,6 @@ export default function KVTable({ items, onChange, keySuggestions }: Props) {
         })}
       </tbody>
     </table>
+    </>
   );
 }
