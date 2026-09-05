@@ -416,7 +416,18 @@ export default function SettingsDialog({ onClose }: Props) {
                   <input type="checkbox" checked={dav.omitSecrets ?? false} onChange={(event) => setDav({ ...dav, omitSecrets: event.target.checked })} />
                   {formatMessage('不上传密钥变量的值')}
                 </label>
-                <p className="text-xs text-gray-400 leading-relaxed">{formatMessage('快照存于远端 ApiRequest/ 目录，实体级"最后写入优先"合并；顶栏手动触发同步。')}</p>
+                <div className="flex items-center gap-3 text-xs">
+                  <label className="text-gray-600">{formatMessage('自动同步间隔（分钟，0 = 关闭）')}</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1440}
+                    className="border rounded px-2 py-1 w-24"
+                    value={dav.intervalMinutes ?? 0}
+                    onChange={(event) => setDav({ ...dav, intervalMinutes: Number(event.target.value) || 0 })}
+                  />
+                </div>
+                <p className="text-xs text-gray-400 leading-relaxed">{formatMessage('快照存于远端 ApiRequest/ 目录，实体级"最后写入优先"合并；顶栏手动触发同步，设置间隔后应用内每 30 秒检查一次到期并自动执行。')}</p>
               </div>
             )}
 

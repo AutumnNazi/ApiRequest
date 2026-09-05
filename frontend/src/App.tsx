@@ -36,6 +36,7 @@ import {
   releaseResponseBlob,
   upsertNode,
   getNode,
+  onAutoSync,
   syncNow,
   getSyncConfig,
   onRequestProgress,
@@ -223,6 +224,23 @@ export default function App() {
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
+
+  // 自动定时同步结果：只提示有实际变更或失败轮次；并失效本地缓存
+  useEffect(() => onAutoSync((e) => {
+    qc.invalidateQueries({ queryKey: ['nodes', e.workspaceId] });
+    qc.invalidateQueries({ queryKey: ['envs', e.workspaceId] });
+    qc.invalidateQueries({ queryKey: ['globals', e.workspaceId] });
+    if (!workspace || e.workspaceId !== workspace.id) return;
+    if (e.pushed === 0 && e.pulled === 0 && e.deleted === 0) return;
+    setSyncMsg(formatMessage('自动同步：↑{pushed} ↓{pulled}{deleted}', {
+      pushed: e.pushed,
+      pulled: e.pulled,
+      deleted: e.deleted ? formatMessage(' 删除 {count}', { count: e.deleted }) : '',
+    }));
+    setSyncFailed(false);
+    if (syncMsgTimerRef.current !== undefined) window.clearTimeout(syncMsgTimerRef.current);
+    syncMsgTimerRef.current = window.setTimeout(() => setSyncMsg(''), 5000);
+  }), [workspace, qc]);
 
   const handleSync = async () => {
     if (!workspace || syncing) return;

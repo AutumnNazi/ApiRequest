@@ -346,6 +346,18 @@ export function onRunnerProgress(handler: (p: RunnerProgress) => void): () => vo
   return EventsOn('runner:progress', handler);
 }
 
+// 自动定时同步完成事件（workspaceId + 变更计数）
+export interface AutoSyncEvent {
+  workspaceId: string;
+  pushed: number;
+  pulled: number;
+  deleted: number;
+  syncedAt: number;
+}
+export function onAutoSync(handler: (e: AutoSyncEvent) => void): () => void {
+  return EventsOn('sync:auto', handler);
+}
+
 export interface MockLogEntry {
   collectionId: string;
   method: string;

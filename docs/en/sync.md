@@ -8,7 +8,7 @@ Related: [Documentation Index](./index.md) · [Data Model](./data-model.md) · [
 
 ## Design
 
-- **Local-first**: all data is written to local SQLite first. Synchronization is an optional layer triggered manually from the top-bar sync control.
+- **Local-first**: all data is written to local SQLite first. Synchronization is an optional layer triggered manually from the top-bar sync control, or on a configured interval (see below).
 - **Remote representation**: one snapshot per workspace at `ApiRequest/workspace-<id>.json`. This is a complete state snapshot rather than an oplog; snapshots are more robust on "dumb storage" such as WebDAV and require no server-side merge logic.
 - **Transport**: a minimal WebDAV client using GET/PUT/MKCOL + Basic auth. See `backend/sync/dav.go`.
 
@@ -36,6 +36,6 @@ One synchronization cycle = pull remote -> merge -> write local -> push merged r
 
 ## Known Limitations and Future Work
 
-- There is no automatic scheduled sync. Triggering the same workspace concurrently on this device fails fast with an "already in progress" error (no queuing), while there is still no pre-sync mutual exclusion **across devices**. Simultaneous PUTs use last-writer-wins; in an extreme race, one peer's snapshot may be lost for one cycle and recovered on the next sync.
+- ~~No automatic scheduled sync~~ Automatic sync is now supported (interval in minutes configured in Settings; 0 = off): the app checks for due workspaces every 30 seconds and triggers them independently per workspace. Failed attempts also count toward the interval (preventing a 30s retry storm against an unavailable server); on completion the top bar shows a light notice and local data refreshes. Triggering the same workspace concurrently on this device fails fast with an "already in progress" error (no queuing), while there is still no pre-sync mutual exclusion **across devices**. Simultaneous PUTs use last-writer-wins; in an extreme race, one peer's snapshot may be lost for one cycle and recovered on the next sync.
 - Cookies and history do not synchronize because they are local runtime data.
 - The remote snapshot path is derived from the local `workspaceId`. The desktop app currently synchronizes existing local workspaces only; it does not discover or import remote workspaces. Reusing one snapshot across devices therefore requires preserving the same workspace ID, for example by migrating the local data directory.

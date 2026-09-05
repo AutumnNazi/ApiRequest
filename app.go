@@ -19,6 +19,8 @@ type App struct {
 	store     *storage.Store
 	mocks     *mock.Manager
 	protocols *protocol.Manager
+	// 自动定时同步的停止函数；nil = 未启动
+	stopAutoSync func()
 
 	Request   *binding.RequestApi
 	Node      *binding.NodeApi
@@ -83,6 +85,8 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql, a.Sync, a.Dialog, a.Lifecycle)
+	// 30s 检查一次是否到期；实际间隔由各工作区 intervalMinutes 决定
+	a.stopAutoSync = a.Sync.StartAutoSync(30 * time.Second)
 }
 
 func (a *App) beforeClose(ctx context.Context) bool { return binding.BeforeClose(a.Lifecycle, ctx) }
@@ -92,6 +96,9 @@ func (a *App) shutdown(ctx context.Context) {
 	defer cancel()
 	if err := binding.Shutdown(shutdownCtx, a.Request); err != nil {
 		log.Printf("stop request operations: %v", err)
+	}
+	if a.stopAutoSync != nil {
+		a.stopAutoSync()
 	}
 	a.mocks.StopAll()
 	a.protocols.CloseAll()

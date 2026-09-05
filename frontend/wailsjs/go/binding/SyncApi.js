@@ -10,6 +10,10 @@ export function SetSyncConfig(arg1) {
   return window['go']['binding']['SyncApi']['SetSyncConfig'](arg1);
 }
 
+export function StartAutoSync(arg1) {
+  return window['go']['binding']['SyncApi']['StartAutoSync'](arg1);
+}
+
 export function SyncNow(arg1) {
   return window['go']['binding']['SyncApi']['SyncNow'](arg1);
 }

@@ -28,6 +28,8 @@ type DavConfig struct {
 	ClearPassword bool   `json:"clearPassword,omitempty"`
 	// OmitSecrets 上传时剥离密钥变量值（docs/sync.md：同步时可选择不上传密钥）
 	OmitSecrets bool `json:"omitSecrets"`
+	// IntervalMinutes 自动同步间隔（分钟）；0 = 关闭自动同步
+	IntervalMinutes int `json:"intervalMinutes,omitempty"`
 }
 
 // davClient 极简 WebDAV 客户端：只用到 GET/PUT/MKCOL

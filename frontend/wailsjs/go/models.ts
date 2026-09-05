@@ -1300,6 +1300,7 @@ export namespace sync {
 	    passwordSet?: boolean;
 	    clearPassword?: boolean;
 	    omitSecrets: boolean;
+	    intervalMinutes?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new DavConfig(source);
@@ -1313,6 +1314,7 @@ export namespace sync {
 	        this.passwordSet = source["passwordSet"];
 	        this.clearPassword = source["clearPassword"];
 	        this.omitSecrets = source["omitSecrets"];
+	        this.intervalMinutes = source["intervalMinutes"];
 	    }
 	}
 	export class Report {
