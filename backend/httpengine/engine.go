@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,9 @@ func authProviderTwoPhase(authType string) (auth.TwoPhaseProvider, bool) {
 
 // inlineBodyLimit 超过该字节数的响应体不内联返回，落 blobs/ 并返回引用
 const inlineBodyLimit = 2 << 20 // 2 MiB
+
+// maxChallengeBodyBytes 缓存首个 401 响应体的上限（挑战不可处理时需原样返回）
+const maxChallengeBodyBytes = 2 << 20 // 2 MiB
 
 const maxTLSMaterialSize = platform.MaxCertificateMaterialSize
 
@@ -87,7 +91,8 @@ func New() *Engine {
 	return e
 }
 
-// SetBlobsDir 设置大响应落盘目录（binding 层初始化时注入）
+// SetBlobsDir 设置大响应落盘目录。
+// 仅限启动阶段（首次请求前）调用一次：blobsDir 无锁读写，运行期变更构成数据竞争
 func (e *Engine) SetBlobsDir(dir string) { e.blobsDir = dir }
 
 // SetProxy 应用代理设置。mode: system | manual | none；manual 时用 proxyUrl。
@@ -237,7 +242,9 @@ func (e *Engine) send(ctx context.Context, req model.HttpRequest, progress Progr
 	if resp.StatusCode == http.StatusUnauthorized {
 		if tp, ok := authProviderTwoPhase(req.Auth.Type); ok {
 			challenge := resp.Header.Get("WWW-Authenticate")
-			io.Copy(io.Discard, resp.Body)
+			// 先缓存首个 401 响应体再 drain：挑战不可处理时直接返回它，
+			// 避免对非幂等请求（POST 等）盲目重发导致服务端副作用执行两次
+			firstBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxChallengeBodyBytes))
 			resp.Body.Close()
 
 			retryReq, rerr := e.buildRequest(ctx, req)
@@ -263,10 +270,31 @@ func (e *Engine) send(ctx context.Context, req model.HttpRequest, progress Progr
 					return res, model.WrapError(model.KindNetwork, err)
 				}
 			} else {
-				// 无法处理挑战：重新请求一次拿回原始 401 响应体
-				resp, err = client.Do(retryReq)
-				if err != nil {
-					return res, model.WrapError(model.KindNetwork, err)
+				// 挑战不可处理（如服务器实际要求 Basic）：返回首个 401 响应。
+				// 重发请求已不会发出，先释放它的 body（binary 是文件句柄，
+				// formdata 是 io.Pipe + 已启动的写 goroutine，不关会永久泄漏）
+				if retryReq.Body != nil {
+					_ = retryReq.Body.Close()
+				}
+				if readErr != nil {
+					return res, model.WrapError(model.KindNetwork, readErr)
+				}
+				// 头部需与实际交付的 body 一致：原始 Content-Length 可能大于
+				// maxChallengeBodyBytes（超限被 LimitReader 截断），照抄会让下游
+				// 按错误长度解析。同理 Content-Encoding 已由 transport 解压，不能留
+				replayHeader := resp.Header.Clone()
+				replayHeader.Set("Content-Length", strconv.Itoa(len(firstBody)))
+				replayHeader.Del("Content-Encoding")
+				resp = &http.Response{
+					Status:        "401 Unauthorized",
+					StatusCode:    http.StatusUnauthorized,
+					Proto:         "HTTP/1.1",
+					ProtoMajor:    1,
+					ProtoMinor:    1,
+					Header:        replayHeader,
+					Body:          io.NopCloser(bytes.NewReader(firstBody)),
+					ContentLength: int64(len(firstBody)),
+					Request:       httpReq,
 				}
 			}
 		}

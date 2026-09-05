@@ -2,6 +2,7 @@ package binding
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 
@@ -70,7 +71,11 @@ func persistCookies(store *storage.Store, reqUrl string, cookies []model.Cookie)
 			c.Domain = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(c.Domain)), ".")
 			c.HostOnly = false
 			if host != c.Domain && !strings.HasSuffix(host, "."+c.Domain) {
-				return fmt.Errorf("reject cookie domain %q for host %q", c.Domain, host)
+				// 跳过非法条目而非整批失败：恶意/异常服务器的一条坏
+				// Set-Cookie 不应丢弃同一响应中其余合法 cookie。
+				// 记日志：越权 domain 是安全边界事件，静默丢弃会让它完全不可见
+				log.Printf("binding: reject cookie %q with domain %q for host %q (cross-domain)", c.Name, c.Domain, host)
+				continue
 			}
 		}
 		if c.Path == "" {

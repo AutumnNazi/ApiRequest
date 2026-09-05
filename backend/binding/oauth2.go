@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 
 	"apirequest/backend/auth"
 	"apirequest/backend/platform"
@@ -86,7 +87,9 @@ func (s *oauthTokenStore) Delete(fingerprint string) error {
 
 // OAuth2Api OAuth 2.0 token 获取域
 type OAuth2Api struct {
-	ctx     context.Context
+	// ctx 的写入（startup）与闭包内读取（GetToken 期间开浏览器）无同步，
+	// 用 atomic 消除数据竞争
+	ctx     atomic.Value // context.Context
 	manager *auth.TokenManager
 }
 
@@ -98,17 +101,24 @@ func NewOAuth2Api(store *storage.Store, clients ...*http.Client) *OAuth2Api {
 		client = clients[0]
 	}
 	api.manager = auth.NewTokenManagerWithStore(func(url string) error {
-		return platform.OpenURL(api.ctx, url)
+		return platform.OpenURL(api.currentCtx(), url)
 	}, newOAuthTokenStore(store), client)
 	return api
 }
 
-func (a *OAuth2Api) startup(ctx context.Context) { a.ctx = ctx }
+func (a *OAuth2Api) startup(ctx context.Context) { a.ctx.Store(ctx) }
+
+func (a *OAuth2Api) currentCtx() context.Context {
+	if ctx, ok := a.ctx.Load().(context.Context); ok && ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
 
 // GetOAuth2Token 按 auth 参数获取 token（缓存/刷新/完整流程自动选择）。
 // 授权码模式会拉起系统浏览器等待回调（最长 120s）。
 func (a *OAuth2Api) GetOAuth2Token(params map[string]string) (*auth.Token, error) {
-	return a.manager.GetToken(context.Background(), params)
+	return a.manager.GetToken(a.currentCtx(), params)
 }
 
 // ClearOAuth2Token 清除该配置的缓存 token

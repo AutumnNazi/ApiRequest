@@ -58,21 +58,19 @@ export function DialogProvider({ children }: { children: ReactNode }) {
   const [promptValue, setPromptValue] = useState('');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const queue = useRef<DialogRequest[]>([]);
+  const activeRef = useRef<DialogRequest | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const enqueue = useCallback(
-    (request: Omit<DialogRequest, 'id'>) => {
-      const item = { ...request, id: nextId++ };
-      setActive((current) => {
-        if (current) {
-          queue.current.push(item);
-          return current;
-        }
-        return item;
-      });
-    },
-    [],
-  );
+  const enqueue = useCallback((request: Omit<DialogRequest, 'id'>) => {
+    const item = { ...request, id: nextId++ };
+    // 入队判断移出 setState updater：updater 必须是纯函数（StrictMode 会双调用）
+    if (activeRef.current) {
+      queue.current.push(item);
+      return;
+    }
+    activeRef.current = item;
+    setActive(item);
+  }, []);
 
   const alert = useCallback(
     (message: string, options: DialogOptions = {}) =>
@@ -126,14 +124,18 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     window.setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), 3500);
   }, []);
 
-  const finish = useCallback(
-    (value: string | boolean | null) => {
-      if (!active) return;
-      active.resolve(value);
-      setActive(queue.current.shift() ?? null);
-    },
-    [active],
-  );
+  // 以 activeRef 为唯一真相：闭包里的 active 只是渲染期快照。
+  const finish = useCallback((id: number, value: string | boolean | null) => {
+    const current = activeRef.current;
+    // 按 id 校验身份：同一弹窗被同步关闭两次时（Enter 触发 submit，事件又冒泡到
+    // 提交按钮），第二次带的是同一个已消费的 id，与已推进的 activeRef 不匹配。
+    // 若只判空，第二次会把队列里的下一个弹窗当成自己消费掉 —— 用户没点过却被"确认"
+    if (!current || current.id !== id) return;
+    current.resolve(value);
+    const next = queue.current.shift() ?? null;
+    activeRef.current = next;
+    setActive(next);
+  }, []);
 
   useEffect(() => {
     if (!active) return;
@@ -157,7 +159,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        finish(active.kind === 'alert' ? true : null);
+        finish(active.id, active.kind === 'alert' ? true : null);
         return;
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
@@ -206,7 +208,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                finish(active.kind === 'prompt' ? promptValue : true);
+                finish(active.id, active.kind === 'prompt' ? promptValue : true);
               }}
             >
               <div className="space-y-3 px-4 py-4">
@@ -227,7 +229,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                   <button
                     type="button"
                     className="rounded border px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-                    onClick={() => finish(null)}
+                    onClick={() => finish(active.id, null)}
                   >
                     {translate(active.cancelLabel ?? '取消')}
                   </button>

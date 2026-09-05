@@ -29,20 +29,22 @@ interface Props {
   onClose(): void;
 }
 
+// 标签只存原始文案 key，渲染期再 formatMessage：
+// 模块级常量会在 import 时固化翻译，切换语言后不再更新
 const tlsFields: Array<[keyof TLSSettings, string, string]> = [
-  ['caCertPath', formatMessage('自定义 CA 证书'), formatMessage('选择 CA 证书')],
-  ['clientCertPath', formatMessage('客户端证书 (mTLS)'), formatMessage('选择客户端证书')],
-  ['clientKeyPath', formatMessage('客户端私钥'), formatMessage('选择客户端私钥')],
+  ['caCertPath', '自定义 CA 证书', '选择 CA 证书'],
+  ['clientCertPath', '客户端证书 (mTLS)', '选择客户端证书'],
+  ['clientKeyPath', '客户端私钥', '选择客户端私钥'],
 ];
 
 type Category = 'general' | 'security' | 'network' | 'sync' | 'about';
 
 const categories: Array<[Category, string]> = [
-  ['general', formatMessage('通用')],
-  ['security', formatMessage('安全')],
-  ['network', formatMessage('网络')],
-  ['sync', formatMessage('同步')],
-  ['about', formatMessage('关于')],
+  ['general', '通用'],
+  ['security', '安全'],
+  ['network', '网络'],
+  ['sync', '同步'],
+  ['about', '关于'],
 ];
 
 export default function SettingsDialog({ onClose }: Props) {
@@ -104,7 +106,7 @@ export default function SettingsDialog({ onClose }: Props) {
 
   const chooseCertificate = async (key: keyof TLSSettings, title: string) => {
     try {
-      const path = await openNativeFile(title);
+      const path = await openNativeFile(formatMessage(title));
       if (path) setTls((current) => ({ ...current, [key]: path }));
     } catch (cause) {
       setError(toAppError(cause).detail);
@@ -161,7 +163,7 @@ export default function SettingsDialog({ onClose }: Props) {
               }`}
               onClick={() => setCat(key)}
             >
-              {label}
+              {formatMessage(label)}
             </button>
           ))}
         </nav>
@@ -349,7 +351,7 @@ export default function SettingsDialog({ onClose }: Props) {
                   <div className="space-y-3">
                     {tlsFields.map(([key, label, title]) => (
                       <div key={key}>
-                        <label className="mb-1 block text-xs text-gray-500">{label}</label>
+                        <label className="mb-1 block text-xs text-gray-500">{formatMessage(label)}</label>
                         <div className="flex gap-2">
                           <input
                             className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-1.5 font-mono text-xs focus:border-blue-400 focus:outline-none"

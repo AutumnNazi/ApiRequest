@@ -9,6 +9,12 @@ import (
 
 var errOperationRegistryClosing = errors.New("operation registry is shutting down")
 
+// IsRegistryClosing 报告 err 是否为"registry 正在关停"（应用退出等生命周期事件）。
+// 供调用方选择正确的错误 Kind：这不该被报成用户输入问题
+func IsRegistryClosing(err error) bool {
+	return errors.Is(err, errOperationRegistryClosing)
+}
+
 type operation struct {
 	cancel context.CancelFunc
 	done   chan struct{}

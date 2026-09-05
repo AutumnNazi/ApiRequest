@@ -174,7 +174,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
               <div className="h-2 bg-gray-100 rounded overflow-hidden">
                 <div
                   className="h-2 bg-blue-500 transition-all"
-                  style={{ width: `${progress ? (progress.done / progress.total) * 100 : 0}%` }}
+                  style={{ width: `${progress ? (progress.done / Math.max(progress.total, 1)) * 100 : 0}%` }}
                 />
               </div>
               <div className="text-sm text-gray-600">

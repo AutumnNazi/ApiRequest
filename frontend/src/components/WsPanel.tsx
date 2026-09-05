@@ -54,11 +54,14 @@ export default function WsPanel({ onClose }: Props) {
     if (sessionIdRef.current) closeSession(sessionIdRef.current);
   }, []);
 
+  const [connecting, setConnecting] = useState(false);
+
   const connect = async () => {
     setError('');
     const resolvedUrl = url.trim();
-    if (!resolvedUrl) return;
+    if (!resolvedUrl || connecting) return;
     setUrl(resolvedUrl);
+    setConnecting(true);
     const id = `ws-${Date.now()}`;
     sessionIdRef.current = id;
     try {
@@ -69,12 +72,28 @@ export default function WsPanel({ onClose }: Props) {
       // 失败时回滚 sessionId，避免下次连接复用同一 id 导致后端冲突
       sessionIdRef.current = '';
       setError(toAppError(e).detail);
+    } finally {
+      setConnecting(false);
     }
   };
 
   const disconnect = async () => {
-    await closeSession(sessionIdRef.current);
-    setConnected(false);
+    const id = sessionIdRef.current;
+    if (!id) {
+      setConnected(false);
+      return;
+    }
+    try {
+      await closeSession(id);
+    } catch (e) {
+      // 关闭失败也要提示，否则按钮状态与实际会话脱节
+      setError(toAppError(e).detail);
+    } finally {
+      // 无论成败都置为未连接并清空 sessionId：后端要么已关，要么已不可达，
+      // 保留旧 id 会让下一次 connect 的入站消息被 sessionId 比对挡掉
+      sessionIdRef.current = '';
+      setConnected(false);
+    }
   };
 
   const send = async () => {
@@ -115,7 +134,7 @@ export default function WsPanel({ onClose }: Props) {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             disabled={connected}
-            onKeyDown={(e) => e.key === 'Enter' && !connected && url && connect()}
+            onKeyDown={(e) => e.key === 'Enter' && !connected && !connecting && url.trim() && connect()}
           />
           <button
             className={`text-sm rounded px-4 py-1 ${
@@ -123,10 +142,14 @@ export default function WsPanel({ onClose }: Props) {
                 ? 'border border-red-200 text-red-500 hover:bg-red-50'
                 : 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
             }`}
-            disabled={!connected && !url.trim()}
+            disabled={connecting || (!connected && !url.trim())}
             onClick={connected ? disconnect : connect}
           >
-            {connected ? formatMessage('断开') : formatMessage('连接')}
+            {connected
+              ? formatMessage('断开')
+              : connecting
+                ? formatMessage('连接中…')
+                : formatMessage('连接')}
           </button>
           <button className="text-gray-400 hover:text-gray-700 ml-1" onClick={onClose}>
             ×

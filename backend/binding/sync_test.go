@@ -46,7 +46,7 @@ func TestSyncConfigPasswordStaysInVaultAndOutOfPublicResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	api := NewSyncApi(store, httpengine.New())
+	api := NewSyncApi(store, httpengine.New(), nil)
 	if err := api.SetSyncConfig(appsync.DavConfig{
 		Url: "https://dav.example.test", Username: "alice", Password: "webdav-secret", OmitSecrets: true,
 	}); err != nil {
@@ -89,7 +89,7 @@ func TestSyncConfigUsesStableReferenceAndClearRemovesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	api := NewSyncApi(store, httpengine.New())
+	api := NewSyncApi(store, httpengine.New(), nil)
 	if err := api.SetSyncConfig(appsync.DavConfig{Url: "https://dav.example.test", Password: "old-secret"}); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestSyncConfigPasswordUpdateIsCompensatedOnSettingFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	api := NewSyncApi(store, httpengine.New())
+	api := NewSyncApi(store, httpengine.New(), nil)
 	if err := api.SetSyncConfig(appsync.DavConfig{Url: "https://dav.example.test", Password: "old-secret"}); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestSyncConfigTreatsReferenceLikePasswordAsPlaintext(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	api := NewSyncApi(store, httpengine.New())
+	api := NewSyncApi(store, httpengine.New(), nil)
 	const password = "secret://file/literal-password"
 	if err := api.SetSyncConfig(appsync.DavConfig{Url: "https://dav.example.test", Password: password}); err != nil {
 		t.Fatal(err)

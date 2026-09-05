@@ -170,19 +170,14 @@ func (s *Store) SetActiveEnvironment(workspaceId, envId string) error {
 
 // ActiveEnvironment 返回当前激活环境；无则 ok=false
 func (s *Store) ActiveEnvironment(workspaceId string) (model.Environment, bool, error) {
-	rows, err := s.db.Query(
-		"SELECT id FROM environment WHERE workspace_id = ? AND is_active = 1 LIMIT 1", workspaceId)
+	var id string
+	err := s.db.QueryRow(
+		"SELECT id FROM environment WHERE workspace_id = ? AND is_active = 1 LIMIT 1", workspaceId).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Environment{}, false, nil
+	}
 	if err != nil {
 		return model.Environment{}, false, err
-	}
-	var id string
-	found := rows.Next()
-	if found {
-		rows.Scan(&id)
-	}
-	rows.Close()
-	if !found {
-		return model.Environment{}, false, nil
 	}
 	e, err := s.GetEnvironment(id)
 	return e, err == nil, err

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -49,6 +50,9 @@ func (s *Store) migrateHistoryResponseSecrets() error {
 		}
 		var meta responseMeta
 		if raw == "" || json.Unmarshal([]byte(raw), &meta) != nil {
+			// 跳过坏行是既定策略（注释见函数头），但脱敏降级须留痕：
+			// 解析失败的行其响应头不会被脱敏，明文可能残留在历史库里
+			log.Printf("storage: history row %s has undecodable response meta, header redaction skipped", id)
 			continue
 		}
 		redactedHeaders := redactor.ResponseHeaders(meta.Headers)
@@ -117,6 +121,8 @@ func (s *Store) migrateHistoryRequestSecrets() error {
 		}
 		var request model.HttpRequest
 		if json.Unmarshal([]byte(item.request), &request) != nil {
+			// 坏行跳过是既定策略，但该行凭据因此完全未脱敏，须留痕
+			log.Printf("storage: history row %s has an undecodable request, its credentials are not redacted", item.id)
 			continue
 		}
 		values, err := secrets.StoredRequestCredentialValues(s.vault, request)
@@ -132,6 +138,8 @@ func (s *Store) migrateHistoryRequestSecrets() error {
 		if item.meta != "" {
 			if json.Unmarshal([]byte(item.meta), &meta) == nil {
 				values = append(values, secrets.HeaderValues(meta.Headers)...)
+			} else {
+				log.Printf("storage: history row %s has undecodable meta, response header values not in redaction scope", item.id)
 			}
 		}
 		redactor := secrets.NewRedactor(s.vault, values...)
@@ -422,7 +430,8 @@ func (s *Store) GetHistory(workspaceId, id string) (model.HistoryDetail, error) 
 		       response_meta, body_ref, body_inline, test_results, created_at
 		FROM history WHERE id = ? AND workspace_id = ?`, id, workspaceId)
 	var item model.HistoryDetail
-	var snapshot, meta string
+	var snapshot string
+	var meta sql.NullString
 	var bodyRef, bodyInline, tests sql.NullString
 	if err := row.Scan(&item.Id, &item.WorkspaceId, &snapshot, &item.Status, &item.DurationMs,
 		&item.SizeBytes, &meta, &bodyRef, &bodyInline, &tests, &item.CreatedAt); err != nil {
@@ -435,8 +444,10 @@ func (s *Store) GetHistory(workspaceId, id string) (model.HistoryDetail, error) 
 		return item, err
 	}
 	var response responseMeta
-	if err := json.Unmarshal([]byte(meta), &response); err != nil {
-		return item, err
+	if meta.Valid && meta.String != "" {
+		if err := json.Unmarshal([]byte(meta.String), &response); err != nil {
+			return item, err
+		}
 	}
 	item.RespHeaders = response.Headers
 	item.Timing = response.Timing

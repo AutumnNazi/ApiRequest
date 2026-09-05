@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -70,8 +69,18 @@ type TokenManager struct {
 	cache      map[string]*Token
 	client     *http.Client
 	tokenStore TokenStore
+	// inflight 按指纹去重：同指纹并发 GetToken 共享同一次授权流程
+	// （否则会拉起两个浏览器 + 两个本地回调监听器互相覆盖）
+	inflight map[string]*tokenCall
 	// OpenBrowser 打开系统浏览器（授权码模式；由 platform 注入，测试可替换）
 	OpenBrowser func(url string) error
+}
+
+// tokenCall 一次进行中的授权流程（多个等待者共享）
+type tokenCall struct {
+	done chan struct{}
+	tok  *Token
+	err  error
 }
 
 // NewTokenManager 构造
@@ -88,6 +97,7 @@ func NewTokenManagerWithStore(openBrowser func(string) error, tokenStore TokenSt
 	}
 	return &TokenManager{
 		cache:       map[string]*Token{},
+		inflight:    map[string]*tokenCall{},
 		client:      client,
 		tokenStore:  tokenStore,
 		OpenBrowser: openBrowser,
@@ -105,8 +115,9 @@ func fingerprint(p map[string]string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:16])
 }
 
-// GetToken 获取 token：缓存命中且未过期直接返回；过期尝试刷新；否则走授权流程
-func (m *TokenManager) GetToken(ctx context.Context, p map[string]string) (*Token, error) {
+// GetToken 获取 token：缓存命中且未过期直接返回；过期尝试刷新；否则走授权流程。
+// 命名返回值供 inflight defer 兜底回填（见下方去重段）
+func (m *TokenManager) GetToken(ctx context.Context, p map[string]string) (tokResult *Token, errResult error) {
 	fp := fingerprint(p)
 	m.mu.Lock()
 	cached := m.cache[fp]
@@ -125,6 +136,50 @@ func (m *TokenManager) GetToken(ctx context.Context, p map[string]string) (*Toke
 	if cached != nil && !cached.Expired() {
 		return cached, nil
 	}
+
+	// 同指纹去重：已有授权流程在进行中则直接等待其结果。
+	// 必须覆盖 refresh：refresh_token rotation 的服务端（Auth0/Okta 等）会把
+	// 旧 token 的二次使用判定为重放攻击并吊销整条会话链，所以并发刷新不能各自发一次
+	m.mu.Lock()
+	if call, ok := m.inflight[fp]; ok {
+		m.mu.Unlock()
+		select {
+		case <-call.done:
+		case <-ctx.Done():
+			return nil, model.NewError(model.KindNetwork, "canceled")
+		}
+		if call.err != nil {
+			return nil, call.err
+		}
+		return call.tok, nil
+	}
+	call := &tokenCall{done: make(chan struct{})}
+	m.inflight[fp] = call
+	m.mu.Unlock()
+	// 用命名返回值统一填充 call：靠各 return 分支自觉赋值容易漏
+	// （曾漏掉非法 grantType 分支，等待者会拿到 (nil, nil)）
+	defer func() {
+		call.tok, call.err = tokResult, errResult
+		if errResult == nil && tokResult == nil {
+			// 兜底：任何未来的新分支若两者皆空，等待者也不会收到 nil token + nil error
+			call.err = model.NewError(model.KindNetwork, "token request produced no result")
+		}
+		m.mu.Lock()
+		delete(m.inflight, fp)
+		m.mu.Unlock()
+		close(call.done)
+	}()
+
+	// 取得 inflight 所有权后重读缓存：等待期间前一个持有者可能已刷新出新 token，
+	// 此时直接复用，不必再打一次网络请求
+	m.mu.Lock()
+	cached = m.cache[fp]
+	m.mu.Unlock()
+	if cached != nil && !cached.Expired() {
+		return cached, nil
+	}
+
+	// 先试 refresh（在去重保护内，同指纹并发只会用掉一次 refresh_token）
 	if cached != nil && cached.RefreshToken != "" {
 		if tok, err := m.refresh(ctx, p, cached.RefreshToken); err == nil {
 			if err := m.put(fp, tok); err != nil {
@@ -228,8 +283,16 @@ func (m *TokenManager) authorizationCode(ctx context.Context, p map[string]strin
 	}
 	redirectUri := fmt.Sprintf("http://%s/callback", ln.Addr().String())
 
-	state := randomToken(24)
-	verifier := randomToken(48)
+	state, err := randomToken(24)
+	if err != nil {
+		ln.Close()
+		return nil, err
+	}
+	verifier, err := randomToken(48)
+	if err != nil {
+		ln.Close()
+		return nil, err
+	}
 	challenge := pkceS256(verifier)
 
 	// 2. 拼授权 URL 并拉起浏览器
@@ -256,6 +319,14 @@ func (m *TokenManager) authorizationCode(ctx context.Context, p map[string]strin
 		err  error
 	}
 	resultCh := make(chan callbackResult, 1)
+	// 非阻塞投递：主流程只消费一次，多余的回调（双击重试/攻击者并发请求）
+	// 直接丢弃，handler goroutine 不会阻塞泄漏
+	deliver := func(r callbackResult) {
+		select {
+		case resultCh <- r:
+		default:
+		}
+	}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/callback" {
 			http.NotFound(w, r)
@@ -263,16 +334,16 @@ func (m *TokenManager) authorizationCode(ctx context.Context, p map[string]strin
 		}
 		q := r.URL.Query()
 		if q.Get("state") != state {
-			resultCh <- callbackResult{err: model.NewError(model.KindValidation, "OAuth state mismatch")}
+			deliver(callbackResult{err: model.NewError(model.KindValidation, "OAuth state mismatch")})
 			w.Write([]byte("State mismatch. You can close this window."))
 			return
 		}
 		if e := q.Get("error"); e != "" {
-			resultCh <- callbackResult{err: model.NewError(model.KindNetwork, "authorization denied: "+e)}
+			deliver(callbackResult{err: model.NewError(model.KindNetwork, "authorization denied: "+e)})
 			w.Write([]byte("Authorization failed. You can close this window."))
 			return
 		}
-		resultCh <- callbackResult{code: q.Get("code")}
+		deliver(callbackResult{code: q.Get("code")})
 		w.Write([]byte("Authorization complete. You can close this window and return to ApiRequest."))
 	})}
 	go srv.Serve(ln)
@@ -381,10 +452,16 @@ func (m *TokenManager) tokenRequest(ctx context.Context, p map[string]string, fo
 
 // ── 工具 ──
 
-func randomToken(n int) string {
+// randomToken 生成 n 位 base64url 随机串（state / PKCE verifier）。
+// 失败必须显式失败：忽略错误会让 b 保持全零，产出可预测的 state/PKCE
+// verifier（CSRF 与 PKCE 防护双双失效）。返回错误而非 panic：调用链上
+// 没有 recover，panic 会打崩桌面进程
+func randomToken(n int) (string, error) {
 	b := make([]byte, n)
-	rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)[:n]
+	if _, err := randRead(b); err != nil {
+		return "", model.NewError(model.KindNetwork, "crypto/rand unavailable: "+err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(b)[:n], nil
 }
 
 func pkceS256(verifier string) string {

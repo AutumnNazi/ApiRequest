@@ -47,8 +47,12 @@ func openWebSocket(id string, cfg SessionConfig, emit EmitFunc, client *http.Cli
 		Kind: "open", Data: cfg.Url, Ts: time.Now().UnixMilli(),
 	})
 
-	// 读循环：入站消息推事件；连接关闭时通知
+	// 读循环：入站消息推事件；连接关闭时通知。
+	// defer Close 兜底：出错/EOF 退出时也释放底层连接（coder/websocket 要求总是 Close）
 	go func() {
+		defer func() {
+			_ = conn.Close(websocket.StatusNormalClosure, "")
+		}()
 		for {
 			typ, data, err := conn.Read(ctx)
 			if err != nil {

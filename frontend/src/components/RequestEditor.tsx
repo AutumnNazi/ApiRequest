@@ -281,7 +281,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
                       // 注意：patchBody 用 Partial<Body>，所以只覆盖写了的字段；保留复用上一次
                       // 的 items（仅在 formdata / urlencoded 间切时）。
                       switch (k) {
-                        case 'raw':       patchBody({ kind: 'raw', language: 'json', text: '' }); break;
+                        case 'raw':       patchBody({ kind: 'raw', language: 'json', text: '', items: [], path: '', query: '', variables: '' }); break;
                         case 'none':      patchBody({ kind: 'none', text: '', items: [], path: '', query: '', variables: '' }); break;
                         case 'graphql':   patchBody({ kind: 'graphql', text: '', items: [], path: '', query: '', variables: '' }); break;
                         case 'binary':    patchBody({ kind: 'binary', text: '', items: [], path: '', query: '', variables: '' }); break;

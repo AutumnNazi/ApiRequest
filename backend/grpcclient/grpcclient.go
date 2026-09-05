@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -98,10 +99,14 @@ func Discover(cfg ConnectConfig) ([]MethodInfo, error) {
 		}
 		desc, err := files.FindDescriptorByName(protoreflect.FullName(svcName))
 		if err != nil {
+			// 反射报了服务名却查不到描述符（依赖文件缺失等）：记日志后跳过，
+			// 否则用户只看到方法列表少了几项，没有任何排查线索
+			log.Printf("grpc: service %q listed by reflection but not resolvable: %v", svcName, err)
 			continue
 		}
 		svc, ok := desc.(protoreflect.ServiceDescriptor)
 		if !ok {
+			log.Printf("grpc: %q resolved to %T, not a service descriptor", svcName, desc)
 			continue
 		}
 		methods := svc.Methods()
@@ -257,6 +262,8 @@ func fetchDescriptors(ctx context.Context, conn *grpc.ClientConn) (*protoregistr
 		for _, raw := range fdResp.FileDescriptorProto {
 			fd := &descriptorpb.FileDescriptorProto{}
 			if err := proto.Unmarshal(raw, fd); err != nil {
+				// 记录后跳过：否则 protodesc.NewFiles 会因依赖缺失报出误导性错误
+				log.Printf("grpc: skip undecodable FileDescriptorProto (%d bytes): %v", len(raw), err)
 				continue
 			}
 			fdMap[fd.GetName()] = fd

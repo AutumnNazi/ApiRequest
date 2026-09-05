@@ -117,7 +117,12 @@ func (openapiImporter) Import(payload string) (*ImportResult, error) {
 					continue
 				}
 				var detail oaOperation
-				json.Unmarshal(raw, &detail)
+				if err := json.Unmarshal(raw, &detail); err != nil {
+					// 损坏的 operation 不静默导入零值（名字退化、参数全丢），记 warning
+					res.Warnings = append(res.Warnings, fmt.Sprintf(
+						"skip %s %s: operation definition is not valid JSON (%v)", method, path, err))
+					continue
+				}
 				ops = append(ops, op{path: path, method: method, detail: &detail})
 			}
 		}

@@ -42,11 +42,16 @@ export default function AuthEditor({ auth, onChange }: Props) {
   };
 
   const clearToken = async () => {
-    await clearOAuth2Token(params);
-    const { accessToken: _drop, ...rest } = params;
-    onChange({ type, params: rest } as Auth);
-    setTokenState('idle');
-    setTokenMsg('');
+    try {
+      await clearOAuth2Token(params);
+      const { accessToken: _drop, ...rest } = params;
+      onChange({ type, params: rest } as Auth);
+      setTokenState('idle');
+      setTokenMsg('');
+    } catch (e) {
+      setTokenState('error');
+      setTokenMsg(toAppError(e).detail);
+    }
   };
 
   return (

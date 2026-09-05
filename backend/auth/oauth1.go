@@ -2,7 +2,6 @@ package auth
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -14,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"apirequest/backend/model"
 )
 
 // oauth1Auth OAuth 1.0a HMAC 签名（docs/auth.md：签名基串 + 参数排序 + 百分号编码）
@@ -31,9 +32,13 @@ func (oauth1Auth) Apply(req *http.Request, p map[string]string) error {
 		sigMethod = "HMAC-SHA1"
 	}
 
+	nonce, err := oauthNonce()
+	if err != nil {
+		return err
+	}
 	oauthParams := map[string]string{
 		"oauth_consumer_key":     consumerKey,
-		"oauth_nonce":            oauthNonce(),
+		"oauth_nonce":            nonce,
 		"oauth_signature_method": sigMethod,
 		"oauth_timestamp":        strconv.FormatInt(time.Now().Unix(), 10),
 		"oauth_version":          "1.0",
@@ -121,10 +126,15 @@ func percentEncode(s string) string {
 	return b.String()
 }
 
-func oauthNonce() string {
+// oauthNonce 生成 OAuth 1.0a nonce。
+// 忽略 rand 错误会让 b 保持全零——nonce 是固定常量，防重放失效。
+// 返回错误而非 panic：调用链上没有 recover，panic 会打崩桌面进程
+func oauthNonce() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := randRead(b); err != nil {
+		return "", model.NewError(model.KindNetwork, "crypto/rand unavailable: "+err.Error())
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func init() { Register(oauth1Auth{}) }

@@ -75,14 +75,14 @@ func NewApp() *App {
 		Settings:  binding.NewSettingsApi(store, engine),
 		Grpc:      binding.NewGrpcApi(),
 		Graphql:   binding.NewGraphqlApi(engine.NewHTTPClient(0)),
-		Sync:      binding.NewSyncApi(store, engine),
+		Sync:      binding.NewSyncApi(store, engine, binding.RequestOperations(request)),
 		Dialog:    binding.NewDialogApi(),
 		Lifecycle: lifecycle,
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
-	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql, a.Dialog, a.Lifecycle)
+	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql, a.Sync, a.Dialog, a.Lifecycle)
 }
 
 func (a *App) beforeClose(ctx context.Context) bool { return binding.BeforeClose(a.Lifecycle, ctx) }

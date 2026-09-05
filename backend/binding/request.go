@@ -37,6 +37,11 @@ func NewRequestApi(engine *httpengine.Engine, store *storage.Store) *RequestApi 
 	}
 }
 
+// RequestOperations 暴露共享操作注册表（SyncApi 等长任务域复用同一生命周期）。
+// 用包级函数而非导出方法：绑定 struct 的导出方法会被 Wails 生成为前端绑定，
+// 这里会产出一个泄漏内部类型的 Operations():Promise<binding.operationRegistry>
+func RequestOperations(a *RequestApi) *operationRegistry { return a.operations }
+
 // Startup 由 Wails OnStartup 注入运行时 context（事件推送用）。
 // 用包级函数而非导出方法：绑定 struct 的导出方法会被 Wails 生成为前端绑定，
 // context.Context 参数会产出非法 TS import。
@@ -58,6 +63,8 @@ func Startup(ctx context.Context, apis ...any) {
 		case *GrpcApi:
 			a.startup(ctx)
 		case *GraphqlApi:
+			a.startup(ctx)
+		case *SyncApi:
 			a.startup(ctx)
 		case *DialogApi:
 			a.startup(ctx)
@@ -106,7 +113,12 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	}
 	ctx, finish, err := a.operations.begin(parent, sendId, sendCtx.WorkspaceId)
 	if err != nil {
-		return model.ResponseResult{}, model.NewError(model.KindValidation, err.Error())
+		// 关停（应用退出）是生命周期事件，报 Validation 会把它说成用户输入问题
+		kind := model.KindValidation
+		if IsRegistryClosing(err) {
+			kind = model.KindNetwork
+		}
+		return model.ResponseResult{}, model.NewError(kind, err.Error())
 	}
 	defer finish()
 

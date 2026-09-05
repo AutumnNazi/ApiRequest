@@ -465,7 +465,40 @@ func writeJSON(path string, v any) error {
 		return err
 	}
 	b = append(b, '\n') // Git 友好：文件以换行结尾
-	return os.WriteFile(path, b, 0o644)
+	// 原子写（temp + rename）：写中途崩溃/断电不会留下半截 JSON 破坏 Git 镜像。
+	// 用 CreateTemp 取唯一名而非固定的 path+".tmp"：并发 Export 同一集合时
+	// 固定名会互相覆盖，两个进程的 rename 可能落下混合内容
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := tmpFile.Name()
+	// 失败路径统一清理临时文件，避免残留（清理 walk 只认 .request.json/_folder.json）
+	defer func() {
+		if tmp != "" {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if _, err := tmpFile.Write(b); err != nil {
+		tmpFile.Close()
+		return err
+	}
+	// Sync 后再 rename：仅 rename 不保证数据已落盘，断电可能留下长度正确但内容为零的文件
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o644); err != nil { // CreateTemp 建的是 0600
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	tmp = "" // rename 成功，交出所有权，不再删
+	return nil
 }
 
 func readJSON(path string, v any) error {

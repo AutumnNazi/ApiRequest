@@ -268,3 +268,67 @@ func TestPmSendRequestUnavailable(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 }
+
+func TestPmCallbacksMissingArgsDontPanic(t *testing.T) {
+	s := newTestSandbox()
+	s.SetResponse(&model.ResponseResult{
+		Status: 200, StatusText: "OK",
+		Body:   model.ResponseBody{Inline: true, Text: `{}`},
+	})
+	// 漏传回调参数：应报脚本错误而非 panic 打崩进程
+	err := s.Run(`pm.test('missing callback')`, "test")
+	if err == nil {
+		t.Fatal("expected script error for pm.test without callback")
+	}
+	ae, ok := err.(*model.AppError)
+	if !ok || ae.Kind != model.KindScript {
+		t.Fatalf("err = %#v, want KindScript AppError", err)
+	}
+	// 必须断言 TypeError：只判 Kind 测不到本缺陷——调用 nil Callable 会触发
+	// nil pointer panic，被 Run 的 recover 兜底后同样是 KindScript，两版无从区分。
+	// TypeError 才是修复的实际价值：用户拿到可读且能被脚本 try/catch 的错误
+	if !strings.Contains(ae.Detail, "TypeError") {
+		t.Errorf("detail = %q, want a TypeError (not an internal panic)", ae.Detail)
+	}
+}
+
+func TestPmSendRequestMissingCallback(t *testing.T) {
+	s := newTestSandbox()
+	s.SendFunc = func(req model.HttpRequest) (model.ResponseResult, error) {
+		return model.ResponseResult{Status: 200}, nil
+	}
+	err := s.Run(`pm.sendRequest('https://x.io')`, "pre")
+	if err == nil {
+		t.Fatal("expected script error for pm.sendRequest without callback")
+	}
+	ae, ok := err.(*model.AppError)
+	if !ok || ae.Kind != model.KindScript {
+		t.Fatalf("err = %#v, want KindScript AppError", err)
+	}
+	// 同上：Kind 相同无法区分 TypeError 与内部 nil pointer panic
+	if !strings.Contains(ae.Detail, "TypeError") {
+		t.Errorf("detail = %q, want a TypeError (not an internal panic)", ae.Detail)
+	}
+}
+
+// 注入的 Go 回调真实 panic（非 goja Exception）时必须转为脚本错误，不能打崩进程。
+// 回归：命名返回值缺失曾让 recover 后的赋值被丢弃，Run 静默返回 nil。
+func TestRunRecoversGoPanicFromInjectedCallback(t *testing.T) {
+	s := newTestSandbox()
+	s.SendFunc = func(req model.HttpRequest) (model.ResponseResult, error) {
+		var broken map[string]string
+		broken["boom"] = "x" // 真实 Go panic：assignment to entry in nil map
+		return model.ResponseResult{}, nil
+	}
+	err := s.Run(`pm.sendRequest('https://x.io', function () {})`, "pre")
+	if err == nil {
+		t.Fatal("Run swallowed a Go panic and reported success")
+	}
+	ae, ok := err.(*model.AppError)
+	if !ok || ae.Kind != model.KindScript {
+		t.Fatalf("err = %#v, want KindScript AppError", err)
+	}
+	if !strings.Contains(ae.Detail, "script runtime panic") {
+		t.Errorf("detail = %q, want it to mention the panic", ae.Detail)
+	}
+}

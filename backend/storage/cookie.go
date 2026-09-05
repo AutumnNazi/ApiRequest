@@ -22,8 +22,9 @@ func (s *Store) ListCookies(domain string) ([]model.Cookie, error) {
 	          FROM cookie WHERE (expires_at IS NULL OR expires_at = 0 OR expires_at > ?)`
 	args := []any{time.Now().UnixMilli()}
 	if domain != "" {
-		query += " AND domain LIKE ?"
-		args = append(args, "%"+domain)
+		// LIKE 模式须转义 %/_，否则 "%" 之类输入会匹配全部行
+		query += " AND domain LIKE ? ESCAPE '\\'"
+		args = append(args, "%"+escapeLikePattern(domain))
 	}
 	query += " ORDER BY domain, length(path) DESC, path, name"
 	return s.queryCookies(query, args...)
@@ -212,8 +213,9 @@ func (s *Store) ClearCookies(domain string) error {
 		query := "SELECT value FROM cookie"
 		args := []any{}
 		if domain != "" {
-			query += " WHERE domain LIKE ?"
-			args = append(args, "%"+domain)
+			// LIKE 模式须转义 %/_，否则 "%" 之类输入会清空全部 cookie
+			query += " WHERE domain LIKE ? ESCAPE '\\'"
+			args = append(args, "%"+escapeLikePattern(domain))
 		}
 		rows, err := tx.Query(query, args...)
 		if err != nil {
@@ -242,7 +244,7 @@ func (s *Store) ClearCookies(domain string) error {
 		}
 		deleteQuery := "DELETE FROM cookie"
 		if domain != "" {
-			deleteQuery += " WHERE domain LIKE ?"
+			deleteQuery += " WHERE domain LIKE ? ESCAPE '\\'"
 		}
 		if _, err := tx.Exec(deleteQuery, args...); err != nil {
 			return err

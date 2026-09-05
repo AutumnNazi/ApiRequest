@@ -50,17 +50,57 @@ type Options struct {
 type Manager struct {
 	mu      sync.Mutex
 	servers map[string]*Server // collectionId → server
+	// startMu 按集合串行化启停全流程。与 mu 分离：Shutdown 最长 3s、
+	// 端口探测最多 100 次，若持全局锁做这些，其他集合的 Start/Stop/Running 全被阻塞
+	startMu map[string]*sync.Mutex
 }
 
 // NewManager 构造
 func NewManager() *Manager {
-	return &Manager{servers: map[string]*Server{}}
+	return &Manager{servers: map[string]*Server{}, startMu: map[string]*sync.Mutex{}}
+}
+
+// collectionLock 取该集合的启停串行锁（不存在则建）
+func (m *Manager) collectionLock(collectionId string) *sync.Mutex {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	lock, ok := m.startMu[collectionId]
+	if !ok {
+		lock = &sync.Mutex{}
+		m.startMu[collectionId] = lock
+	}
+	return lock
+}
+
+// detach 从注册表摘除并返回旧 server；不做 Shutdown（避免在锁内做慢操作）
+func (m *Manager) detach(collectionId string) *Server {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	srv := m.servers[collectionId]
+	delete(m.servers, collectionId)
+	return srv
+}
+
+// shutdownServer 优雅关闭；nil 为 no-op。调用方不应持有 m.mu
+func shutdownServer(srv *Server) {
+	if srv == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	srv.httpSrv.Shutdown(ctx)
 }
 
 // Start 启动集合的 mock（已运行则先停）。
 // nodes 为集合的全部后代节点，examples 为其下全部示例。
 func (m *Manager) Start(collectionId string, nodes []model.Node, examples []model.Example, opts Options, onLog LogFunc) (*Server, error) {
-	m.Stop(collectionId)
+	// 按集合串行化 Stop→Listen→注册 全流程：并发 Start 同一 collection 时，
+	// 交错执行会让先注册的 server 无人 Shutdown（端口与 goroutine 泄漏）。
+	// 用 per-collection 锁而非全局锁，避免慢操作阻塞其他集合
+	lock := m.collectionLock(collectionId)
+	lock.Lock()
+	defer lock.Unlock()
+	shutdownServer(m.detach(collectionId))
 
 	// 组路由：request 节点 + 其 examples
 	exByNode := map[string][]model.Example{}
@@ -127,15 +167,11 @@ func (m *Manager) Start(collectionId string, nodes []model.Node, examples []mode
 
 // Stop 停止集合的 mock（未运行为 no-op）
 func (m *Manager) Stop(collectionId string) {
-	m.mu.Lock()
-	srv, ok := m.servers[collectionId]
-	delete(m.servers, collectionId)
-	m.mu.Unlock()
-	if ok {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		srv.httpSrv.Shutdown(ctx)
-		cancel()
-	}
+	// 与 Start 走同一把 per-collection 锁：避免 Stop 摘除的同时 Start 正在注册新 server
+	lock := m.collectionLock(collectionId)
+	lock.Lock()
+	defer lock.Unlock()
+	shutdownServer(m.detach(collectionId))
 }
 
 // StopAll 应用退出时统一关闭

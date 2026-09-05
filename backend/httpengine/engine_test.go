@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -577,5 +578,67 @@ func TestInvalidUrl(t *testing.T) {
 	}
 	if ae, ok := err.(*model.AppError); !ok || ae.Kind != model.KindValidation {
 		t.Errorf("err = %v, want KindValidation", err)
+	}
+}
+
+// Digest 配置下服务器返回 Basic 挑战：不得重发请求（非幂等副作用），且首个 401 响应体需原样返回
+func TestDigestUnhandledChallengeDoesNotResend(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("WWW-Authenticate", `Basic realm="x"`)
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"no auth"}`))
+	}))
+	defer srv.Close()
+
+	req := testReq(srv.URL)
+	req.Method = "POST"
+	req.Auth = model.Auth{Type: "digest", Params: map[string]string{"username": "u", "password": "p"}}
+
+	res, err := New().Send(context.Background(), req)
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("server hits = %d, want 1 (unhandled challenge must not resend)", got)
+	}
+	if res.Status != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", res.Status)
+	}
+	if res.Body.Text != `{"error":"no auth"}` {
+		t.Errorf("body = %q, want first 401 body", res.Body.Text)
+	}
+}
+
+// Digest 挑战可处理：重发并成功
+func TestDigestChallengeHandled(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.Header().Set("WWW-Authenticate", `Digest realm="r", nonce="abc", qop="auth"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get("Authorization") == "" {
+			t.Error("second request missing Authorization header")
+		}
+		w.WriteHeader(200)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	req := testReq(srv.URL)
+	req.Auth = model.Auth{Type: "digest", Params: map[string]string{"username": "u", "password": "p"}}
+
+	res, err := New().Send(context.Background(), req)
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if res.Status != 200 || res.Body.Text != "ok" {
+		t.Errorf("status=%d body=%q, want 200/ok", res.Status, res.Body.Text)
+	}
+	if got := atomic.LoadInt32(&hits); got != 2 {
+		t.Errorf("server hits = %d, want 2", got)
 	}
 }

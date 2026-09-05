@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 
 	"apirequest/backend/model"
 	"apirequest/backend/secrets"
@@ -55,7 +56,12 @@ func scanExamples(rows *sql.Rows) ([]model.Example, error) {
 		e.Body = body.String
 		if snap.Valid && snap.String != "" {
 			var req model.HttpRequest
-			if err := json.Unmarshal([]byte(snap.String), &req); err == nil {
+			if err := json.Unmarshal([]byte(snap.String), &req); err != nil {
+				// 坏快照只丢该字段，不能让整列表查询失败：
+				// 否则一条坏数据会砖掉集合的 Mock 启动和前端示例列表，
+				// 用户连"在 UI 里删掉这条示例"的自救路径都没有。记日志保留可见性
+				log.Printf("storage: example %s has an undecodable request snapshot, dropping it: %v", e.Id, err)
+			} else {
 				e.RequestSnap = &req
 			}
 		}
@@ -140,12 +146,18 @@ func (s *Store) migrateExampleSecrets() error {
 		}
 		redactor := secrets.NewRedactor(s.vault)
 		var headers []model.KV
-		if json.Unmarshal([]byte(item.headers), &headers) == nil {
+		if err := json.Unmarshal([]byte(item.headers), &headers); err != nil {
+			// 解析失败会让这一行的 header 值不进脱敏名单，属安全相关的降级，
+			// 必须留痕（静默跳过时明文可能经导出/日志外泄）
+			log.Printf("storage: example %s has undecodable headers, redaction may be incomplete: %v", item.id, err)
+		} else {
 			redactor = secrets.NewRedactor(s.vault, secrets.HeaderValues(headers)...)
 		}
 		if item.request != "" {
 			var request model.HttpRequest
-			if json.Unmarshal([]byte(item.request), &request) == nil {
+			if err := json.Unmarshal([]byte(item.request), &request); err != nil {
+				log.Printf("storage: example %s has an undecodable request, its credentials are not redacted: %v", item.id, err)
+			} else {
 				values, err := secrets.StoredRequestCredentialValues(s.vault, request)
 				if errors.Is(err, secrets.ErrLocked) {
 					pendingUnlock = true

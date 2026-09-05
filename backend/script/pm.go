@@ -54,7 +54,18 @@ func (s *Sandbox) injectPM(vm *goja.Runtime) error {
 	}
 
 	// pm.test(name, fn)：收集断言结果，fn 抛错 = 失败
-	pm.Set("test", func(name string, fn goja.Callable) {
+	// 回调必须经 AssertFunction 判空：漏传时 goja 会把 goja.Callable 参数置 nil，直接调用即 panic。
+	pm.Set("test", func(call goja.FunctionCall) goja.Value {
+		// 漏传 name 时 goja 的 String() 会给出字面量 "undefined"，
+		// 报告里显示成一条名叫 undefined 的用例，不如显式标注缺名
+		name := "(unnamed test)"
+		if arg := call.Argument(0); !goja.IsUndefined(arg) && !goja.IsNull(arg) {
+			name = arg.String()
+		}
+		fn, ok := goja.AssertFunction(call.Argument(1))
+		if !ok {
+			panic(vm.NewTypeError("pm.test(name, fn) requires a function argument"))
+		}
 		_, err := fn(goja.Undefined())
 		tr := model.TestResult{Name: name, Pass: err == nil}
 		if err != nil {
@@ -65,6 +76,7 @@ func (s *Sandbox) injectPM(vm *goja.Runtime) error {
 			}
 		}
 		s.testResults = append(s.testResults, tr)
+		return goja.Undefined()
 	})
 
 	// pm.expect：精简 chai BDD 子集
@@ -74,17 +86,24 @@ func (s *Sandbox) injectPM(vm *goja.Runtime) error {
 
 	// pm.sendRequest(req, cb)：受控通道回调 Go 的 http 引擎（docs/request-lifecycle.md §3.2）。
 	// goja 单线程执行，同步调用后立即回调 cb(err, response)。
+	// 回调经 AssertFunction 判空：漏传时 goja 会把 goja.Callable 参数置 nil，直接调用即 panic。
 	if s.SendFunc != nil {
-		pm.Set("sendRequest", func(reqVal goja.Value, cb goja.Callable) {
-			req, perr := parseScriptRequest(reqVal)
+		pm.Set("sendRequest", func(call goja.FunctionCall) goja.Value {
+			cb, ok := goja.AssertFunction(call.Argument(1))
+			if !ok {
+				panic(vm.NewTypeError("pm.sendRequest(req, cb) requires a callback function"))
+			}
+			fail := func(msg string) goja.Value {
+				_, _ = cb(goja.Undefined(), vm.ToValue(msg), goja.Undefined())
+				return goja.Undefined()
+			}
+			req, perr := parseScriptRequest(call.Argument(0))
 			if perr != nil {
-				cb(goja.Undefined(), vm.ToValue(perr.Error()), goja.Undefined())
-				return
+				return fail(perr.Error())
 			}
 			res, serr := s.SendFunc(req)
 			if serr != nil {
-				cb(goja.Undefined(), vm.ToValue(serr.Error()), goja.Undefined())
-				return
+				return fail(serr.Error())
 			}
 			respObj := vm.NewObject()
 			respObj.Set("code", res.Status)
@@ -97,7 +116,8 @@ func (s *Sandbox) injectPM(vm *goja.Runtime) error {
 				}
 				return vm.ToValue(out), nil
 			})
-			cb(goja.Undefined(), goja.Null(), respObj)
+			_, _ = cb(goja.Undefined(), goja.Null(), respObj)
+			return goja.Undefined()
 		})
 	}
 

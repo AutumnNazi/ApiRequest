@@ -64,10 +64,17 @@ export default function EnvSwitcher({ workspaceId, openSignal }: Props) {
       <Dropdown
         value={active?.id ?? ''}
         options={[
+          // 空值项始终保留：它同时是加载中/无环境的占位显示，也是"取消激活"入口
+          // （SetActiveEnvironment 以 envId="" 表示 No Environment）。
+          // 删掉它会让"有环境但无激活"时按钮显示空白，且无法切回无环境。
           { value: '', label: envQuery.isPending ? formatMessage('加载中…') : formatMessage('无环境') },
           ...envs.map((e) => ({ value: e.id, label: e.name })),
         ]}
-        onChange={(v) => activate.mutate(v)}
+        onChange={(v) => {
+          // 已是当前状态则不必往后端跑一趟
+          if (v === (active?.id ?? '')) return;
+          activate.mutate(v);
+        }}
         title={formatMessage('切换环境 (Ctrl+E)')}
         disabled={unavailable}
         openSignal={openSignal}

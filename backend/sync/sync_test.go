@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -109,7 +110,7 @@ func TestFirstSyncInitializesRemote(t *testing.T) {
 	}
 	// 远端应已有快照文件
 	client, _ := newDavClient(cfg)
-	data, exists, err := client.Get(remotePath(wsId))
+	data, exists, err := client.Get(context.Background(), remotePath(wsId))
 	if err != nil || !exists || len(data) == 0 {
 		t.Fatalf("remote snapshot missing: exists=%v err=%v", exists, err)
 	}
@@ -132,7 +133,7 @@ func TestDavGetRejectsSnapshotAboveLimitFromContentLength(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := client.Get("oversized.json"); err == nil {
+	if _, _, err := client.Get(context.Background(), "oversized.json"); err == nil {
 		t.Fatal("oversized WebDAV snapshot was accepted")
 	}
 }
@@ -219,7 +220,7 @@ func TestOmitSecrets(t *testing.T) {
 	}
 	// 远端快照不应含密钥值
 	client, _ := newDavClient(cfg)
-	data, _, _ := client.Get(remotePath(wsId))
+	data, _, _ := client.Get(context.Background(), remotePath(wsId))
 	if string(data) == "" {
 		t.Fatal("no remote data")
 	}

@@ -4,11 +4,18 @@
 package auth
 
 import (
+	"crypto/rand"
 	"fmt"
 	"net/http"
 
 	"apirequest/backend/model"
 )
+
+// randRead 随机源接缝：生产恒为 crypto/rand.Read，测试可注入故障。
+// crypto/rand 失败（OS 随机源故障）在任何认证签名场景都必须转为错误返回：
+// 用全零字节继续签名等于产出可预测的 nonce/cnonce/state，且 panic 会
+// 击穿 engine.send（调用链上无 recover）打崩桌面进程
+var randRead = func(b []byte) (int, error) { return rand.Read(b) }
 
 // Provider 认证提供者：把凭证应用到即将发送的请求上。
 // Digest 等两段式认证需要引擎回调，见 TwoPhaseProvider。

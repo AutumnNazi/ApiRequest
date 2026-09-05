@@ -50,7 +50,10 @@ type Manager struct {
 	mu       sync.Mutex
 	sessions map[string]Session
 	opening  map[string]struct{}
-	client   *http.Client
+	// closing 记录"dial 尚未完成时就有人调 Close"的 id：Open 的注册阶段
+	// 检查此表，避免 dial 完成后把一个前端已关闭的会话注册进 sessions（泄漏）
+	closing map[string]struct{}
+	client  *http.Client
 }
 
 // NewManager 构造
@@ -62,6 +65,7 @@ func NewManager(clients ...*http.Client) *Manager {
 	return &Manager{
 		sessions: map[string]Session{},
 		opening:  map[string]struct{}{},
+		closing:  map[string]struct{}{},
 		client:   client,
 	}
 }
@@ -86,8 +90,19 @@ func (m *Manager) Open(sessionId string, cfg SessionConfig, emit EmitFunc) error
 	m.mu.Lock()
 	delete(m.opening, sessionId)
 	if err != nil {
+		// dial 失败同样要清理 closing 标记：Close 在 dial 窗口内到达后 dial
+		// 又失败时，会话从未存在，标记不清会永久残留（复用同 id 的下次
+		// Open 会被误判为"打开期间已关闭"）
+		delete(m.closing, sessionId)
 		m.mu.Unlock()
 		return err
+	}
+	// dial 期间有人调过 Close（如前端面板关闭）：不注册，立即关闭并清理标记
+	if _, closePending := m.closing[sessionId]; closePending {
+		delete(m.closing, sessionId)
+		m.mu.Unlock()
+		s.Close()
+		return model.NewError(model.KindNetwork, "session closed while opening")
 	}
 	m.sessions[sessionId] = s
 	m.mu.Unlock()
@@ -105,11 +120,17 @@ func (m *Manager) Send(sessionId, data string) error {
 	return s.Send(data)
 }
 
-// Close 关闭会话（未知 id 为 no-op）
+// Close 关闭会话（未知 id 为 no-op）。
+// dial 尚未完成的 id 记入 closing 表（Open 注册时检查）——直接返回 nil，
+// 否则 Close 在 opening 窗口内到达会被当 no-op 丢弃，dial 完成后无人再关
 func (m *Manager) Close(sessionId string) error {
 	m.mu.Lock()
 	s, ok := m.sessions[sessionId]
-	delete(m.sessions, sessionId)
+	if ok {
+		delete(m.sessions, sessionId)
+	} else if _, opening := m.opening[sessionId]; opening {
+		m.closing[sessionId] = struct{}{}
+	}
 	m.mu.Unlock()
 	if ok {
 		return s.Close()

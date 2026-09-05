@@ -135,6 +135,8 @@ export default function App() {
   // Tab 拖拽排序：记录被拖拽的源 tab id
   const [dragTabId, setDragTabId] = useState<string | null>(null);
   const closingRef = useRef(false);
+  // 同步消息自动清除 timer：新一轮同步时取消旧 timer，避免旧 timer 提前清掉新消息
+  const syncMsgTimerRef = useRef<number | undefined>(undefined);
   const sendingTabsRef = useRef<Set<string>>(new Set());
   const savingTabsRef = useRef<Set<string>>(new Set());
   // WebDAV 同步配置：仅已配置时展示同步按钮
@@ -246,7 +248,8 @@ export default function App() {
       setSyncMsg(formatMessage('同步失败：{detail}', { detail: toAppError(e).detail }));
     } finally {
       setSyncing(false);
-      setTimeout(() => setSyncMsg(''), 5000);
+      if (syncMsgTimerRef.current !== undefined) window.clearTimeout(syncMsgTimerRef.current);
+      syncMsgTimerRef.current = window.setTimeout(() => setSyncMsg(''), 5000);
     }
   };
 
@@ -336,7 +339,11 @@ export default function App() {
       const hasDirtyDraft = Object.values(useTabs.getState().sessions).some((item) =>
         item.tabs.some((tab) => tab.dirty),
       );
-      if (hasDirtyDraft) event.preventDefault();
+      if (hasDirtyDraft) {
+        // 部分浏览器/WebView 规范要求同时设置 returnValue 才展示确认框
+        event.preventDefault();
+        event.returnValue = true;
+      }
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
@@ -372,7 +379,9 @@ export default function App() {
       const sendId = `${tabId}-${Date.now()}`;
       setSending(tabId, true, sendId);
       useRequestProgress.getState().start(sendId);
-      const previousBlobRef = active.response?.body?.blobRef;
+      // 用 await 之后重读的 current：对话框打开期间上一个响应可能已被替换，
+      // 旧闭包里的 blobRef 可能已释放（double-release）或泄漏当前 blob
+      const previousBlobRef = current.response?.body?.blobRef;
       try {
         const res = await sendRequest(sendId, draft, {
           workspaceId: active.workspaceId,

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"apirequest/backend/model"
 )
@@ -296,5 +297,15 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	cut := s[:n]
+	// 仅回退末尾被切半的多字节序列（UTF-8 最长 4 字节，故最多回退 3 次）。
+	// 不能对整串做 ValidString 校验：响应体可能本身含无效字节（二进制/压缩内容），
+	// 那样会一路剥到首个坏字节之前，把整段内容删空
+	for i := 0; i < utf8.UTFMax-1 && len(cut) > 0; i++ {
+		if r, size := utf8.DecodeLastRuneInString(cut); r != utf8.RuneError || size > 1 {
+			break
+		}
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "…"
 }

@@ -91,6 +91,32 @@ describe('EnvSwitcher failures', () => {
     expect(screen.getByRole('button', { name: '管理' })).toBeDisabled();
     expect(ipc.setActiveEnvironment).toHaveBeenCalledTimes(1);
   });
+
+  // 回归：曾在 envs 非空时删掉空值选项，导致"有环境但无激活"（新建环境默认
+  // is_active=0、删除激活环境后）按钮显示空白，且无法切回 No Environment。
+  it('keeps a No Environment entry so activation can be cleared', async () => {
+    ipc.listEnvironments.mockResolvedValue([
+      { id: 'environment-1', name: 'Development', isActive: true, variables: [] },
+    ]);
+    renderSwitcher();
+
+    const switcher = await screen.findByRole('button', { name: 'Development' });
+    fireEvent.click(switcher);
+    const clearOption = await screen.findByRole('button', { name: '无环境' });
+    fireEvent.click(clearOption);
+
+    await waitFor(() => expect(ipc.setActiveEnvironment).toHaveBeenCalledWith('workspace-1', ''));
+  });
+
+  it('labels the switcher No Environment when nothing is active', async () => {
+    ipc.listEnvironments.mockResolvedValue([
+      { id: 'environment-1', name: 'Development', isActive: false, variables: [] },
+    ]);
+    renderSwitcher();
+
+    // 有环境但无激活：按钮必须有可读标签，不能是空白
+    expect(await screen.findByRole('button', { name: '无环境' })).toBeInTheDocument();
+  });
 });
 
 describe('EnvSwitcher 的 Ctrl+E 展开信号', () => {

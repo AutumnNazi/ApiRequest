@@ -36,6 +36,6 @@ One synchronization cycle = pull remote -> merge -> write local -> push merged r
 
 ## Known Limitations and Future Work
 
-- There is no automatic scheduled sync and no pre-sync mutual-exclusion lock. Simultaneous PUTs use last-writer-wins; in an extreme race, one peer's snapshot may be lost for one cycle and recovered on the next sync.
+- There is no automatic scheduled sync. Triggering the same workspace concurrently on this device fails fast with an "already in progress" error (no queuing), while there is still no pre-sync mutual exclusion **across devices**. Simultaneous PUTs use last-writer-wins; in an extreme race, one peer's snapshot may be lost for one cycle and recovered on the next sync.
 - Cookies and history do not synchronize because they are local runtime data.
 - The remote snapshot path is derived from the local `workspaceId`. The desktop app currently synchronizes existing local workspaces only; it does not discover or import remote workspaces. Reusing one snapshot across devices therefore requires preserving the same workspace ID, for example by migrating the local data directory.

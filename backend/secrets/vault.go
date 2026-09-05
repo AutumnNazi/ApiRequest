@@ -65,7 +65,12 @@ type Vault struct {
 	keyringAvailable bool
 	file             *fileBackend
 	knownValues      map[string]struct{}
+	// knownOrder 记录 knownValues 的插入顺序，供超限时 FIFO 淘汰最旧一条
+	knownOrder []string
 }
+
+// maxKnownValues 已知明文凭据的内存缓存上限（脱敏用）；超限时逐条淘汰最旧的
+const maxKnownValues = 4096
 
 // New constructs a production Vault rooted in dataDir.
 func New(dataDir string) *Vault {
@@ -99,16 +104,25 @@ func (v *Vault) refreshKeyringAvailabilityLocked() {
 
 // Status reports which persistence Adapter can currently serve secrets.
 func (v *Vault) Status() Status {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.refreshKeyringAvailabilityLocked()
+	v.mu.RLock()
+	keyringAvailable := v.keyringAvailable
+	fileExists := v.file.exists()
+	fileUnlocked := v.file.unlocked()
+	v.mu.RUnlock()
+	if !keyringAvailable {
+		// 探测是系统 IO（可达数百毫秒），必须在锁外做。
+		// 只读不回写：Status 是查询，探测窗口期间 Resolve 等写入方可能刚把
+		// keyringAvailable 置为 false（真实失败），回写这里的乐观结论会覆盖掉它。
+		// 恢复由下一次 Resolve 的双检路径落实，不依赖 Status 的副作用
+		keyringAvailable = v.probeKeyring()
+	}
 	status := Status{
-		KeyringAvailable: v.keyringAvailable,
-		FileExists:       v.file.exists(),
-		FileUnlocked:     v.file.unlocked(),
+		KeyringAvailable: keyringAvailable,
+		FileExists:       fileExists,
+		FileUnlocked:     fileUnlocked,
 	}
 	switch {
-	case v.keyringAvailable:
+	case keyringAvailable:
 		status.Mode = "keyring"
 		status.CanStore = true
 	case status.FileUnlocked:
@@ -135,7 +149,11 @@ func (v *Vault) Lock() {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.file.lock()
+	// knownOrder 必须与 knownValues 一同清空：只清 map 会让明文残留在切片里
+	// （违背 Lock 的"清除内存中解密内容"语义），且两者失同步后 FIFO 淘汰会去
+	// delete 一个已不存在的 key，使 knownValues 突破 maxKnownValues 无界增长
 	v.knownValues = map[string]struct{}{}
+	v.knownOrder = nil
 }
 
 // Put persists value and returns a stable opaque reference derived from logicalKey.
@@ -383,32 +401,53 @@ func (v *Vault) Resolve(value string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	v.mu.Lock()
-	defer v.mu.Unlock()
 	var resolved string
 	switch backend {
 	case "keyring":
-		v.refreshKeyringAvailabilityLocked()
-		if !v.keyringAvailable {
-			return "", fmt.Errorf("%w: system keychain unavailable", ErrLocked)
+		// keyring 调用（系统凭据管理器，可达数百毫秒）移出锁外：
+		// 持写锁做 IO 会阻塞所有请求的凭据解析
+		v.mu.RLock()
+		available := v.keyringAvailable
+		keyring := v.keyring
+		v.mu.RUnlock()
+		if !available {
+			// 双检：可能刚被探测为可用（如 keyring 后启用）
+			v.mu.Lock()
+			v.refreshKeyringAvailabilityLocked()
+			available = v.keyringAvailable
+			v.mu.Unlock()
+			if !available {
+				return "", fmt.Errorf("%w: system keychain unavailable", ErrLocked)
+			}
 		}
-		resolved, err = v.keyring.Get(serviceName, id)
-	case "file":
-		resolved, err = v.file.get(id)
-	default:
-		err = ErrInvalidRef
-	}
-	if err != nil {
-		if isSecretNotFound(err) {
-			return "", ErrNotFound
-		}
-		if backend == "keyring" {
+		resolved, err = keyring.Get(serviceName, id)
+		if err != nil {
+			if isSecretNotFound(err) {
+				return "", ErrNotFound
+			}
+			v.mu.Lock()
 			v.keyringAvailable = false
+			v.mu.Unlock()
 			return "", fmt.Errorf("%w: system keychain unavailable: %v", ErrLocked, err)
 		}
-		return "", err
+	case "file":
+		// get 是纯内存 map 读取（无 IO），须在锁内完成：
+		// entries 由 put/delete 在写锁下改写，锁外读构成数据竞争
+		v.mu.RLock()
+		resolved, err = v.file.get(id)
+		v.mu.RUnlock()
+		if err != nil {
+			if isSecretNotFound(err) {
+				return "", ErrNotFound
+			}
+			return "", err
+		}
+	default:
+		return "", ErrInvalidRef
 	}
+	v.mu.Lock()
 	v.remember(resolved)
+	v.mu.Unlock()
 	return resolved, nil
 }
 
@@ -462,9 +501,22 @@ func (v *Vault) knownValuesSnapshot() map[string]struct{} {
 }
 
 func (v *Vault) remember(value string) {
-	if value != "" && value != redactedText {
-		v.knownValues[value] = struct{}{}
+	if value == "" || value == redactedText {
+		return
 	}
+	if _, seen := v.knownValues[value]; seen {
+		return
+	}
+	// 有界缓存：避免明文凭据无界驻留内存。满了只淘汰最早记录的一条，
+	// 不能整体清空——那会让此前所有凭据的脱敏同时失效，明文可能落日志。
+	// 被淘汰的值若仍在使用，下次 Resolve 会重新记录（自愈）
+	if len(v.knownValues) >= maxKnownValues {
+		oldest := v.knownOrder[0]
+		v.knownOrder = v.knownOrder[1:]
+		delete(v.knownValues, oldest)
+	}
+	v.knownValues[value] = struct{}{}
+	v.knownOrder = append(v.knownOrder, value)
 }
 
 func redactKnown(input string, values map[string]struct{}) string {

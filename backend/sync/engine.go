@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -285,11 +286,18 @@ func validateAndOrderSyncNodes(nodes []SyncNode) ([]SyncNode, error) {
 // Sync 执行一次双向同步：拉远端 → 合并 → 写回本地 → 推合并结果。
 // 远端不存在时直接初始化上传。
 func Sync(store *storage.Store, workspaceId string, cfg DavConfig) (*Report, error) {
-	return SyncWithClient(store, workspaceId, cfg, nil)
+	return SyncWithClientCtx(context.Background(), store, workspaceId, cfg, nil)
 }
 
 // SyncWithClient executes WebDAV requests through the supplied network policy.
 func SyncWithClient(store *storage.Store, workspaceId string, cfg DavConfig, httpClient *http.Client) (*Report, error) {
+	return SyncWithClientCtx(context.Background(), store, workspaceId, cfg, httpClient)
+}
+
+// SyncWithClientCtx executes one bidirectional sync driven by ctx:
+// pull remote → merge → write local → push merged.
+// 远端不存在时直接初始化上传。
+func SyncWithClientCtx(ctx context.Context, store *storage.Store, workspaceId string, cfg DavConfig, httpClient *http.Client) (*Report, error) {
 	client, err := newDavClientWithHTTP(cfg, httpClient)
 	if err != nil {
 		return nil, err
@@ -300,7 +308,7 @@ func SyncWithClient(store *storage.Store, workspaceId string, cfg DavConfig, htt
 	}
 	path := remotePath(workspaceId)
 
-	remoteData, exists, err := client.Get(path)
+	remoteData, exists, err := client.Get(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +359,7 @@ func SyncWithClient(store *storage.Store, workspaceId string, cfg DavConfig, htt
 	if err != nil {
 		return nil, model.WrapError(model.KindValidation, err)
 	}
-	if err := client.Put(path, data); err != nil {
+	if err := client.Put(ctx, path, data); err != nil {
 		return nil, err
 	}
 	report.SyncedAt = upload.SyncedAt

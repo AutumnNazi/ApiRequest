@@ -88,7 +88,10 @@ type MockStatus struct {
 // StartMockServer 启动集合的 mock
 func (a *MockApi) StartMockServer(collectionId string, opts mock.Options) (MockStatus, error) {
 	chain, err := a.store.NodeAncestors(collectionId)
-	if err != nil || len(chain) == 0 {
+	if err != nil {
+		return MockStatus{}, model.WrapError(model.KindStorage, err)
+	}
+	if len(chain) == 0 {
 		return MockStatus{}, model.NewError(model.KindStorage, "collection not found: "+collectionId)
 	}
 	root := chain[0]

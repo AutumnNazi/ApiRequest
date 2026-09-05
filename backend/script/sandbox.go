@@ -92,7 +92,7 @@ func (s *Sandbox) SetRequest(req *model.HttpRequest) { s.request = req }
 func (s *Sandbox) SetResponse(resp *model.ResponseResult) { s.response = resp }
 
 // Run 执行一段脚本。phase 为 "pre" 或 "test"（错误归因用）。
-func (s *Sandbox) Run(code, phase string) error {
+func (s *Sandbox) Run(code, phase string) (runErr error) {
 	if code == "" {
 		return nil
 	}
@@ -101,6 +101,18 @@ func (s *Sandbox) Run(code, phase string) error {
 	// Proxy traps that may not reach an interrupt check before exhausting memory.
 	vm.SetMaxCallStackSize(maxScriptCallStackDepth)
 	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
+
+	// 兜底：任何注入的 Go 回调（pm.* 等）panic 时转为脚本错误而非打崩进程。
+	// 必须写命名返回值 runErr——赋值给局部变量不会改变已确定的返回值
+	defer func() {
+		if r := recover(); r != nil {
+			// panic 跳过了正常路径的 onFinish，这里补执行以落地变量变更缓冲。
+			// 钩子自身可能再 panic（如脚本把 request.method 设成 toString 返回对象的值），
+			// 故逐个隔离：二度 panic 不能逃出去打崩进程，也不能中断其余钩子
+			s.runFinishHooks()
+			runErr = scriptError(fmt.Errorf("script runtime panic: %v", r), phase)
+		}
+	}()
 
 	// 沙箱约束：不注入 require/fs/fetch；仅暴露 pm 与 console
 	if err := s.injectConsole(vm); err != nil {
@@ -117,14 +129,26 @@ func (s *Sandbox) Run(code, phase string) error {
 	defer timer.Stop()
 
 	_, err := vm.RunString(code)
-	for _, fn := range s.onFinish {
-		fn()
-	}
-	s.onFinish = nil
+	s.runFinishHooks()
 	if err != nil {
 		return scriptError(err, phase)
 	}
 	return nil
+}
+
+// runFinishHooks 执行并清空收尾钩子。
+// 钩子读写 goja 对象属性，可能触发脚本定义的 getter/valueOf 而 panic；
+// 逐个 recover 隔离：一个坏钩子不影响其余钩子落地，也不会让 panic 逃出 Run。
+// 先置空再执行，保证同一钩子不会被重复调用（正常路径与 recover 路径都可能进来）。
+func (s *Sandbox) runFinishHooks() {
+	hooks := s.onFinish
+	s.onFinish = nil
+	for _, fn := range hooks {
+		func() {
+			defer func() { _ = recover() }()
+			fn()
+		}()
+	}
 }
 
 // Result 汇总执行产出

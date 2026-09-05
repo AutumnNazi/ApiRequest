@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -47,6 +48,11 @@ func (f *fileBackend) unlocked() bool { return len(f.key) > 0 && f.entries != ni
 
 func (f *fileBackend) unlock(password string) error {
 	if f.unlocked() {
+		// 已解锁：仍须校验密码派生 key 与当前 key 一致，
+		// 否则任意错误密码的"重新确认"会被静默绕过
+		if !bytes.Equal(deriveKey(password, f.salt), f.key) {
+			return errors.New("invalid master password or corrupt encrypted vault")
+		}
 		return nil
 	}
 	data, err := readEncryptedVault(f.path)

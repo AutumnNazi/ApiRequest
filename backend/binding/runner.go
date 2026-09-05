@@ -64,7 +64,12 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 	}
 	ctx, finish, err := a.operations.begin(parent, runId, workspaceId)
 	if err != nil {
-		return nil, model.NewError(model.KindValidation, err.Error())
+		// 关停（应用退出）是生命周期事件，报 Validation 会把它说成用户输入问题
+		kind := model.KindValidation
+		if IsRegistryClosing(err) {
+			kind = model.KindNetwork
+		}
+		return nil, model.NewError(kind, err.Error())
 	}
 	defer finish()
 
@@ -129,6 +134,10 @@ loop:
 			requestSendId := fmt.Sprintf("%s-%d-%s", runId, iter+1, node.Id)
 			res, serr := a.request.sendRequest(ctx, requestSendId, *node.Request, sendCtx)
 			if ctx.Err() != nil {
+				// 取消时也须释放本轮已注册的响应 blob，否则泄漏到应用关闭
+				if serr == nil {
+					_ = a.request.releaseResponseBlob(res.Body.BlobRef)
+				}
 				report.Canceled = true
 				break loop
 			}
