@@ -12,8 +12,8 @@ English | [简体中文](../roadmap.md)
 ### Request Construction
 
 - [x] Complete HTTP method set (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS + custom)
-- [ ] URL and Query parameter editing with bidirectional synchronization
-- [ ] Header editing with autofill, bulk editing, and disabled rows
+- [x] URL and Query parameter editing with bidirectional sync and bulk editing
+- [x] Header editing with autofill, bulk editing, and disabled rows
 - [x] Body: form-data / x-www-form-urlencoded / raw (JSON/XML/HTML/Text) / binary / GraphQL
 - [x] Auth: No Auth / Basic / Bearer / API Key / Digest / OAuth 1.0 / OAuth 2.0 / AWS Signature
 - [x] Per-request overrides for timeout, redirects, and SSL verification
@@ -47,13 +47,13 @@ English | [简体中文](../roadmap.md)
 - [x] Collection / nested folder / request tree with recursive nesting, expand/collapse, and double-click rename
 - [x] Multi-tab editing
 - [x] Searchable, replayable, clearable history
-- [x] Cookie manager for viewing and editing the Cookie Jar
+- [x] Cookie manager for viewing and editing the Cookie Jar, isolated per workspace (ADR-016)
 
 ### Protocol Extensions
 
 - [x] WebSocket
 - [x] Server-Sent Events (SSE)
-- [x] GraphQL schema introspection and completion (backend introspection; GraphQL body type supported)
+- [x] GraphQL schema introspection, completion, and offline query validation (backend introspection; GraphQL body type supported)
 - [x] gRPC discovery through server reflection and dynamic invocation with `dynamicpb`, including unary, client/server streaming, and bidi
 
 ### Interoperability
@@ -66,10 +66,10 @@ English | [简体中文](../roadmap.md)
 ### Advanced
 
 - [x] Mock Server
-- [x] Collection Runner with data-file input and run reports
+- [x] Collection Runner with data-file input, persisted run reports, run-history review, and an assertion summary view
 - [x] Proxy settings for system/manual/direct modes
 - [x] Custom TLS and client certificates with custom-CA trust and mTLS
-- [x] Team synchronization over WebDAV with user-provided Nutstore, Nextcloud, or another server; snapshots + entity-level LWW merge; secrets may be omitted. See [sync.md](./sync.md).
+- [x] Team synchronization over WebDAV with user-provided Nutstore, Nextcloud, or another server; snapshots + entity-level LWW merge; secrets may be omitted; configurable auto-sync interval. See [sync.md](./sync.md).
 
 ---
 
@@ -77,12 +77,11 @@ English | [简体中文](../roadmap.md)
 
 Phases 1 through 5 are implemented in the current `dev` line: the native request engine, scoped variables and scripts, authentication and converters, Runner/Mock/protocol extensions, WebDAV synchronization, gRPC, the CLI runner, and the theme/accessibility foundations are all covered by backend or frontend tests.
 
-The remaining work is deliberately incremental rather than a second rewrite:
+The remaining work is deliberately incremental rather than a second rewrite. Bidirectional URL/query and header bulk editing, the virtualized history viewport, auto-sync intervals, Runner report persistence with the assertion summary, and offline GraphQL validation have all landed (their checkboxes are ticked):
 
-- Improve URL/query and header bulk-edit ergonomics while preserving ordered rows and disabled entries.
-- Add a virtualized history viewport for very large local databases.
+- Evaluate and implement field-level sync merge (three-way merge + local baseline) per [ADR-017](./decisions.md).
+- In-app updates: the signed updater protocol and rollback policy are captured in [ADR-018](./decisions.md); until implementation, the "check and redirect only" behavior stays.
 - Expand end-to-end desktop smoke coverage for native dialogs, keychain fallback, signed artifacts, and update-manifest consumption.
-- Define a signed updater protocol and rollback policy before enabling in-app binary replacement. The current Settings action opens the verified GitHub release page; it never replaces binaries silently.
 
 ---
 

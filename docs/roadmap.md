@@ -11,8 +11,8 @@
 
 ### 请求构造
 - [x] HTTP 方法全集（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS + 自定义）
-- [ ] URL 与 Query 参数编辑（双向同步）
-- [ ] Header 编辑（含自动填充、批量编辑、禁用项）
+- [x] URL 与 Query 参数编辑（双向同步 + 批量编辑）
+- [x] Header 编辑（含自动填充、批量编辑、禁用项）
 - [x] Body：form-data / x-www-form-urlencoded / raw(JSON/XML/HTML/Text) / binary / GraphQL
 - [x] 认证：No Auth / Basic / Bearer / API Key / Digest / OAuth 1.0 / OAuth 2.0 / AWS Signature
 - [x] 请求级设置覆盖：超时、重定向、SSL 校验
@@ -42,12 +42,12 @@
 - [x] 集合 / 嵌套文件夹 / 请求树（递归嵌套、展开折叠、双击重命名）
 - [x] 多标签页编辑
 - [x] 历史记录（可搜索、可重放、可清空）
-- [x] Cookie 管理器（Cookie Jar 查看编辑）
+- [x] Cookie 管理器（Cookie Jar 查看编辑；按工作区隔离，ADR-016）
 
 ### 协议扩展
 - [x] WebSocket
 - [x] Server-Sent Events (SSE)
-- [x] GraphQL schema 内省 + 补全（后端内省；body 已支持 graphql 类型）
+- [x] GraphQL schema 内省 + 补全 + 离线查询校验（后端内省；body 已支持 graphql 类型）
 - [x] gRPC（server reflection 发现 + dynamicpb 动态调用；含 unary + client/server/bidi 流式）
 
 ### 互操作
@@ -58,10 +58,10 @@
 
 ### 高级
 - [x] Mock Server
-- [x] Collection Runner（数据文件驱动、运行报告）
+- [x] Collection Runner（数据文件驱动、运行报告持久化 + 历史回看 + 断言聚合视图）
 - [x] 代理设置（系统/手动/直连）
 - [x] 自定义 TLS / 客户端证书（自定义 CA 追加信任 + mTLS）
-- [x] 团队协作同步（WebDAV：用户自带坚果云/Nextcloud 等，快照 + 实体级 LWW 合并，密钥可不上传；见 sync.md）
+- [x] 团队协作同步（WebDAV：用户自带坚果云/Nextcloud 等，快照 + 实体级 LWW 合并，密钥可不上传；可配置自动间隔同步；见 sync.md）
 
 ---
 
@@ -69,12 +69,11 @@
 
 Phase 1 至 Phase 5 已在当前 `dev` 线完成：原生请求引擎、多级变量与脚本、认证与转换器、Runner/Mock/多协议扩展、WebDAV 同步、gRPC、CLI 运行器，以及主题和可访问性基础均已有后端或前端测试覆盖。
 
-后续工作以增量打磨为主，不再重复搭骨架：
+后续工作以增量打磨为主，不再重复搭骨架。URL/Query 与 Header 的双向批量编辑、历史列表虚拟化视口、自动定时同步、Runner 报告持久化与断言聚合、GraphQL 离线校验均已落地（对应条目已勾选）：
 
-- 优化 URL/Query 与 Header 的双向、批量编辑，同时保持有序行和禁用项语义。
-- 为超大本地数据库的历史列表加入虚拟化视口。
+- 字段级同步合并（三路合并 + 本地基线）按 [ADR-017](./decisions.md) 评估实施。
+- 应用内更新：签名 updater 协议与回滚策略已沉淀为 [ADR-018](./decisions.md)，实施前维持"仅检查与跳转"现状。
 - 扩展原生文件对话框、keychain 回退、签名产物和更新清单消费的桌面端冒烟测试。
-- 在启用应用内替换二进制前，先定义带签名的 updater 协议与回滚策略；当前设置入口只打开经过确认的 GitHub release 页面，不会静默替换程序。
 
 ---
 
