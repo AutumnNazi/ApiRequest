@@ -1,5 +1,6 @@
 // GraphQL 内省面板：endpoint URL → 内省 → 展示 Queries/Mutations 列表 + schema JSON 预览
 import { useState } from 'react';
+import { normalizeSchema, validateQueryAgainstSchema, type ValidationIssue } from '../utils/graphqlValidate';
 import {
   graphqlIntrospect,
   toAppError,
@@ -26,11 +27,31 @@ export default function GraphqlPanel({ onClose, onOpenRequest }: Props) {
   const [error, setError] = useState('');
   const [result, setResult] = useState<GraphqlResult | null>(null);
   const [authHeader, setAuthHeader] = useState('');
+  // schema 断言：粘贴 query 按内省结果校验字段路径
+  const [checkQuery, setCheckQuery] = useState('');
+  const [checkIssues, setCheckIssues] = useState<ValidationIssue[] | null>(null);
   const { recents, recall } = useRecentTargets('protocol:recent:graphql');
 
   const pickRecent = (value: string) => {
     setUrl(value);
     setError('');
+  };
+
+  const runValidate = () => {
+    if (!result) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.schemaJson);
+    } catch {
+      setCheckIssues([{ message: 'schema JSON 解析失败', typeName: '—', line: 1 }]);
+      return;
+    }
+    const shape = normalizeSchema(parsed);
+    if (!shape) {
+      setCheckIssues([{ message: 'schema 结构异常，无法校验', typeName: '—', line: 1 }]);
+      return;
+    }
+    setCheckIssues(validateQueryAgainstSchema(checkQuery, shape));
   };
 
   const attemptDiscover = async () => {
@@ -142,6 +163,38 @@ export default function GraphqlPanel({ onClose, onOpenRequest }: Props) {
 
           {/* Schema JSON 预览 */}
           <div className="flex-1 flex flex-col min-w-0">
+            <div className="border-b px-3 py-2 space-y-1.5">
+              <div className="text-xs text-gray-500">{formatMessage('Query 校验（对照刚内省的 schema）')}</div>
+              <textarea
+                className="w-full h-20 border rounded p-1.5 font-mono text-xs resize-y outline-none focus:border-blue-400"
+                spellCheck={false}
+                placeholder="query { user(id: 1) { name } }"
+                value={checkQuery}
+                onChange={(e) => { setCheckQuery(e.target.value); setCheckIssues(null); }}
+                disabled={!result}
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  className="border rounded px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
+                  disabled={!result || !checkQuery.trim()}
+                  onClick={runValidate}
+                >
+                  {formatMessage('校验')}
+                </button>
+                {checkIssues && (
+                  <span className={`text-xs ${checkIssues.length ? 'text-red-600' : 'text-green-600'}`}>
+                    {checkIssues.length
+                      ? formatMessage('{count} 个问题', { count: checkIssues.length })
+                      : formatMessage('校验通过')}
+                  </span>
+                )}
+              </div>
+              {checkIssues?.map((iss, i) => (
+                <div key={i} className="text-xs text-red-600 font-mono">
+                  L{iss.line} · <Verbatim value={iss.message} />
+                </div>
+              ))}
+            </div>
             <div className="px-3 py-1 text-xs text-gray-500 bg-gray-50 border-b">{formatMessage('Schema JSON（可复制给编辑器/graphql-language-server）')}</div>
             <div className="flex-1 overflow-auto">
               {result && result.schemaJson.length > SCHEMA_RENDER_CHAR_LIMIT && (
