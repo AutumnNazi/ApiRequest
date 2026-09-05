@@ -24,6 +24,7 @@ import ImportDialog from './ImportDialog';
 import RunnerDialog from './RunnerDialog';
 import MockPanel from './MockPanel';
 import LoadMoreTrigger from './LoadMoreTrigger';
+import VirtualRowList from './VirtualRowList';
 import { useTabs } from '../stores/tabs';
 import { newDefaultRequest } from '../ipc';
 import { formatMessage, useLocale, Verbatim } from '../i18n/locale';
@@ -1358,11 +1359,15 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
             {debounced ? '无匹配记录' : '暂无历史记录'}
           </p>
         ) : (
-          <div className="text-sm">
-            {items.map((it) => (
+          // 虚拟化视口：几千条历史也只渲染可视窗口内的行（roadmap 增量打磨项）
+          <VirtualRowList
+            items={items}
+            rowHeight={44}
+            overscan={8}
+            className="text-sm h-full overflow-auto"
+            renderItem={(it) => (
               <div
-                key={it.id}
-                className="px-2 py-1.5 border-b border-gray-100 hover:bg-gray-200 cursor-pointer"
+                className="px-2 py-1.5 border-b border-gray-100 hover:bg-gray-200 cursor-pointer h-full"
                 onClick={() => void replay(it)}
                 title="点击重放"
               >
@@ -1377,22 +1382,26 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
                 </div>
                 <div className="truncate text-xs text-gray-600 font-mono"><Verbatim value={it.url} /></div>
               </div>
-            ))}
-            {history.hasNextPage && !history.isFetchNextPageError && (
-              <LoadMoreTrigger
-                isFetching={history.isFetchingNextPage}
-                onLoadMore={() => void history.fetchNextPage()}
-              />
             )}
-            {history.isFetchNextPageError && (
-              <div className="flex items-center justify-center gap-2 px-2 py-2 text-xs text-red-600" role="alert">
-                <span>{formatMessage('加载更多历史失败')}</span>
-                <button className="underline" onClick={() => void history.fetchNextPage()}>
-                  {formatMessage('重试')}
-                </button>
-              </div>
-            )}
-          </div>
+            footer={
+              <>
+                {history.hasNextPage && !history.isFetchNextPageError && (
+                  <LoadMoreTrigger
+                    isFetching={history.isFetchingNextPage}
+                    onLoadMore={() => void history.fetchNextPage()}
+                  />
+                )}
+                {history.isFetchNextPageError && (
+                  <div className="flex items-center justify-center gap-2 px-2 py-2 text-xs text-red-600" role="alert">
+                    <span>{formatMessage('加载更多历史失败')}</span>
+                    <button className="underline" onClick={() => void history.fetchNextPage()}>
+                      {formatMessage('重试')}
+                    </button>
+                  </div>
+                )}
+              </>
+            }
+          />
         )}
       </div>
     </div>
