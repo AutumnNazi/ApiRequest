@@ -123,6 +123,17 @@ Status markers: `Accepted` = adopted and reflected in the design docs; `Preferre
 - **Alternatives**: per-field timestamps / field revs (rejected: every write path would need instrumentation, too invasive); CRDTs (rejected: the snapshot model has no oplog to replay, equivalent to rewriting the sync layer); an interactive conflict-resolution UI (deferred: land the deterministic policy first, add the UI only if real demand appears).
 - **Reversal condition**: if conflicts turn out to be rare in practice (users almost never edit the same entity concurrently), the complexity is not worth it and entity-level LWW stays.
 
+### ADR-018 Signed Update Protocol: Manifest + ed25519 + Channel Files + Two-Stage Atomic Replacement (Preferred, Not Yet Implemented)
+
+- **Context**: OPEN-006 currently only "checks and redirects to the release page"; in-app updates must first settle signature verification, channels, atomic replacement, and rollback. This ADR completes that checklist, narrowing OPEN-006's open item to "implementation scheduling".
+- **Protocol**: each release ships `update-manifest.json` channel files (`stable.json` / `beta.json`) containing the version, release time, a minimum upgradable version floor, and per-platform entries {url, sha256, size, signature}. The manifest body is signed with the release ed25519 private key; the signature is published alongside `SHA256SUMS`; the matching public key is pinned in the client. ed25519 uses Go's standard `crypto/ed25519` (pure Go, no CGO, per the ADR-009 constraint).
+- **Verification chain**: download the package → verify sha256 → verify the ed25519 signature against `SHA256SUMS` → check the version floor (below the floor, direct the user to the download page for a manual install; no silent path) → only then enter the replacement stage. Any failure discards the download and keeps the current state; no retry loops.
+- **Replacement and rollback**: two-stage atomic replacement — write the new package to a temporary file next to the data directory (same-volume rename is atomic); stage one backs up the current binary, stage two renames the new file into place; a rename failure restores the backup. On Windows a running exe is locked, so use a `pending-update` marker with replacement at exit or on next launch, and verify on first start after reboot — a version mismatch triggers rollback. A leftover `pending-update` marker at startup is completed or rolled back, then cleared.
+- **Channels**: stable / beta manifest files; beta can be reached from stable but stable never auto-downgrades to beta. The channel is selected in Settings and defaults to stable.
+- **Key management**: the release private key exists only on the release machine (injected into GitHub Actions via a repository secret); the public key ships with the client. Rotation = a new public key is embedded in the next client version, with a one-version dual-signature transition (either signature passing is accepted); older clients are unaffected.
+- **Alternatives**: SHA256SUMS without signatures (rejected: integrity without authenticity — a mirror or proxy could swap packages); sigstore/cosign (rejected: pulls in CLI dependencies and KMS assumptions, beyond a desktop tool's positioning); keep the "redirect to download page" flow (retained as the fallback for versions below the floor and for manual updates).
+- **Reversal condition**: if most users in practice update via package managers (winget/brew), the in-app updater sees little use and the redirect-only policy can stay.
+
 ---
 
 ## Open Questions (Decision Required)
@@ -154,7 +165,7 @@ The former open question about secret storage was resolved by [ADR-013](#adr-013
 
 - **Background**: Wails does not provide a built-in signed update pipeline.
 - **Current decision (2026-08-04)**: the release workflow publishes only packages and `SHA256SUMS`; Settings only checks and opens the official GitHub release download page. No update manifest is published and no binary is replaced silently until a signature-verification protocol is in place.
-- **Still open**: before enabling in-app updates, define signature verification, stable/beta channels, atomic replacement, and failure rollback.
+- **Still open**: the protocol design for signature verification, stable/beta channels, atomic replacement, and failure rollback is captured in ADR-018 (preferred, not yet implemented); the only open item left is implementation scheduling. Until it is implemented, the "check and redirect only" behavior stays.
 
 ---
 
