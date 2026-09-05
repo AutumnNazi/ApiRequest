@@ -20,7 +20,7 @@ One synchronization cycle = pull remote -> merge -> write local -> push merged r
 2. **Deletion propagation**: a soft deletion is a tombstone in LWW. If the deletion is newer than an update, deletion wins and the entity is not resurrected.
 3. **Environments**: apply LWW by ID using `updatedAt`; do not synchronize `is_active`, which is local UI state.
 4. **Global variables**: use an independent `updated_at` value as the revision and apply LWW to the complete variable set.
-5. **Conflict granularity**: entity-level. If two devices change different fields on the same request, the later writer replaces the entire entity. Field-level merge or CRDTs may be evaluated later.
+5. **Conflict granularity**: entity-level. If two devices change different fields on the same request, the later writer replaces the entire entity. The preferred field-level three-way merge design is captured in [ADR-017](./decisions.md) (not yet implemented; entity-level LWW remains in effect until then).
 
 ## Sensitive Data
 

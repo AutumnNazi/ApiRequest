@@ -112,6 +112,17 @@ Status markers: `Accepted` = adopted and reflected in the design docs; `Preferre
 - **Rationale**: Go's standard `net/http/httptrace` package exposes DNS start/end, connection establishment, TLS handshake, and first-byte callbacks as first-class features. `httptrace.ClientTrace` markers can populate every `Timing` field.
 - **Reversal condition**: effectively none; this is a first-class standard-library capability with no custom implementation cost.
 
+### ADR-017 Field-Level Sync Merge: Three-Way Merge + Local "Last-Merge Baseline" (Preferred, Not Yet Implemented)
+
+- **Context**: the current behavior is entity-level LWW (item 5 of the merge algorithm in [sync.md](./sync.md)) — when two devices change different fields of the same request, the later writer replaces the whole entity and the earlier field change is silently lost.
+- **Design**: persist a local "last-merge baseline" (one per workspace, the complete snapshot of the most recent merge result) and perform a three-way, field-by-field merge per entity: local matches baseline → take remote (local untouched); remote matches baseline → take local (remote untouched); both sides changed the same field → conflict. Snapshots are already complete state (not an oplog), so the baseline naturally serves as the common ancestor without changing the remote protocol.
+- **Conflict policy**: deterministic "local wins + conflict list" — no interactive merge UI; the sync result panel lists conflict details (entity, field, values on both sides), the user reviews and fixes manually, and a one-click "overwrite with remote" action can be added later. This matches the lightweight positioning of "dumb storage + manual trigger".
+- **Structural operations are not merged per field**: moves (parent changes) and soft-delete tombstones still follow entity-level LWW — a tombstone newer than any field edit wins and the entity stays dead; when a move races an edit, the move wins (the edited fields travel with the entity and are not lost). Child ordering (`order`) is treated as a regular field: concurrent reordering on both sides is a conflict, local wins.
+- **Baseline storage**: new SQLite table `sync_base(workspace_id, schema_version, snapshot, merged_at)`; snapshots are already capped at 64 MiB, so the baseline is bounded. When no baseline exists (first sync, or the first round after an upgrade), that round falls back to entity-level LWW, and the baseline is written after the merge completes.
+- **Tradeoffs**: local storage for synced workspaces roughly doubles (snapshot-level baseline); merge cost rises from one comparison per entity to per-field comparisons. In exchange, concurrent edits no longer lose fields.
+- **Alternatives**: per-field timestamps / field revs (rejected: every write path would need instrumentation, too invasive); CRDTs (rejected: the snapshot model has no oplog to replay, equivalent to rewriting the sync layer); an interactive conflict-resolution UI (deferred: land the deterministic policy first, add the UI only if real demand appears).
+- **Reversal condition**: if conflicts turn out to be rare in practice (users almost never edit the same entity concurrently), the complexity is not worth it and entity-level LWW stays.
+
 ---
 
 ## Open Questions (Decision Required)
