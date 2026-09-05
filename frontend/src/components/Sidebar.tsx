@@ -23,6 +23,7 @@ import {
 import ImportDialog from './ImportDialog';
 import RunnerDialog from './RunnerDialog';
 import MockPanel from './MockPanel';
+import LoadMoreTrigger from './LoadMoreTrigger';
 import { useTabs } from '../stores/tabs';
 import { newDefaultRequest } from '../ipc';
 import { formatMessage, useLocale, Verbatim } from '../i18n/locale';
@@ -1424,29 +1425,4 @@ function formatTime(ms: number): string {
     d.getDate() === now.getDate();
   if (sameDate) return hhmm;
   return `${d.getMonth() + 1}/${d.getDate()} ${hhmm}`;
-}
-
-// 无限滚动触发器：进入视口时自动加载下一页
-function LoadMoreTrigger({ isFetching, onLoadMore }: { isFetching: boolean; onLoadMore(): void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  // 回调放 ref：父组件每次渲染传入新引用的 onLoadMore 不再导致 observer 反复重建
-  const onLoadMoreRef = useRef(onLoadMore);
-  onLoadMoreRef.current = onLoadMore;
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !isFetching) onLoadMoreRef.current();
-      },
-      { rootMargin: '100px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [isFetching]);
-  return (
-    <div ref={ref} className="w-full py-2 text-xs text-center text-gray-400">
-      {isFetching ? formatMessage('加载中…') : formatMessage('滚动加载更多')}
-    </div>
-  );
 }
