@@ -34,11 +34,13 @@ type Target struct {
 	Name string `json:"name"`
 }
 
-// Targets 返回全部目标（注册顺序）
+// Targets 返回全部目标（按 id 排序）。
+// 排序在副本上做：order 是包级可变状态，原地排序会在并发调用时数据竞争
 func Targets() []Target {
-	out := make([]Target, 0, len(order))
-	sort.Strings(order)
-	for _, id := range order {
+	sorted := append([]string(nil), order...)
+	sort.Strings(sorted)
+	out := make([]Target, 0, len(sorted))
+	for _, id := range sorted {
 		out = append(out, Target{Id: id, Name: registry[id].Name()})
 	}
 	return out
@@ -126,6 +128,50 @@ func bodyText(req model.HttpRequest) (text, contentType string, ok bool) {
 	return "", "", false
 }
 
+// controlEscapeForm 控制字符的目标语言转义形式。
+// 必须在各 quote 函数的反斜杠翻倍/引号替换之后再套用：先插入转义序列
+// 再翻倍会把 \u0001 变成 \\u0001（目标语言里的字面文本而非控制字符）。
+type controlEscapeForm int
+
+const (
+	// formUnicode \uXXXX（JS/Java/Python/C#/JSON/Go 通用）
+	formUnicode controlEscapeForm = iota
+	// formRust 花括号形式 \u{1}——\u0001 在 Rust 里是语法错误
+	formRust
+	// formPhpHex 断链拼双引号段 "\x01"——PHP 单引号串没有 \u 转义，双引号串才有 \xHH
+	formPhpHex
+)
+
+// escapeControlChars 把 \r \n \t 之外的控制字符按 form 转义。
+// HTTP 头值可含任意控制字节，原样嵌进生成的代码会产出语法错误的片段；
+// \r \n \t 有各语言的原生转义，由各 quote 函数自行处理，这里跳过。
+// 只处理控制字符本身，不碰反斜杠与引号——所以必须在所有替换之后调用，
+// 它插入的序列才不会被后续翻倍破坏。
+func escapeControlChars(s string, form controlEscapeForm) string {
+	if !strings.ContainsFunc(s, func(r rune) bool {
+		return r < 0x20 && r != '\r' && r != '\n' && r != '\t'
+	}) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r < 0x20 && r != '\r' && r != '\n' && r != '\t' {
+			switch form {
+			case formRust:
+				fmt.Fprintf(&b, `\u{%x}`, r)
+			case formPhpHex:
+				fmt.Fprintf(&b, `'."\x%02x".'`, r)
+			default:
+				fmt.Fprintf(&b, `\u%04x`, r)
+			}
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 func jsonQuote(s string) string {
 	b := strings.Builder{}
 	b.WriteByte('"')
@@ -142,7 +188,12 @@ func jsonQuote(s string) string {
 		case '\t':
 			b.WriteString(`\t`)
 		default:
-			b.WriteRune(r)
+			if r < 0x20 {
+				// 其余控制字符（HTTP 头值可含）按 \uXXXX 转义，否则生成非法 JS/JSON
+				b.WriteString(fmt.Sprintf(`\u%04x`, r))
+			} else {
+				b.WriteRune(r)
+			}
 		}
 	}
 	b.WriteByte('"')

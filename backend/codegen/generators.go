@@ -165,7 +165,10 @@ func (pythonGen) Generate(req model.HttpRequest) string {
 func pyQuote(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\r", `\r`) // Python 串里裸 \r 是语法错误，与 \n 同等处理
 	s = strings.ReplaceAll(s, "\n", `\n`)
+	// 控制字符收尾：放在翻倍之后，插入的转义序列才不会被改成 \\uXXXX
+	s = escapeControlChars(s, formUnicode)
 	return `"` + s + `"`
 }
 
@@ -215,8 +218,10 @@ func (goGen) Generate(req model.HttpRequest) string {
 func goQuote(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\r", `\r`) // Go 裸 \r 虽合法，但会被编辑器静默吞掉，显式转义保持可见
 	s = strings.ReplaceAll(s, "\n", `\n`)
 	s = strings.ReplaceAll(s, "\t", `\t`)
+	s = escapeControlChars(s, formUnicode)
 	return `"` + s + `"`
 }
 

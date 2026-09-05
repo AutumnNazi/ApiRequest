@@ -81,6 +81,8 @@ func javaQuote(s string) string {
 	s = strings.ReplaceAll(s, "\r", `\r`)
 	s = strings.ReplaceAll(s, "\n", `\n`)
 	s = strings.ReplaceAll(s, "\t", `\t`)
+	// 控制字符收尾：放在翻倍之后，插入的转义序列才不会被改成 \\uXXXX
+	s = escapeControlChars(s, formUnicode)
 	return `"` + s + `"`
 }
 
@@ -144,6 +146,7 @@ func rustQuote(s string) string {
 	s = strings.ReplaceAll(s, "\r", `\r`)
 	s = strings.ReplaceAll(s, "\n", `\n`)
 	s = strings.ReplaceAll(s, "\t", `\t`)
+	s = escapeControlChars(s, formRust)
 	return `"` + s + `"`
 }
 
@@ -199,6 +202,7 @@ func phpQuote(s string) string {
 	s = strings.ReplaceAll(s, "\r", `'."\r".'`)
 	s = strings.ReplaceAll(s, "\n", `'."\n".'`)
 	s = strings.ReplaceAll(s, "\t", `'."\t".'`)
+	s = escapeControlChars(s, formPhpHex)
 	return "'" + s + "'"
 }
 
@@ -266,5 +270,6 @@ func csharpQuote(s string) string {
 	s = strings.ReplaceAll(s, "\r", `\r`)
 	s = strings.ReplaceAll(s, "\n", `\n`)
 	s = strings.ReplaceAll(s, "\t", `\t`)
+	s = escapeControlChars(s, formUnicode)
 	return `"` + s + `"`
 }
