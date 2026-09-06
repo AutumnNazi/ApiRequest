@@ -50,6 +50,8 @@ All invocations of Wails-generated binding functions go through domain-specific 
 
 ### Default Shortcuts
 
+Customize combinations in Settings -> Shortcuts (must include Ctrl/Cmd or use F1-F12; applies immediately, stored in the `hotkeys` setting).
+
 | Action | Win/Linux | macOS |
 |--------|-----------|-------|
 | Send request | Ctrl+Enter | Cmd+Enter |

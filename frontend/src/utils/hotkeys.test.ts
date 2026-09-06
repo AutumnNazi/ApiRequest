@@ -60,3 +60,37 @@ describe('isHotkeySuppressed', () => {
     expect(isHotkeySuppressed(null)).toBe(true);
   });
 });
+
+import { eventCombo, formatCombo, parseHotkeySettings, DEFAULT_HOTKEYS, type HotkeyMap } from './hotkeys';
+
+describe('eventCombo', () => {
+  it('normalizes modifiers and key into a stable combo string', () => {
+    const mk = (p: Partial<KeyboardEvent>) => ({
+      ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, key: '', ...p,
+    } as KeyboardEvent);
+    expect(eventCombo(mk({ ctrlKey: true, key: 'Enter' }))).toBe('mod+enter');
+    expect(eventCombo(mk({ metaKey: true, key: 'k' }))).toBe('mod+k');
+    expect(eventCombo(mk({ ctrlKey: true, shiftKey: true, key: 'S' }))).toBe('mod+shift+s');
+    expect(eventCombo(mk({ key: 'F2' }))).toBe('f2');
+    expect(eventCombo(mk({ ctrlKey: true, altKey: true, key: 'r' }))).toBe('mod+alt+r');
+  });
+});
+
+describe('formatCombo', () => {
+  it('renders per platform', () => {
+    expect(formatCombo('mod+k', 'mac')).toBe('Cmd+K');
+    expect(formatCombo('mod+k', 'other')).toBe('Ctrl+K');
+    expect(formatCombo('mod+shift+s', 'other')).toBe('Ctrl+Shift+S');
+    expect(formatCombo('f2', 'mac')).toBe('F2');
+  });
+});
+
+describe('parseHotkeySettings', () => {
+  it('merges stored settings over defaults and tolerates garbage', () => {
+    expect(parseHotkeySettings(null)).toEqual(DEFAULT_HOTKEYS);
+    expect(parseHotkeySettings('not json')).toEqual(DEFAULT_HOTKEYS);
+    const merged = parseHotkeySettings(JSON.stringify({ palette: 'mod+p', send: 42 }));
+    expect((merged as HotkeyMap).palette).toBe('mod+p');
+    expect((merged as HotkeyMap).send).toBe(DEFAULT_HOTKEYS.send); // 非字符串值回退默认
+  });
+});

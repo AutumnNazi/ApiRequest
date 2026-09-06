@@ -1,6 +1,6 @@
 // 应用设置：左侧分类导航 + 右侧内容面板
 import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getProxySettings,
   getNetworkStatus,
@@ -26,7 +26,10 @@ import {
   listRemoteWorkspaces,
   importRemoteWorkspace,
   checkForUpdates,
+  getRawSetting,
+  setRawSetting,
 } from '../ipc';
+import { eventCombo, formatCombo, parseHotkeySettings, detectPlatform, isSafeCombo, type HotkeyMap } from '../utils/hotkeys';
 import { useLocale, Verbatim, formatMessage, type Locale } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 import ModalFrame from './ModalFrame';
@@ -44,12 +47,13 @@ const tlsFields: Array<[keyof TLSSettings, string, string]> = [
   ['clientKeyPath', '客户端私钥', '选择客户端私钥'],
 ];
 
-type Category = 'general' | 'security' | 'network' | 'sync' | 'about';
+type Category = 'general' | 'security' | 'network' | 'hotkeys' | 'sync' | 'about';
 
 const categories: Array<[Category, string]> = [
   ['general', '通用'],
   ['security', '安全'],
   ['network', '网络'],
+  ['hotkeys', '快捷键'],
   ['sync', '同步'],
   ['about', '关于'],
 ];
@@ -70,6 +74,11 @@ export default function SettingsDialog({ onClose }: Props) {
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
   const [updateError, setUpdateError] = useState('');
   const [checking, setChecking] = useState(false);
+  const hotkeysQuery = useQuery({ queryKey: ['hotkeys'], queryFn: () => getRawSetting('hotkeys') });
+  const [hotkeyOverride, setHotkeyOverride] = useState<Partial<HotkeyMap>>({});
+  const hotkeys: HotkeyMap = { ...parseHotkeySettings(hotkeysQuery.data), ...hotkeyOverride };
+  const [capturing, setCapturing] = useState<string | null>(null);
+  const [hotkeyHint, setHotkeyHint] = useState('');
   const [vault, setVault] = useState<VaultStatus | null>(null);
   const [vaultPassword, setVaultPassword] = useState('');
   const [vaultBusy, setVaultBusy] = useState(false);
@@ -386,6 +395,62 @@ export default function SettingsDialog({ onClose }: Props) {
                     {network?.tlsActive ? formatMessage('自定义 TLS 配置已生效') : formatMessage('当前使用系统默认 TLS')}
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* 快捷键 */}
+            {cat === 'hotkeys' && (
+              <div className="space-y-3">
+                {(
+                  [
+                    ['send', '发送请求'],
+                    ['save', '保存'],
+                    ['newTab', '新建标签'],
+                    ['closeTab', '关闭标签'],
+                    ['env', '切换环境'],
+                    ['palette', '命令面板'],
+                  ] as Array<[keyof HotkeyMap, string]>
+                ).map(([action, label]) => (
+                  <div key={action} className="flex items-center gap-3 text-xs">
+                    <span className="w-24 text-gray-600">{formatMessage(label)}</span>
+                    <input
+                      readOnly
+                      data-hotkey={action} data-testid={`hotkey-${action}`}
+                      className="border rounded px-2 py-1 font-mono text-xs w-32 cursor-pointer bg-white"
+                      value={capturing === action
+                        ? formatMessage('按下新组合键…')
+                        : formatCombo(hotkeys[action], detectPlatform())}
+                      onKeyDown={(event) => {
+                        event.preventDefault();
+                        const combo = eventCombo(event.nativeEvent);
+                        if (!combo) return;
+                        if (!isSafeCombo(combo)) {
+                          setHotkeyHint(formatMessage('需包含 Ctrl/Cmd，或使用 F1-F12 键'));
+                          return;
+                        }
+                        setHotkeyHint('');
+                        const next = { ...hotkeys, [action]: combo } as HotkeyMap;
+                        setHotkeyOverride(next);
+                        void setRawSetting('hotkeys', JSON.stringify(next)).then(() => {
+                          qc.invalidateQueries({ queryKey: ['hotkeys'] });
+                        });
+                        setCapturing(null);
+                      }}
+                      onFocus={() => setCapturing(action)}
+                      onBlur={() => {
+                        setCapturing(null);
+                        setHotkeyHint('');
+                      }}
+                    />
+                    <span className="text-gray-400">
+                      {capturing === action ? formatMessage('Esc 取消') : formatMessage('点击后按下新组合键')}
+                    </span>
+                  </div>
+                ))}
+                {hotkeyHint && <p className="text-xs text-amber-600">{hotkeyHint}</p>}
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  {formatMessage('组合需包含 Ctrl/Cmd（或使用 F1-F12），避免与输入冲突；保存即时生效。')}
+                </p>
               </div>
             )}
 

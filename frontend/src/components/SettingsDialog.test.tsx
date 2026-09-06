@@ -20,6 +20,8 @@ const ipc = vi.hoisted(() => ({
   refreshSystemProxy: vi.fn(),
   listRemoteWorkspaces: vi.fn(),
   importRemoteWorkspace: vi.fn(),
+  getRawSetting: vi.fn(() => Promise.resolve('')),
+  setRawSetting: vi.fn(() => Promise.resolve(null)),
 }));
 
 vi.mock('../ipc', () => ({
@@ -147,3 +149,37 @@ describe('SettingsDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '从远端导入工作区' }));
     expect(await screen.findByText(/webdav unreachable/)).toBeInTheDocument();
   });
+
+describe('SettingsDialog 快捷键自定义', () => {
+  it('展示默认组合并支持捕获新组合后即时保存', async () => {
+    renderDialog();
+    await waitFor(() => expect(ipc.getVaultStatus).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: '快捷键' }));
+    const input = screen.getByTestId('hotkey-palette') as HTMLInputElement;
+    await waitFor(() => expect(input).toHaveValue('Ctrl+K'));
+
+    fireEvent.keyDown(input, { key: 'p', ctrlKey: true });
+    expect(input).toHaveValue('Ctrl+P');
+    await waitFor(() => expect(ipc.setRawSetting).toHaveBeenCalled());
+    const call = ipc.setRawSetting.mock.calls[0] as unknown as [string, string];
+    expect(call[0]).toBe('hotkeys');
+    const parsed = JSON.parse(call[1]);
+    expect(parsed.palette).toBe('mod+p');
+    // 其余动作保持默认
+    expect(parsed.send).toBe('mod+enter');
+  });
+
+  it('拒绝不安全组合并给出提示', async () => {
+    renderDialog();
+    await waitFor(() => expect(ipc.getVaultStatus).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: '快捷键' }));
+    const input = screen.getByTestId('hotkey-palette') as HTMLInputElement;
+    await waitFor(() => expect(input).toHaveValue('Ctrl+K'));
+
+    fireEvent.keyDown(input, { key: 'g' });
+    expect(screen.getAllByText(/需包含 Ctrl\/Cmd/).length).toBeGreaterThan(0);
+    expect(ipc.setRawSetting).not.toHaveBeenCalled();
+  });
+});

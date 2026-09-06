@@ -316,6 +316,9 @@ export const listRemoteWorkspaces = () => call(() => SyncApi.ListRemoteWorkspace
 export const importRemoteWorkspace = (workspaceId: string) =>
   call(() => SyncApi.ImportRemoteWorkspace(workspaceId));
 export const checkForUpdates = () => call(() => UpdateApi.CheckForUpdates());
+export const getRawSetting = (key: string) => call(() => SettingsApi.GetRawSetting(key));
+export const setRawSetting = (key: string, value: string) =>
+  call(() => SettingsApi.SetRawSetting(key, value));
 
 // ── GraphQL 内省 ──
 

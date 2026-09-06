@@ -8,6 +8,8 @@ export function GetNetworkStatus():Promise<binding.NetworkStatus>;
 
 export function GetProxySettings():Promise<binding.ProxySettings>;
 
+export function GetRawSetting(arg1:string):Promise<string>;
+
 export function GetTLSSettings():Promise<httpengine.TLSSettings>;
 
 export function GetVaultStatus():Promise<secrets.Status>;
@@ -17,6 +19,8 @@ export function LockVault():Promise<secrets.Status>;
 export function RefreshSystemProxy():Promise<binding.NetworkStatus>;
 
 export function SetProxySettings(arg1:binding.ProxySettings):Promise<void>;
+
+export function SetRawSetting(arg1:string,arg2:string):Promise<void>;
 
 export function SetTLSSettings(arg1:httpengine.TLSSettings):Promise<void>;
 

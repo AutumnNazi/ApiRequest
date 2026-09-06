@@ -10,6 +10,10 @@ export function GetProxySettings() {
   return window['go']['binding']['SettingsApi']['GetProxySettings']();
 }
 
+export function GetRawSetting(arg1) {
+  return window['go']['binding']['SettingsApi']['GetRawSetting'](arg1);
+}
+
 export function GetTLSSettings() {
   return window['go']['binding']['SettingsApi']['GetTLSSettings']();
 }
@@ -28,6 +32,10 @@ export function RefreshSystemProxy() {
 
 export function SetProxySettings(arg1) {
   return window['go']['binding']['SettingsApi']['SetProxySettings'](arg1);
+}
+
+export function SetRawSetting(arg1, arg2) {
+  return window['go']['binding']['SettingsApi']['SetRawSetting'](arg1, arg2);
 }
 
 export function SetTLSSettings(arg1) {

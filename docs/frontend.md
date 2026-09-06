@@ -50,6 +50,8 @@
 
 ### 快捷键（默认，可改）
 
+在设置 → 快捷键 中自定义组合（需包含 Ctrl/Cmd 或使用 F1-F12，即时生效，存于 settings `hotkeys`）。
+
 | 操作 | Win/Linux | macOS |
 |------|-----------|-------|
 | 发送请求 | Ctrl+Enter | Cmd+Enter |

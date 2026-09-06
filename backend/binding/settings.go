@@ -46,6 +46,20 @@ func NewSettingsApi(store *storage.Store, engine *httpengine.Engine) *SettingsAp
 }
 
 // GetVaultStatus reports which Secret Vault Adapter is available.
+// GetRawSetting / SetRawSetting：前端可读写的一般性设置项（自定义快捷键、
+// 更新源等）。与专用设置（代理/TLS/同步）并存；key 不做白名单——本地库
+// 本就归应用所有，敏感值（凭据类）从不经此路径存储。
+func (a *SettingsApi) GetRawSetting(key string) (string, error) {
+	return a.store.GetSetting(key)
+}
+
+func (a *SettingsApi) SetRawSetting(key, value string) error {
+	if key == "" {
+		return model.NewError(model.KindValidation, "setting key is required")
+	}
+	return a.store.SetSetting(key, value)
+}
+
 func (a *SettingsApi) GetVaultStatus() secrets.Status {
 	return a.store.Vault().Status()
 }

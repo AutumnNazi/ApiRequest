@@ -17,7 +17,8 @@ import { formatMessage, useLocale, Verbatim } from './i18n/locale';
 import { collectVarRefs } from './utils/varRefs';
 import { ensureHttpScheme, splitRequestAuthHeader } from './utils/request';
 import { closeTabSafely, closeTabsSequentially } from './utils/tabClose';
-import { isHotkeySuppressed } from './utils/hotkeys';
+import { isHotkeySuppressed, eventCombo, parseHotkeySettings } from './utils/hotkeys';
+import { getRawSetting } from './ipc';
 
 // 仅在打开时加载，降低初始渲染的脚本体积。
 const CookieManager = lazy(() => import('./components/CookieManager'));
@@ -155,6 +156,10 @@ export default function App() {
   // Ctrl/Cmd+E 展开环境下拉：每次按下递增，EnvSwitcher 侧按信号变化响应
   const [envOpenSignal, setEnvOpenSignal] = useState(0);
   const [showPalette, setShowPalette] = useState(false);
+  const hotkeysQuery = useQuery({
+   queryKey: ['hotkeys'],
+   queryFn: () => getRawSetting('hotkeys'),
+  });
 
   useEffect(() => onRequestProgress(updateProgress), [updateProgress]);
 
@@ -536,30 +541,31 @@ export default function App() {
 
   // 快捷键：Ctrl/Cmd+Enter 发送、Ctrl/Cmd+S 保存、Ctrl/Cmd+T 新标签、Ctrl/Cmd+W 关标签、Ctrl/Cmd+E 切环境
   // 用 ref 持有最新 handler，避免每次渲染都重新绑定 keydown（输入 URL 时频繁重渲染）
-  const hotkeyRef = useRef({ handleSend, handleSave, openBlank, closeTab, workspace, active });
-  hotkeyRef.current = { handleSend, handleSave, openBlank, closeTab, workspace, active };
+  const hotkeyRef = useRef({ handleSend, handleSave, openBlank, closeTab, workspace, active, hotkeys: parseHotkeySettings(hotkeysQuery.data) });
+  hotkeyRef.current = { handleSend, handleSave, openBlank, closeTab, workspace, active, hotkeys: parseHotkeySettings(hotkeysQuery.data) };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
       if (isHotkeySuppressed(e.target)) return;
-      const { handleSend, handleSave, openBlank, closeTab, workspace, active } = hotkeyRef.current;
-      if (e.key === 'Enter') {
+      const { handleSend, handleSave, openBlank, closeTab, workspace, active, hotkeys } = hotkeyRef.current;
+      const combo = eventCombo(e);
+      if (!combo) return;
+      // 动作匹配：自定义热键表（settings 'hotkeys'），默认值见 DEFAULT_HOTKEYS
+      if (combo === hotkeys.send) {
         e.preventDefault();
         handleSend();
-      } else if (e.key === 's') {
+      } else if (combo === hotkeys.save) {
         e.preventDefault();
         handleSave();
-      } else if (e.key === 't') {
+      } else if (combo === hotkeys.newTab) {
         e.preventDefault();
         if (workspace) openBlank(workspace.id);
-      } else if (e.key === 'w') {
+      } else if (combo === hotkeys.closeTab) {
         e.preventDefault();
         if (active) void closeTab(active);
-      } else if (e.key === 'e') {
+      } else if (combo === hotkeys.env) {
         e.preventDefault();
         setEnvOpenSignal((n) => n + 1);
-      } else if (e.key === 'k') {
+      } else if (combo === hotkeys.palette) {
         e.preventDefault();
         setShowPalette(true);
       }
