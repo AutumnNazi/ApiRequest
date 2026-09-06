@@ -1282,6 +1282,7 @@ export namespace runner {
 	    iterations?: number;
 	    envId?: string;
 	    envOverrides?: Record<string, string>;
+	    concurrency?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Options(source);
@@ -1295,6 +1296,7 @@ export namespace runner {
 	        this.iterations = source["iterations"];
 	        this.envId = source["envId"];
 	        this.envOverrides = source["envOverrides"];
+	        this.concurrency = source["concurrency"];
 	    }
 	}
 	export class RequestResult {

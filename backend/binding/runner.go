@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -113,65 +114,150 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 		}
 	}
 
-loop:
+	// 任务列表：(迭代行, 请求) 对。串行按顺序执行；并发模式由工作协程池消费
+	type task struct {
+		iter int
+		row  map[string]string
+		node model.Node
+	}
+	tasks := make([]task, 0, total)
 	for iter, row := range rows {
 		for _, node := range requests {
-			select {
-			case <-ctx.Done():
-				report.Canceled = true
-				break loop
-			default:
-			}
+			tasks = append(tasks, task{iter: iter, row: row, node: node})
+		}
+	}
 
-			rr := runner.RequestResult{
-				Iteration: iter + 1, RequestName: node.Name, NodeId: node.Id,
-			}
-			// 数据行注入为最高优先级变量覆盖（data 作用域）；CLI --env-file 变量
-			// 次之（同一 key 时数据行胜出），两者合并后整体高于环境变量
-			sendCtx := model.SendContext{
-				WorkspaceId: workspaceId, RequestId: node.Id,
-				EnvironmentId:     opts.EnvId,
-				VariableOverrides: runner.MergeOverrides(opts.EnvOverrides, row),
-			}
-			requestSendId := fmt.Sprintf("%s-%d-%s", runId, iter+1, node.Id)
-			res, serr := a.request.sendRequest(ctx, requestSendId, *node.Request, sendCtx)
-			if ctx.Err() != nil {
-				// 取消时也须释放本轮已注册的响应 blob，否则泄漏到应用关闭
-				if serr == nil {
-					_ = a.request.releaseResponseBlob(res.Body.BlobRef)
-				}
-				report.Canceled = true
-				break loop
-			}
-			if serr != nil {
-				rr.Failed = true
-				rr.Error = serr.Error()
-			} else {
-				rr.Status = res.Status
-				rr.DurationMs = int64(res.Timing.TotalMs)
-				rr.TestResults = res.TestResults
-				for _, t := range res.TestResults {
-					if !t.Pass {
-						rr.Failed = true
-						break
-					}
-				}
+	var mu sync.Mutex
+	canceled := false
+
+	// execute 单个任务：发送、聚合结果（mu 保护）、StopOnError 触发取消
+	execute := func(ctx context.Context, tk task) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		default:
+		}
+		node := tk.node
+		rr := runner.RequestResult{
+			Iteration: tk.iter + 1, RequestName: node.Name, NodeId: node.Id,
+		}
+		// 数据行注入为最高优先级变量覆盖（data 作用域）；CLI --env-file 变量
+		// 次之（同一 key 时数据行胜出），两者合并后整体高于环境变量
+		sendCtx := model.SendContext{
+			WorkspaceId: workspaceId, RequestId: node.Id,
+			EnvironmentId:     opts.EnvId,
+			VariableOverrides: runner.MergeOverrides(opts.EnvOverrides, tk.row),
+		}
+		requestSendId := fmt.Sprintf("%s-%d-%s", runId, tk.iter+1, node.Id)
+		res, serr := a.request.sendRequest(ctx, requestSendId, *node.Request, sendCtx)
+		if ctx.Err() != nil {
+			// 取消时也须释放本轮已注册的响应 blob，否则泄漏到应用关闭
+			if serr == nil {
 				_ = a.request.releaseResponseBlob(res.Body.BlobRef)
 			}
-			report.Results = append(report.Results, rr)
-			report.Total++
-			if rr.Failed {
-				report.Failed++
-				emit(rr.Iteration, node.Name, "fail")
-				if opts.StopOnError {
-					break loop
+			mu.Lock()
+			canceled = true
+			mu.Unlock()
+			return false
+		}
+		if serr != nil {
+			rr.Failed = true
+			rr.Error = serr.Error()
+		} else {
+			rr.Status = res.Status
+			rr.DurationMs = int64(res.Timing.TotalMs)
+			rr.TestResults = res.TestResults
+			for _, t := range res.TestResults {
+				if !t.Pass {
+					rr.Failed = true
+					break
 				}
-			} else {
-				report.Passed++
-				emit(rr.Iteration, node.Name, "pass")
+			}
+			_ = a.request.releaseResponseBlob(res.Body.BlobRef)
+		}
+		mu.Lock()
+		report.Results = append(report.Results, rr)
+		report.Total++
+		status := "pass"
+		if rr.Failed {
+			report.Failed++
+			status = "fail"
+		} else {
+			report.Passed++
+		}
+		mu.Unlock()
+		emit(rr.Iteration, node.Name, status)
+		if rr.Failed && opts.StopOnError {
+			return false // 通知调度方停止派发后续任务
+		}
+		return true
+	}
+
+	concurrency := opts.Concurrency
+	if concurrency > len(tasks) {
+		concurrency = len(tasks)
+	}
+	if concurrency > 1 {
+		// 并发压测模式：固定 worker 池；StopOnError 或取消时关闭任务通道
+		taskCh := make(chan task)
+		var wg sync.WaitGroup
+		stopCh := make(chan struct{})
+		for w := 0; w < concurrency; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case <-stopCh:
+						return
+					case tk, ok := <-taskCh:
+						if !ok {
+							return
+						}
+						if !execute(ctx, tk) {
+							select {
+							case <-stopCh:
+							default:
+								close(stopCh)
+							}
+							return
+						}
+					}
+				}
+			}()
+		}
+	dispatch:
+		for _, tk := range tasks {
+			select {
+			case <-stopCh:
+				break dispatch
+			case <-ctx.Done():
+				mu.Lock()
+				canceled = true
+				mu.Unlock()
+				break dispatch
+			case taskCh <- tk:
+			}
+		}
+		close(taskCh)
+		wg.Wait()
+	} else {
+		for _, tk := range tasks {
+			if !execute(ctx, tk) {
+				break
 			}
 		}
 	}
+	if canceled {
+		report.Canceled = true
+	}
+	// 结果按（迭代，树序）稳定排序：并发完成顺序不定，报告须可复现
+	sort.SliceStable(report.Results, func(i, j int) bool {
+		if report.Results[i].Iteration != report.Results[j].Iteration {
+			return report.Results[i].Iteration < report.Results[j].Iteration
+		}
+		return report.Results[i].NodeId < report.Results[j].NodeId
+	})
 	report.Skipped = total - report.Total
 	report.DurationMs = time.Since(start).Milliseconds()
 

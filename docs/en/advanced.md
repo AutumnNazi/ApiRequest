@@ -62,7 +62,7 @@ run_collection(target, options):
 
 - **Execution order**: flatten the tree in display order. Scripts may alter control flow with `pm.setNextRequest(name)` in a later phase.
 - **Data-driven runs**: inject one data-file row into the `data` scope on each iteration. See [variable resolution](./request-lifecycle.md#2-variable-resolution-and-template-engine) for precedence.
-- **Concurrency**: sequential by default because many APIs have state dependencies. Optional bounded concurrency may support load-oriented scenarios.
+- **Concurrency (implemented)**: sequential by default because many APIs have state dependencies. With a concurrency N > 1, (iteration, request) pairs run through a fixed worker pool — data rows still bind per iteration, results sort stably by (iteration, tree order), and StopOnError converges quickly via a cancel channel (in-flight tasks finish; undispatched tasks count as skipped).
 - **Cancellation**: every run owns a unique `runId`. Cancellation propagates to the active HTTP request and prevents later iterations. Closing an active Runner requires confirmation and cancellation so no background run is orphaned.
 - **Reports**: export structured results as JSON/HTML for CI. The CLI mode's exit code reflects the failure count (see the next section).
 

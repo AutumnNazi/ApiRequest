@@ -112,6 +112,8 @@ export const en: Record<string, string> = {
   '备份中…': 'Backing up...',
   '暂无备份': 'No backups yet',
   '已创建 {count} 个导入环境（{names}），可在左上角切换': 'Created {count} imported environment(s) ({names}); switch via the top-left selector',
+  '并发数': 'Concurrency',
+  '1 = 串行；>1 时按 (迭代, 请求) 粒度并行执行': '1 = sequential; >1 runs (iteration, request) pairs in parallel',
   '// 开头的行不会随请求发送': 'Lines starting with // are not sent with the request',
   '应用': 'Apply',
   '批量编辑': 'Bulk edit',

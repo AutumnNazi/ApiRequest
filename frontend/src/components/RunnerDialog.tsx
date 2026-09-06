@@ -31,6 +31,7 @@ interface Props {
 export default function RunnerDialog({ workspaceId, collectionId, collectionName, onClose }: Props) {
   const dialog = useDialog();
   const [iterations, setIterations] = useState(1);
+  const [concurrency, setConcurrency] = useState(1);
   const [dataFile, setDataFile] = useState('');
   const [dataFilePath, setDataFilePath] = useState('');
   const [dataFormat, setDataFormat] = useState<'csv' | 'json'>('csv');
@@ -112,6 +113,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
         dataFile: dataFile || undefined,
         dataFormat: dataFile ? dataFormat : undefined,
         stopOnError,
+        concurrency,
       });
       setReport(r);
     } catch (e) {
@@ -252,6 +254,18 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                   disabled={!!dataFile}
                 />
                 {dataFile && <span className="text-xs text-gray-400">{formatMessage('由数据文件行数决定')}</span>}
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-gray-600 w-24">{formatMessage('并发数')}</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={64}
+                  className="border rounded px-2 py-1 w-24"
+                  value={concurrency}
+                  onChange={(e) => setConcurrency(Math.max(1, Number(e.target.value) || 1))}
+                />
+                <span className="text-xs text-gray-400">{formatMessage('1 = 串行；>1 时按 (迭代, 请求) 粒度并行执行')}</span>
               </div>
               <div className="flex items-center gap-3">
                 <label className="text-gray-600 w-24">{formatMessage('数据文件')}</label>
