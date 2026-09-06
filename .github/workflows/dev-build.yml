@@ -48,6 +48,10 @@ jobs:
             exit 1
           fi
 
+      - name: Fuzz import parsers
+        # 导入内容视为不可信：每个 push 跑一轮短探测，崩溃语料进 testdata 后转为种子回归
+        run: go test ./backend/convert/ -run '^$' -fuzz FuzzImportParsers -fuzztime 60s
+
   race:
     name: Go race detector
     runs-on: ubuntu-latest
