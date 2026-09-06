@@ -69,6 +69,8 @@ function ActiveResponse({ tab }: { tab: Tab }) {
       sending={tab.sending}
       progress={progress}
       nodeId={tab.nodeId}
+      workspaceId={tab.workspaceId}
+      requestUrl={tab.draft.url}
     />
   );
 }

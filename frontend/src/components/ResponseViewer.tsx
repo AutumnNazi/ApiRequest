@@ -13,6 +13,7 @@ import {
   type RequestProgress,
 } from '../ipc';
 import { formatMessage, useLocale, Verbatim } from '../i18n/locale';
+import ResponseDiffDialog from './ResponseDiffDialog';
 import { useLatestTimeout } from '../hooks/useLatestTimeout';
 
 interface Props {
@@ -21,6 +22,8 @@ interface Props {
   sending: boolean;
   progress?: RequestProgress;
   nodeId?: string; // 已保存请求的节点 id（"保存为示例"需要）
+  workspaceId?: string; // 响应对比需要（历史查询）
+  requestUrl?: string; // 对比列表的搜索预填
 }
 
 const BODY_RENDER_CHAR_LIMIT = 500_000;
@@ -40,7 +43,7 @@ const errorKindLabel: Record<string, string> = {
 };
 
 // memo：App 在编辑请求草稿时频繁重渲染，ResponseViewer 仅依赖响应数据，无需跟着重渲染
-const ResponseViewer = memo(function ResponseViewer({ response, error, sending, progress, nodeId }: Props) {
+const ResponseViewer = memo(function ResponseViewer({ response, error, sending, progress, nodeId, workspaceId, requestUrl }: Props) {
   const locale = useLocale((state) => state.locale);
   const [pane, setPane] = useState<'body' | 'preview' | 'headers' | 'tests' | 'timing'>('body');
   const [raw, setRaw] = useState(false);
@@ -48,6 +51,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   // 当前命中的序号（整数下标，-1=无）；搜索词变化时重置
   const [searchIndex, setSearchIndex] = useState(-1);
   const [exampleSaved, setExampleSaved] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
   const clearExampleSaved = useLatestTimeout();
   const [savingExample, setSavingExample] = useState(false);
   const [exampleError, setExampleError] = useState('');
@@ -338,6 +342,17 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   const statusColor =
     response.status < 300 ? 'text-green-600' : response.status < 400 ? 'text-yellow-600' : 'text-red-600';
 
+  const diffBase = response
+   ? {
+    label: requestUrl ?? "",
+    status: response.status,
+    durationMs: Math.round(response.timing.totalMs),
+    sizeBytes: response.sizeBytes,
+    bodyText: response.body?.text ?? "",
+    blobRef: response.body?.blobRef,
+   }
+  : null;
+
   const tests = response.testResults ?? [];
   const passCount = tests.filter((t) => t.pass).length;
   const testsLabel =
@@ -360,6 +375,15 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
           <span className={passCount === tests.length ? 'text-green-600' : 'text-red-600'}>
             {passCount === tests.length ? '✓' : '✗'} {passCount}/{tests.length}
           </span>
+        )}
+        {workspaceId && response && (
+         <button
+          className="ml-auto text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-0.5"
+          title={formatMessage("与历史响应做行级对比")}
+          onClick={() => setShowDiff(true)}
+         >
+          {formatMessage("对比")}
+         </button>
         )}
         {nodeId && !response.body?.blobRef && (
           <button
@@ -522,6 +546,13 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
         )}
         {pane === 'timing' && <TimingBars t={response.timing} />}
       </div>
+      {showDiff && diffBase && workspaceId && (
+        <ResponseDiffDialog
+          workspaceId={workspaceId}
+          base={diffBase}
+          onClose={() => setShowDiff(false)}
+        />
+      )}
     </div>
   );
 });
