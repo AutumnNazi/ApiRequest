@@ -28,6 +28,8 @@ func main() {
 		os.Exit(cmdRun(os.Args[2:]))
 	case "list":
 		os.Exit(cmdList(os.Args[2:]))
+	case "export":
+		os.Exit(cmdExport(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -46,6 +48,19 @@ Usage:
 
   apirequest-cli run --collection <name|id> [flags]
       Run a collection and print a JSON report to stdout.
+
+  apirequest-cli export --collection <name|id> --format <fmt> [flags]
+      Export a collection headlessly (Postman/OpenAPI/cURL/HAR/Insomnia/.http...).
+
+Export flags:
+  --collection    collection name or id (required)
+  --format        export format id (postman | openapi | openapi3.1 | swagger2 |
+                  curl | restclient | har | insomnia)
+  --out           write to this file instead of stdout
+  --workspace     workspace name or id (default: first workspace)
+  --db            app data dir override (default: OS config dir)
+
+Export output is redacted: secret values never leave the local vault.
 
 Run flags:
   --collection    collection name or id (required)
@@ -133,6 +148,54 @@ func isDescendant(nodes []model.Node, n model.Node, ancestorId string) bool {
 		cur = parent
 	}
 	return false
+}
+
+// cmdExport 无头导出：复用桌面端 ConvertApi（含 collectTree + 脱敏），
+// 输出走 stdout 或 --out 文件。退出码 2 = 用法/找不到目标
+func cmdExport(args []string) int {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	collection := fs.String("collection", "", "")
+	format := fs.String("format", "postman", "")
+	outPath := fs.String("out", "", "")
+	workspace := fs.String("workspace", "", "")
+	dbDir := fs.String("db", "", "")
+	fs.Parse(args)
+
+	if *collection == "" {
+		fmt.Fprintln(os.Stderr, "--collection is required")
+		return 2
+	}
+
+	store, err := openStore(*dbDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "open store:", err)
+		return 2
+	}
+	defer store.Close()
+
+	_, colId, err := resolveTarget(store, *workspace, *collection)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+
+	// ConvertApi.ExportData 已走 redactExportTree：密钥值不落导出产物
+	api := binding.NewConvertApi(store)
+	data, err := api.ExportData(colId, *format)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "export:", err)
+		return 2
+	}
+	if *outPath != "" {
+		if werr := os.WriteFile(*outPath, []byte(data), 0o600); werr != nil {
+			fmt.Fprintln(os.Stderr, "write:", werr)
+			return 2
+		}
+		fmt.Fprintf(os.Stderr, "exported %s -> %s\n", *format, *outPath)
+		return 0
+	}
+	fmt.Print(data)
+	return 0
 }
 
 func cmdRun(args []string) int {

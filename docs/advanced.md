@@ -82,3 +82,4 @@ apirequest-cli run --collection <名称|id> [--workspace <名称|id>]
 - **环境选择**：`--env` 按名称或 id 选择工作区内环境（重名时报歧义错误）；缺省用该工作区的激活环境。CI 场景推荐 `--env-file`：JSON 对象 `{"KEY": "value"}`，非字符串值显式拒绝（提示加引号）。变量优先级：数据行 > env-file > 环境变量 > 全局变量。
 - **CI 集成**：退出码 = 失败请求数（上限 100），2 = 用法/准备错误；`--junit` 输出 JUnit XML（GitHub Actions test-report 等可直接消费），因 `--stop-on-error` 或取消跳过的请求计入 `skipped` 属性、不产生 testcase；`--report` 输出完整 JSON。
 - `apirequest-cli list` 列出工作区与集合（含请求计数），用于发现 `--collection` 参数。
+- **无头导出（已实现）**：`apirequest-cli export --collection <名称|id> --format <fmt> [--out file] [--workspace <名称|id>] [--db <dir>]`，格式同桌面端导出（postman/openapi/openapi3.1/swagger2/curl/restclient/har/insomnia）；输出走 stdout 或 `--out` 文件（0600），与桌面端同路径脱敏——密钥值不进产物。适合把本地库集合并入流水线或脚本化备份为交换格式。
