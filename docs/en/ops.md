@@ -61,7 +61,7 @@ func (e *AppError) Error() string { return string(e.Kind) + ": " + e.Detail }
 | Script engine tests | `pm.*` behavior, assertions, timeouts, and isolation | `go test` |
 | Frontend unit tests | Store logic, IPC wrappers, and pure components | Vitest + Testing Library |
 | E2E | Critical flow: create request -> send -> inspect response -> save to collection | Wails + Playwright/WebDriver |
-| Cross-platform smoke | Windows/macOS builds launch, send one request, and read/write the application-data directory | CI matrix |
+| Cross-platform smoke | Windows/macOS builds launch, send one request, and read/write the application-data directory | CI matrix (the desktop job includes a CLI core-path smoke: platform data-dir resolution, keychain fallback, engine, and Runner) |
 
 Keep core invariants in pure Go functions so they can receive high unit-test coverage without the UI.
 

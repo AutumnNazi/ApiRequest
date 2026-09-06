@@ -81,7 +81,7 @@ The remaining work is deliberately incremental rather than a second rewrite. Bid
 
 - ~~Field-level sync merge~~ implemented ([ADR-017](./decisions.md): three-way merge + local baseline + conflict list, see sync.md).
 - In-app updates: the signed updater protocol and rollback policy are captured in [ADR-018](./decisions.md); until implementation, the "check and redirect only" behavior stays.
-- Expand end-to-end desktop smoke coverage for native dialogs, keychain fallback, signed artifacts, and update-manifest consumption.
+- ~~Desktop smoke coverage~~ expanded: the desktop CI matrix includes a CLI core-path smoke (platform data dirs, keychain fallback, engine/Runner); pure-GUI interactions such as native dialogs remain covered by the interactive smoke per ops.md.
 
 ---
 

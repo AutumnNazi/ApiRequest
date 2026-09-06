@@ -203,6 +203,10 @@ jobs:
             wails build -m -trimpath -platform "${{ matrix.platform }}"
           fi
 
+      - name: Cross-platform smoke (platform paths / keychain fallback / engine)
+        shell: bash
+        run: go test ./cmd/cli/ -run TestCliSmoke -v
+
       - name: Install WiX Toolset
         if: matrix.kind == 'windows'
         shell: pwsh
