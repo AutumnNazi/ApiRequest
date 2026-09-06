@@ -34,6 +34,10 @@ export function LockVault() {
   return window['go']['binding']['SettingsApi']['LockVault']();
 }
 
+export function RecordStartup(arg1) {
+  return window['go']['binding']['SettingsApi']['RecordStartup'](arg1);
+}
+
 export function RefreshSystemProxy() {
   return window['go']['binding']['SettingsApi']['RefreshSystemProxy']();
 }
@@ -52,6 +56,10 @@ export function SetRawSetting(arg1, arg2) {
 
 export function SetTLSSettings(arg1) {
   return window['go']['binding']['SettingsApi']['SetTLSSettings'](arg1);
+}
+
+export function StartupMs() {
+  return window['go']['binding']['SettingsApi']['StartupMs']();
 }
 
 export function StorageStats() {

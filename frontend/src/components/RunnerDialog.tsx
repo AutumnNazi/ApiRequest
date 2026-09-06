@@ -32,6 +32,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
   const dialog = useDialog();
   const [iterations, setIterations] = useState(1);
   const [concurrency, setConcurrency] = useState(1);
+  const [delayMs, setDelayMs] = useState(0);
   const [dataFile, setDataFile] = useState('');
   const [dataFilePath, setDataFilePath] = useState('');
   const [dataFormat, setDataFormat] = useState<'csv' | 'json'>('csv');
@@ -114,6 +115,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
         dataFormat: dataFile ? dataFormat : undefined,
         stopOnError,
         concurrency,
+        delayMs,
       });
       setReport(r);
     } catch (e) {
@@ -266,6 +268,18 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                   onChange={(e) => setConcurrency(Math.max(1, Number(e.target.value) || 1))}
                 />
                 <span className="text-xs text-gray-400">{formatMessage('1 = 串行；>1 时按 (迭代, 请求) 粒度并行执行')}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-gray-600 w-24">{formatMessage('请求间隔 (ms)')}</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={60000}
+                  className="border rounded px-2 py-1 w-24"
+                  value={delayMs}
+                  onChange={(e) => setDelayMs(Math.max(0, Number(e.target.value) || 0))}
+                />
+                <span className="text-xs text-gray-400">{formatMessage('0 = 不等待；串行时插在相邻请求之间，并发时插在每个工作流的任务之间')}</span>
               </div>
               <div className="flex items-center gap-3">
                 <label className="text-gray-600 w-24">{formatMessage('数据文件')}</label>

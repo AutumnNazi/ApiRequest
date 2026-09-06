@@ -152,6 +152,15 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 			return false
 		default:
 		}
+		// think-time：任务开始前等待（串行=请求之间；并发=各 worker 的任务之间）。
+		// 放 execute 而非调度方：两条路径共用，且 ctx 取消能立即打断等待
+		if opts.DelayMs > 0 {
+			select {
+			case <-time.After(time.Duration(opts.DelayMs) * time.Millisecond):
+			case <-ctx.Done():
+				return false
+			}
+		}
 		node := tk.node
 		rr := runner.RequestResult{
 			Iteration: tk.iter + 1, RequestName: node.Name, NodeId: node.Id,

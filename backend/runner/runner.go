@@ -20,6 +20,9 @@ type Options struct {
 	EnvId        string            `json:"envId,omitempty"`        // 指定环境（CLI --env）；空 = 工作区激活环境
 	EnvOverrides map[string]string `json:"envOverrides,omitempty"` // CLI --env-file 注入的变量（优先级高于环境变量，低于数据行）
 	Concurrency  int               `json:"concurrency,omitempty"`  // 并发工作协程数；<=1 串行（压测场景）
+	// DelayMs 相邻请求间的等待毫秒（think-time）：串行=任务之间；并发=每个 worker 的任务之间。
+	// 压测速率控制（与迭代数配合逼近目标 RPS）；0 = 不等待
+	DelayMs int `json:"delayMs,omitempty"`
 }
 
 // MergeOverrides 合并 CLI 环境文件变量与数据行：数据行优先（同 key 覆盖）。

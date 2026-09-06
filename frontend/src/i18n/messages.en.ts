@@ -117,6 +117,8 @@ export const en: Record<string, string> = {
   '暂无备份': 'No backups yet',
   '已创建 {count} 个导入环境（{names}），可在左上角切换': 'Created {count} imported environment(s) ({names}); switch via the top-left selector',
   '并发数': 'Concurrency',
+  '请求间隔 (ms)': 'Request delay (ms)',
+  '0 = 不等待；串行时插在相邻请求之间，并发时插在每个工作流的任务之间': '0 = no wait; sequential inserts it between adjacent requests, concurrent inserts it between tasks of each worker',
   '订阅': 'Subscribe',
   '订阅查询': 'Subscription query',
   'graphql-transport-ws 订阅：一个会话一条订阅': 'graphql-transport-ws subscription: one operation per session',

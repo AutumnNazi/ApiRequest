@@ -52,6 +52,7 @@ Run flags:
   --workspace     workspace name or id (default: first workspace)
   --data          CSV/JSON data file path (per-row iteration)
   --iterations    iteration count when no data file (default 1)
+  --delay         milliseconds between requests (think-time; 0 = none)
   --stop-on-error stop at first failure
   --report        also write JSON report to this file
   --junit         also write a JUnit XML report to this file (CI test reporting)
@@ -146,6 +147,7 @@ func cmdRun(args []string) int {
 	envFile := fs.String("env-file", "", "")
 	junitPath := fs.String("junit", "", "")
 	dbDir := fs.String("db", "", "")
+	delayMs := fs.Int("delay", 0, "")
 	fs.Parse(args)
 
 	if *collection == "" {
@@ -194,6 +196,7 @@ func cmdRun(args []string) int {
 		StopOnError:  *stopOnError,
 		EnvId:        envId,
 		EnvOverrides: envOverrides,
+		DelayMs:      *delayMs,
 	}
 	if *dataFile != "" {
 		content, err := os.ReadFile(*dataFile)

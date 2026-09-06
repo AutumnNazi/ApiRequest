@@ -64,6 +64,7 @@ run_collection(target, options):
 - **执行顺序（已实现）**：按树的显示顺序展开；测试脚本可用 `pm.setNextRequest(name)` 在当前迭代行内跳转或循环（Postman 语义：不跨迭代行，传 null/空串清除回到自然顺序，未知名也回到自然顺序）。仅在串行模式下生效——并发压测的语义是全量并行，流控无意义；跳转步数有上限（200），自环会在上限处终止而不是挂死。
 - **数据驱动**：每轮把数据文件一行注入 `data` 作用域（优先级见[变量解析](./request-lifecycle.md#2-变量解析与模板引擎)）。
 - **并发（已实现）**：默认串行（多数接口有状态依赖）；设置并发数 N>1 后按 (迭代, 请求) 粒度经工作协程池并行执行——数据行仍按迭代绑定，结果按（迭代，树序）稳定排序，StopOnError 通过取消通道尽快收敛（在途任务跑完，未派发任务计入 skipped）。
+- **请求间隔（已实现）**：`delayMs` 设为 >0 时相邻请求间插入等待（think-time）：串行=插在相邻请求之间，并发=插在每个 worker 的任务之间；用于压测速率控制（逼近目标 RPS）或对限流接口的礼貌节流。CLI 对应 `--delay`。
 - **取消**：每次运行拥有唯一 `runId`；取消会传播到当前 HTTP 请求并阻止后续迭代。关闭运行中的 Runner 前必须确认并取消，不能留下无主后台任务。
 - **报告**：结构化结果可导出 JSON/HTML，供 CI 消费；CLI 模式的退出码反映失败数（见下节）。
 
@@ -73,7 +74,7 @@ run_collection(target, options):
 
 ```bash
 apirequest-cli run --collection <名称|id> [--workspace <名称|id>]
-  [--data <file>] [--iterations N] [--stop-on-error]
+  [--data <file>] [--iterations N] [--delay <ms>] [--stop-on-error]
   [--env <名称|id>] [--env-file env.json]
   [--report report.json] [--junit junit.xml] [--db <dir>]
 ```

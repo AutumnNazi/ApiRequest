@@ -21,6 +21,8 @@ export function ListBackups():Promise<Array<model.BackupInfo>>;
 
 export function LockVault():Promise<secrets.Status>;
 
+export function RecordStartup(arg1:number):Promise<void>;
+
 export function RefreshSystemProxy():Promise<binding.NetworkStatus>;
 
 export function RunBackup():Promise<string>;
@@ -30,6 +32,8 @@ export function SetProxySettings(arg1:binding.ProxySettings):Promise<void>;
 export function SetRawSetting(arg1:string,arg2:string):Promise<void>;
 
 export function SetTLSSettings(arg1:httpengine.TLSSettings):Promise<void>;
+
+export function StartupMs():Promise<number>;
 
 export function StorageStats():Promise<model.StorageStats>;
 
