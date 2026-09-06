@@ -14,6 +14,7 @@ Use a common Adapter interface for every converter:
 
 - **Import**: Postman v2.1, OpenAPI 3.x / Swagger 2, cURL commands, HAR, and Insomnia.
 - **Export**: Postman v2.1, OpenAPI, cURL, and code snippets.
+- **REST Client (.http)** (implemented): export a collection as a `.http` request set (compatible with VS Code REST Client and JetBrains HTTP client), and import `.http` text (blocks split by `###` or method lines; detected by auto)
 
 Generate HTTP code from the internal model for cURL, JavaScript (fetch/axios), Python (requests), Go, Java, Rust, PHP, and other targets. Extend the matrix through templates and a generator interface.
 

@@ -14,6 +14,7 @@
 
 - **导入**：Postman v2.1、OpenAPI 3.x / Swagger 2、cURL 命令、HAR、Insomnia。
 - **导出**：Postman v2.1、OpenAPI、cURL、代码片段。
+- **REST Client (.http)**（已实现）：集合导出为 `.http` 请求集（VS Code REST Client / JetBrains HTTP client 通用），也可导入 `.http` 文本（按 `###` 或方法行分块，auto 识别）
 
 内部模型 → 各语言 HTTP 代码：cURL、JavaScript(fetch/axios)、Python(requests)、Go、Java、Rust、PHP 等。以模板 + 生成器接口扩展。
 

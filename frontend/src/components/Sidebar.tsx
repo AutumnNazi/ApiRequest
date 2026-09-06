@@ -38,6 +38,7 @@ const EXPORT_FORMATS = [
   { value: 'openapi3.1', label: 'OpenAPI 3.1.0' },
   { value: 'swagger2', label: 'Swagger 2.0' },
   { value: 'curl', label: 'cURL' },
+  { value: 'restclient', label: 'REST Client (.http)' },
 ];
 
 // 稳定的空数组：作为 nodesQuery.data 的兜底值，避免每次渲染产生新引用
