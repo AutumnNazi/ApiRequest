@@ -48,6 +48,17 @@ func TestCliRunEndToEnd(t *testing.T) {
 	}
 	mkReq("ok", "/ok", `pm.test('200', function(){ pm.expect(pm.response.code).to.equal(200); });`, 10)
 	mkReq("fails", "/fail", `pm.test('should be 200', function(){ pm.expect(pm.response.code).to.equal(200); });`, 20)
+	// 两个环境：dev 激活，staging 未激活 —— list 应显示两者并标出激活态
+	envDev, err := store.UpsertEnvironment(model.Environment{WorkspaceId: ws.Id, Name: "dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertEnvironment(model.Environment{WorkspaceId: ws.Id, Name: "staging"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetActiveEnvironment(ws.Id, envDev.Id); err != nil {
+		t.Fatal(err)
+	}
 	store.Close()
 
 	// 编译 CLI
@@ -65,6 +76,12 @@ func TestCliRunEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "smoke") {
 		t.Errorf("list output missing collection: %s", out)
+	}
+	if !strings.Contains(string(out), "env: dev") || !strings.Contains(string(out), "env: staging") {
+		t.Errorf("list output missing environments: %s", out)
+	}
+	if !strings.Contains(string(out), "active") {
+		t.Errorf("list output missing active marker: %s", out)
 	}
 
 	// run 子命令：1 个断言失败 → 退出码 1；--html 同步产出 HTML 报告

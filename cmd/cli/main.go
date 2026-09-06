@@ -142,6 +142,19 @@ func cmdList(args []string) int {
 				fmt.Printf("  collection: %-24s %d requests  (%s)\n", n.Name, count, n.Id)
 			}
 		}
+		// 环境一并列出：帮助发现 run 的 --env 参数（名称或 id）
+		envs, err := store.ListEnvironments(w.Id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "list environments: %v\n", err)
+			continue
+		}
+		for _, e := range envs {
+			active := ""
+			if e.IsActive {
+				active = "  [active]"
+			}
+			fmt.Printf("  env: %-24s%s  (%s)\n", e.Name, active, e.Id)
+		}
 	}
 	return 0
 }
