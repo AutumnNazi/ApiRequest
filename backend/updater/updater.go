@@ -63,6 +63,7 @@ type CheckResult struct {
 	LatestVersion string `json:"latestVersion,omitempty"`
 	NotesURL      string `json:"notesUrl,omitempty"`
 	DownloadURL   string `json:"downloadUrl,omitempty"`
+	SHA256        string `json:"sha256,omitempty"` // 平台安装包校验和（下载后复验）
 	Detail        string `json:"detail,omitempty"`
 }
 
@@ -176,6 +177,7 @@ func Check(ctx context.Context, cfg Config) (*CheckResult, error) {
 		res.Status = StatusAvailable
 		if entry, ok := manifest.Platforms[platformKey(cfg.Platform)]; ok {
 			res.DownloadURL = entry.URL
+			res.SHA256 = entry.SHA256
 		} else {
 			res.Detail = "该平台暂无自动更新包，请到下载页获取"
 		}

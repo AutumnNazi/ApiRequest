@@ -1533,6 +1533,7 @@ export namespace updater {
 	    latestVersion?: string;
 	    notesUrl?: string;
 	    downloadUrl?: string;
+	    sha256?: string;
 	    detail?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -1545,6 +1546,7 @@ export namespace updater {
 	        this.latestVersion = source["latestVersion"];
 	        this.notesUrl = source["notesUrl"];
 	        this.downloadUrl = source["downloadUrl"];
+	        this.sha256 = source["sha256"];
 	        this.detail = source["detail"];
 	    }
 	}

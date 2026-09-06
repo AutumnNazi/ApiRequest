@@ -94,6 +94,8 @@ export const en: Record<string, string> = {
   '发现新版本 {version}：当前版本低于最低自动升级线，请手动安装': 'New version {version}: current version is below the auto-update floor, please install manually',
   '更新清单签名验证失败，已拒绝本次内容': 'Update manifest signature verification failed; content rejected',
   '打开下载页': 'Open download page',
+  '下载并安装（重启后生效）': 'Download & install (applies after restart)',
+  '下载并校验中…': 'Downloading & verifying...',
   'Esc 取消': 'Esc to cancel',
   '按下新组合键…': 'Press the new key combination...',
   '点击后按下新组合键': 'Click, then press the new combination',

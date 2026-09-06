@@ -32,7 +32,7 @@ func (restClientImporter) Detect(payload string) bool {
 }
 
 // isHeaderLine 判定是否 header 行：冒号前必须是合法 header token
-//（RFC 9110 tchar：不含空格与分隔符，排除 JSON body 被误判）
+// （RFC 9110 tchar：不含空格与分隔符，排除 JSON body 被误判）
 func isHeaderLine(line string) bool {
 	idx := strings.Index(line, ":")
 	if idx <= 0 {

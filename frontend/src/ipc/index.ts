@@ -318,6 +318,7 @@ export const listRemoteWorkspaces = () => call(() => SyncApi.ListRemoteWorkspace
 export const importRemoteWorkspace = (workspaceId: string) =>
   call(() => SyncApi.ImportRemoteWorkspace(workspaceId));
 export const checkForUpdates = () => call(() => UpdateApi.CheckForUpdates());
+export const applyVerifiedUpdate = () => call(() => UpdateApi.ApplyVerifiedUpdate());
 export const getRawSetting = (key: string) => call(() => SettingsApi.GetRawSetting(key));
 export const storageStats = () => call(() => SettingsApi.StorageStats());
 export const vacuumDb = () => call(() => SettingsApi.VacuumDb());

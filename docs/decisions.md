@@ -165,7 +165,7 @@
 
 - **背景**：Wails 无内置的签名更新链路，需要自行搭建。
 - **当前决定（2026-08-04）**：发布 workflow 只公开安装包与 `SHA256SUMS`；设置页只检查并打开官方 GitHub release 下载页。签名验证协议落地前，不发布更新 manifest，也不执行静默二进制替换。
-- **阶段性决策（2026-09-06）**：签名验证链已实施（`backend/updater`：渠道 manifest + ed25519 验签 + 版本 floor 比对；签名工具 `cmd/updatetool`）。默认关闭——设置页配置 `update.manifestUrl` 后"检查更新"才可用，结果仅展示，不下载不替换；静默替换与回滚仍按 [ADR-018](#adr-018-签名更新协议manifest--ed25519--渠道文件--双阶段原子替换倾向未实施) 留待实施排期。
+- **阶段性决策（2026-09-06）**：签名验证链与替换回滚均已实施（`backend/updater`：渠道 manifest + ed25519 验签 + 版本 floor 比对 + sha256 下载校验 + 两阶段替换/回滚；签名工具 `cmd/updatetool`）。默认关闭——设置页配置 `update.manifestUrl` 后"检查更新 / 下载并安装"才可用。unix 直接同卷换入（重启生效）；Windows 写 `pending-update` 标记、重启时启动钩子校验→备份→换入，失败回滚并清标记。发布侧仍需生成密钥对并内置公钥（`updatetool keygen`）。
 
 ---
 

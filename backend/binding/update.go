@@ -7,8 +7,13 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 
 	"apirequest/backend/model"
+	"apirequest/backend/platform"
 	"apirequest/backend/storage"
 	"apirequest/backend/updater"
 	"apirequest/backend/version"
@@ -30,6 +35,59 @@ type UpdateApi struct {
 
 // NewUpdateApi 构造
 func NewUpdateApi(store *storage.Store) *UpdateApi { return &UpdateApi{store: store} }
+
+// ApplyVerifiedUpdate 编排 ADR-018 全链路：检查 → 下载 → 校验 → 换入/登记。
+// unix：直接换入（调用方提示用户重启应用）；windows：写 pending-update 标记，
+// 重启时由 startup 的 ApplyPendingUpdate 完成。需要先配置更新源。
+func (a *UpdateApi) ApplyVerifiedUpdate() (*updater.CheckResult, error) {
+	check, err := a.CheckForUpdates()
+	if err != nil {
+		return nil, err
+	}
+	if check.Status != updater.StatusAvailable || check.DownloadURL == "" {
+		return check, nil
+	}
+	paths, pathErr := platform.ResolvePaths()
+	if pathErr != nil {
+		return nil, model.WrapError(model.KindStorage, pathErr)
+	}
+	updatesDir := filepath.Join(paths.Data, "updates")
+	pkgName := fmt.Sprintf("apirequest-%s-%s%s", runtime.GOOS, runtime.GOARCH, installerExt())
+	pkgPath, err := updater.Download(updater.DownloadConfig{
+		URL:       check.DownloadURL,
+		SHA256Hex: check.SHA256,
+		DestDir:   updatesDir,
+		Name:      pkgName,
+	})
+	if err != nil {
+		return nil, err
+	}
+	exePath, exeErr := os.Executable()
+	if exeErr != nil {
+		return nil, model.WrapError(model.KindStorage, exeErr)
+	}
+	if runtime.GOOS == "windows" {
+		err = updater.StagePendingUpdate(updater.PendingUpdate{
+			PackagePath: pkgPath, TargetPath: exePath, SHA256Hex: check.SHA256,
+		})
+		check.Detail = "已就绪；重启应用后自动完成更新"
+	} else {
+		err = updater.ApplyNow(pkgPath, exePath, check.SHA256)
+		check.Detail = "已换入新版本；重启应用即生效"
+	}
+	if err != nil {
+		return check, err
+	}
+	return check, nil
+}
+
+// installerExt 平台安装包后缀（manifest 条目命名约定）
+func installerExt() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
 
 // CheckForUpdates 执行一次签名验证的更新检查。
 // 未配置更新源（update.manifestUrl setting）时返回 Validation 错误——

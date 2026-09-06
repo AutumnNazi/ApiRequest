@@ -26,6 +26,7 @@ import {
   listRemoteWorkspaces,
   importRemoteWorkspace,
   checkForUpdates,
+  applyVerifiedUpdate,
   getRawSetting,
   setRawSetting,
   storageStats,
@@ -82,6 +83,7 @@ export default function SettingsDialog({ onClose }: Props) {
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
   const [updateError, setUpdateError] = useState('');
   const [checking, setChecking] = useState(false);
+  const [applying, setApplying] = useState(false);
   const hotkeysQuery = useQuery({ queryKey: ['hotkeys'], queryFn: () => getRawSetting('hotkeys') });
   const [hotkeyOverride, setHotkeyOverride] = useState<Partial<HotkeyMap>>({});
   const hotkeys: HotkeyMap = { ...parseHotkeySettings(hotkeysQuery.data), ...hotkeyOverride };
@@ -714,9 +716,25 @@ export default function SettingsDialog({ onClose }: Props) {
                         <p className="font-medium">{formatMessage('更新清单签名验证失败，已拒绝本次内容')}</p>
                       )}
                       {updateResult.detail && <p><Verbatim value={updateResult.detail} /></p>}
+                      {updateResult.status === 'available' && updateResult.downloadUrl && (
+                        <button
+                          className="text-blue-600 hover:underline font-medium"
+                          disabled={applying}
+                          onClick={() => {
+                            setApplying(true);
+                            setUpdateError('');
+                            applyVerifiedUpdate()
+                              .then((r) => setUpdateResult(r))
+                              .catch((cause) => setUpdateError(toAppError(cause).detail))
+                              .finally(() => setApplying(false));
+                          }}
+                        >
+                          {applying ? formatMessage('下载并校验中…') : formatMessage('下载并安装（重启后生效）')}
+                        </button>
+                      )}
                       {(updateResult.downloadUrl || updateResult.notesUrl) && (
                         <button
-                          className="text-blue-600 hover:underline"
+                          className="text-gray-500 hover:underline"
                           onClick={() => void openReleasePage()}
                         >
                           {formatMessage('打开下载页')}

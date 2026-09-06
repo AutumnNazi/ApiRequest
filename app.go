@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"apirequest/backend/platform"
 	"apirequest/backend/protocol"
 	"apirequest/backend/storage"
+	"apirequest/backend/updater"
 )
 
 // App 聚合各领域绑定与生命周期
@@ -90,6 +92,10 @@ func (a *App) startup(ctx context.Context) {
 	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql, a.Sync, a.Dialog, a.Lifecycle)
 	// 30s 检查一次是否到期；实际间隔由各工作区 intervalMinutes 决定
 	a.stopAutoSync = a.Sync.StartAutoSync(30 * time.Second)
+	// ADR-018：应用上一轮登记的 pending 更新（校验→备份→换入），失败记日志并回滚
+	if err := updater.ApplyPendingUpdate(updaterExePath()); err != nil {
+		log.Printf("apply pending update: %v", err)
+	}
 	// 每日滚动备份（24h 内已有快照则跳过）：异步执行，失败只记日志不阻塞启动
 	go func() {
 		paths, err := platform.ResolvePaths()
@@ -118,4 +124,14 @@ func (a *App) shutdown(ctx context.Context) {
 	a.protocols.CloseAll()
 	grpcclient.CloseAllStreams()
 	a.store.Close()
+}
+
+// updaterExePath 当前可执行文件路径（pending 更新的替换目标）
+func updaterExePath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("resolve executable: %v", err)
+		return ""
+	}
+	return exe
 }
