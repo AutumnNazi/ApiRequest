@@ -26,3 +26,17 @@ type RunnerRunPage struct {
 	NextCursor string             `json:"nextCursor,omitempty"`
 	HasMore    bool               `json:"hasMore"`
 }
+
+// StorageStats 存储体检快照（设置页"存储"分区展示）
+type StorageStats struct {
+	Workspaces   int64 `json:"workspaces"`
+	Nodes        int64 `json:"nodes"`
+	Examples     int64 `json:"examples"`
+	Environments int64 `json:"environments"`
+	History      int64 `json:"history"`
+	RunnerRuns   int64 `json:"runnerRuns"`
+	BlobFiles    int64 `json:"blobFiles"`
+	BlobBytes    int64 `json:"blobBytes"`
+	DbBytes      int64 `json:"dbBytes"`
+	WalBytes     int64 `json:"walBytes"`
+}

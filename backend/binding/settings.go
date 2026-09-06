@@ -46,6 +46,19 @@ func NewSettingsApi(store *storage.Store, engine *httpengine.Engine) *SettingsAp
 }
 
 // GetVaultStatus reports which Secret Vault Adapter is available.
+// StorageStats 存储体检（设置页"存储"分区）
+func (a *SettingsApi) StorageStats() (model.StorageStats, error) {
+	return a.store.StorageStats()
+}
+
+// VacuumDb 显式回收数据库空间（VACUUM）
+func (a *SettingsApi) VacuumDb() error {
+	if err := a.store.Vacuum(); err != nil {
+		return model.WrapError(model.KindStorage, err)
+	}
+	return nil
+}
+
 // GetRawSetting / SetRawSetting：前端可读写的一般性设置项（自定义快捷键、
 // 更新源等）。与专用设置（代理/TLS/同步）并存；key 不做白名单——本地库
 // 本就归应用所有，敏感值（凭据类）从不经此路径存储。

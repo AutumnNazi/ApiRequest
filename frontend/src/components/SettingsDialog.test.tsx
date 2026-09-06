@@ -22,6 +22,11 @@ const ipc = vi.hoisted(() => ({
   importRemoteWorkspace: vi.fn(),
   getRawSetting: vi.fn(() => Promise.resolve('')),
   setRawSetting: vi.fn(() => Promise.resolve(null)),
+  storageStats: vi.fn(() => Promise.resolve({
+    workspaces: 1, nodes: 0, examples: 0, environments: 0, history: 0, runnerRuns: 0,
+    blobFiles: 0, blobBytes: 0, dbBytes: 1024, walBytes: 0,
+  })),
+  vacuumDb: vi.fn(() => Promise.resolve(null)),
 }));
 
 vi.mock('../ipc', () => ({

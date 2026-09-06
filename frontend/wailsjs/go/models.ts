@@ -1096,6 +1096,36 @@ export namespace model {
 	        this.variableOverrides = source["variableOverrides"];
 	    }
 	}
+	export class StorageStats {
+	    workspaces: number;
+	    nodes: number;
+	    examples: number;
+	    environments: number;
+	    history: number;
+	    runnerRuns: number;
+	    blobFiles: number;
+	    blobBytes: number;
+	    dbBytes: number;
+	    walBytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new StorageStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.workspaces = source["workspaces"];
+	        this.nodes = source["nodes"];
+	        this.examples = source["examples"];
+	        this.environments = source["environments"];
+	        this.history = source["history"];
+	        this.runnerRuns = source["runnerRuns"];
+	        this.blobFiles = source["blobFiles"];
+	        this.blobBytes = source["blobBytes"];
+	        this.dbBytes = source["dbBytes"];
+	        this.walBytes = source["walBytes"];
+	    }
+	}
 	
 	
 	

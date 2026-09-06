@@ -28,8 +28,12 @@ import {
   checkForUpdates,
   getRawSetting,
   setRawSetting,
+  storageStats,
+  vacuumDb,
+  type StorageStats,
 } from '../ipc';
 import { eventCombo, formatCombo, parseHotkeySettings, detectPlatform, isSafeCombo, type HotkeyMap } from '../utils/hotkeys';
+import { formatSize } from '../utils/formatSize';
 import { useLocale, Verbatim, formatMessage, type Locale } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 import ModalFrame from './ModalFrame';
@@ -47,13 +51,14 @@ const tlsFields: Array<[keyof TLSSettings, string, string]> = [
   ['clientKeyPath', '客户端私钥', '选择客户端私钥'],
 ];
 
-type Category = 'general' | 'security' | 'network' | 'hotkeys' | 'sync' | 'about';
+type Category = 'general' | 'security' | 'network' | 'hotkeys' | 'storage' | 'sync' | 'about';
 
 const categories: Array<[Category, string]> = [
   ['general', '通用'],
   ['security', '安全'],
   ['network', '网络'],
   ['hotkeys', '快捷键'],
+  ['storage', '存储'],
   ['sync', '同步'],
   ['about', '关于'],
 ];
@@ -79,6 +84,8 @@ export default function SettingsDialog({ onClose }: Props) {
   const hotkeys: HotkeyMap = { ...parseHotkeySettings(hotkeysQuery.data), ...hotkeyOverride };
   const [capturing, setCapturing] = useState<string | null>(null);
   const [hotkeyHint, setHotkeyHint] = useState('');
+  const statsQuery = useQuery({ queryKey: ['storage-stats'], queryFn: storageStats });
+  const [vacuuming, setVacuuming] = useState(false);
   const [vault, setVault] = useState<VaultStatus | null>(null);
   const [vaultPassword, setVaultPassword] = useState('');
   const [vaultBusy, setVaultBusy] = useState(false);
@@ -451,6 +458,69 @@ export default function SettingsDialog({ onClose }: Props) {
                 <p className="text-xs text-gray-400 leading-relaxed">
                   {formatMessage('组合需包含 Ctrl/Cmd（或使用 F1-F12），避免与输入冲突；保存即时生效。')}
                 </p>
+              </div>
+            )}
+
+            {/* 存储 */}
+            {cat === 'storage' && (
+              <div className="space-y-3 text-xs">
+                {statsQuery.isPending && <p className="text-gray-400">{formatMessage('加载中…')}</p>}
+                {statsQuery.data && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        ['工作区', statsQuery.data.workspaces],
+                        ['节点', statsQuery.data.nodes],
+                        ['示例', statsQuery.data.examples],
+                        ['环境', statsQuery.data.environments],
+                        ['历史记录', statsQuery.data.history],
+                        ['运行报告', statsQuery.data.runnerRuns],
+                      ] as Array<[string, number]>
+                    ).map(([label, value]) => (
+                      <div key={label} className="flex justify-between border rounded px-3 py-2">
+                        <span className="text-gray-500">{formatMessage(label)}</span>
+                        <span className="font-mono text-gray-800">{value}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between border rounded px-3 py-2 col-span-2">
+                      <span className="text-gray-500">{formatMessage('数据库文件')}</span>
+                      <span className="font-mono text-gray-800">{formatSize(statsQuery.data.dbBytes)}</span>
+                    </div>
+                    <div className="flex justify-between border rounded px-3 py-2 col-span-2">
+                      <span className="text-gray-500">{formatMessage('WAL 日志')}</span>
+                      <span className="font-mono text-gray-800">{formatSize(statsQuery.data.walBytes)}</span>
+                    </div>
+                    <div className="flex justify-between border rounded px-3 py-2 col-span-2">
+                      <span className="text-gray-500">{formatMessage('大响应 blob')}</span>
+                      <span className="font-mono text-gray-800">
+                        {statsQuery.data.blobFiles} · {formatSize(statsQuery.data.blobBytes)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    className="border rounded px-3 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    disabled={vacuuming}
+                    onClick={() => {
+                      void dialog.confirm(
+                        formatMessage('执行 VACUUM 回收已删除数据占用的空间？可能短暂卡顿。'),
+                      ).then((ok) => {
+                        if (!ok) return;
+                        setVacuuming(true);
+                        vacuumDb()
+                          .then(() => qc.invalidateQueries({ queryKey: ['storage-stats'] }))
+                          .catch((cause) => setError(toAppError(cause).detail))
+                          .finally(() => setVacuuming(false));
+                      });
+                    }}
+                  >
+                    {vacuuming ? formatMessage('执行中…') : formatMessage('回收空间（VACUUM）')}
+                  </button>
+                  <span className="text-gray-400">
+                    {formatMessage('保留策略清理的行不会自动缩小库文件，VACUUM 显式回收。')}
+                  </span>
+                </div>
               </div>
             )}
 

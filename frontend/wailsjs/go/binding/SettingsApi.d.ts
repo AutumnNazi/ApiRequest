@@ -3,6 +3,7 @@
 import {binding} from '../models';
 import {httpengine} from '../models';
 import {secrets} from '../models';
+import {model} from '../models';
 
 export function GetNetworkStatus():Promise<binding.NetworkStatus>;
 
@@ -24,4 +25,8 @@ export function SetRawSetting(arg1:string,arg2:string):Promise<void>;
 
 export function SetTLSSettings(arg1:httpengine.TLSSettings):Promise<void>;
 
+export function StorageStats():Promise<model.StorageStats>;
+
 export function UnlockVault(arg1:string):Promise<secrets.Status>;
+
+export function VacuumDb():Promise<void>;

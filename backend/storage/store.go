@@ -239,6 +239,7 @@ var migrations = []string{
 // Store 持有 DB 连接与 blobs 根目录
 type Store struct {
 	db            *sql.DB
+	dbPath        string
 	blobsDir      string
 	vault         *secrets.Vault
 	secretWriteMu sync.Mutex
@@ -263,7 +264,7 @@ func OpenWithVault(dataDir string, vault *secrets.Vault) (*Store, error) {
 	// modernc.org/sqlite 对单连接最稳（写串行化交给 database/sql 排队）
 	db.SetMaxOpenConns(1)
 
-	s := &Store{db: db, blobsDir: filepath.Join(dataDir, "blobs"), vault: vault}
+	s := &Store{db: db, dbPath: dbPath, blobsDir: filepath.Join(dataDir, "blobs"), vault: vault}
 	if err := os.MkdirAll(s.blobsDir, 0o700); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create blobs directory: %w", err)

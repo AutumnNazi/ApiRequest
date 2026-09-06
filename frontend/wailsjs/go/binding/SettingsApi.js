@@ -42,6 +42,14 @@ export function SetTLSSettings(arg1) {
   return window['go']['binding']['SettingsApi']['SetTLSSettings'](arg1);
 }
 
+export function StorageStats() {
+  return window['go']['binding']['SettingsApi']['StorageStats']();
+}
+
 export function UnlockVault(arg1) {
   return window['go']['binding']['SettingsApi']['UnlockVault'](arg1);
+}
+
+export function VacuumDb() {
+  return window['go']['binding']['SettingsApi']['VacuumDb']();
 }
