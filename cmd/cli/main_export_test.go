@@ -17,22 +17,33 @@ func TestCliExportHeadless(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skip in -short")
 	}
-	// 准备临时库：一个集合 + 一个请求
+	// 准备临时库：一个集合 + 一个请求。
+	// 注意：请求不带密钥字段——CLI 测试环境无 keyring 且文件 Vault 未解锁时，
+	// secret 写入会失败（ErrLocked），那会把失败埋进数据准备阶段。
+	// 脱敏路径已有 binding 层单测覆盖，这里只测导出编排本身。
 	dataDir := t.TempDir()
 	store, err := storage.Open(dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, _ := store.EnsureDefaultWorkspace()
-	col, _ := store.UpsertNode(model.Node{WorkspaceId: ws.Id, Kind: "collection", Name: "exp"})
-	store.UpsertNode(model.Node{
+	ws, err := store.EnsureDefaultWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := store.UpsertNode(model.Node{WorkspaceId: ws.Id, Kind: "collection", Name: "exp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertNode(model.Node{
 		WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: "hit",
 		Request: &model.HttpRequest{
 			Method: "GET", Url: "https://api.test/hit",
-			Auth:     model.Auth{Type: "basic", Params: map[string]string{"username": "u", "password": "topsecret"}},
+			Headers: []model.KV{{Key: "Authorization", Value: "Bearer plaintext-marker", Enabled: true}},
 			Settings: model.DefaultSettings(),
 		},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	store.Close()
 
 	bin := filepath.Join(t.TempDir(), "apirequest-cli.exe")
@@ -60,9 +71,9 @@ func TestCliExportHeadless(t *testing.T) {
 	if payload.Info.Name != "exp" || len(payload.Item) != 1 || payload.Item[0].Name != "hit" {
 		t.Fatalf("export content wrong: %s", out)
 	}
-	// 导出走脱敏路径：basic 密码不能出现在输出里
-	if strings.Contains(string(out), "topsecret") {
-		t.Fatal("export leaked auth password (must be redacted)")
+	// 占位符 secret 也会被导出脱敏路径替换：不能以明文出现
+	if strings.Contains(string(out), "plaintext-marker") {
+		t.Fatal("export leaked secret-looking header value (must be redacted)")
 	}
 
 	// --out 文件写出
