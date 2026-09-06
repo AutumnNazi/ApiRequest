@@ -100,5 +100,42 @@ func TestDiagnosticsDefaultFilename(t *testing.T) {
 	}
 }
 
+// 冷启动计时：RecordStartup 后诊断包 meta.startupMs 带上预算对照
+func TestDiagnosticsIncludeStartupMs(t *testing.T) {
+	store, _ := openSettingsTestStore(t)
+	api := NewSettingsApi(store, httpengine.New())
+	api.RecordStartup(1234)
+
+	target := filepath.Join(t.TempDir(), "d.json")
+	if _, err := api.ExportDiagnostics(target); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bundle struct {
+		Meta struct {
+			StartupMs *int64 `json:"startupMs"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(raw, &bundle); err != nil {
+		t.Fatal(err)
+	}
+	if bundle.Meta.StartupMs == nil || *bundle.Meta.StartupMs != 1234 {
+		t.Fatalf("meta.startupMs = %v, want 1234", bundle.Meta.StartupMs)
+	}
+}
+
+// 未记录时 startupMs 留空（如老会话升级路径），诊断包仍可导出
+func TestDiagnosticsWithoutStartupRecord(t *testing.T) {
+	store, _ := openSettingsTestStore(t)
+	api := NewSettingsApi(store, httpengine.New())
+	target := filepath.Join(t.TempDir(), "d2.json")
+	if _, err := api.ExportDiagnostics(target); err != nil {
+		t.Fatalf("export without startup record: %v", err)
+	}
+}
+
 // model 导入保留给未来扩展
 var _ = model.KindStorage

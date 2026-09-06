@@ -71,14 +71,19 @@ func (a *SettingsApi) buildDiagnosticsBundle() (map[string]any, error) {
 
 	exportedAt := time.Now()
 	status := a.GetNetworkStatus()
+	meta := map[string]any{
+		"schema":     1,
+		"version":    version.Version,
+		"goos":       runtime.GOOS,
+		"goarch":     runtime.GOARCH,
+		"exportedAt": exportedAt.UTC().Format(time.RFC3339),
+	}
+	// 冷启动耗时（预算 <1.5s，见 ops.md §5）；未记录则不带该键
+	if ms := a.StartupMs(); ms > 0 {
+		meta["startupMs"] = ms
+	}
 	bundle := map[string]any{
-		"meta": map[string]any{
-			"schema":     1,
-			"version":    version.Version,
-			"goos":       runtime.GOOS,
-			"goarch":     runtime.GOARCH,
-			"exportedAt": exportedAt.UTC().Format(time.RFC3339),
-		},
+		"meta":        meta,
 		"storage":     stats,
 		"settings":    settings,
 		"vaultStatus": a.store.Vault().Status(),

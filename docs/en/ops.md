@@ -124,7 +124,7 @@ Both stable releases and `dev-latest` must contain these eight packages. `<versi
 
 | Metric | Target |
 |--------|--------|
-| Cold start to interactive | < 1.5s |
+| Cold start to interactive | < 1.5s (measured at OnDomReady; the number travels with the diagnostics bundle) |
 | Overhead for a simple request, excluding the network | < 20ms |
 | Format and render a 1 MB JSON response | < 300ms; virtualize/collapse above the threshold |
 | Idle memory | < 200 MB |

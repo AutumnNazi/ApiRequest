@@ -24,6 +24,8 @@ type App struct {
 	protocols *protocol.Manager
 	// 自动定时同步的停止函数；nil = 未启动
 	stopAutoSync func()
+	// 进程起点（init 时刻）：冷启动预算（ops.md §5 <1.5s）的测量锚点
+	processStart time.Time
 
 	Request   *binding.RequestApi
 	Node      *binding.NodeApi
@@ -47,6 +49,7 @@ type App struct {
 
 // NewApp 初始化 core：数据目录 → 存储 → 引擎 → 绑定
 func NewApp() *App {
+	app := &App{processStart: time.Now()}
 	paths, err := platform.ResolvePaths()
 	if err != nil {
 		log.Fatalf("resolve application paths: %v", err)
@@ -64,9 +67,10 @@ func NewApp() *App {
 	runner := binding.NewRunnerApi(request, store)
 	lifecycle := binding.NewLifecycleApi()
 	return &App{
-		store:     store,
-		mocks:     mocks,
-		protocols: protocols,
+		store:        store,
+		mocks:        mocks,
+		protocols:    protocols,
+		processStart: app.processStart,
 		Request:   request,
 		Node:      binding.NewNodeApi(store, request),
 		History:   binding.NewHistoryApi(store),
@@ -107,6 +111,12 @@ func (a *App) startup(ctx context.Context) {
 			log.Printf("auto backup: %v", err)
 		}
 	}()
+}
+
+// domReady 前端 DOM 就绪即记录冷启动耗时（预算 <1.5s，见 docs/ops.md §5），
+// 数值进诊断包供报障分析；测量锚点是 NewApp 的进程起点
+func (a *App) domReady(ctx context.Context) {
+	a.Settings.RecordStartup(time.Since(a.processStart).Milliseconds())
 }
 
 func (a *App) beforeClose(ctx context.Context) bool { return binding.BeforeClose(a.Lifecycle, ctx) }

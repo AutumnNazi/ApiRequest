@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"apirequest/backend/httpengine"
 	"path/filepath"
@@ -36,7 +37,16 @@ type SettingsApi struct {
 
 	statusMu sync.RWMutex
 	status   NetworkStatus
+
+	// 冷启动耗时（ms；进程起点 → DOM ready）。0 = 未记录
+	startupMs atomic.Int64
 }
+
+// RecordStartup 记录冷启动耗时（app.go 在 OnDomReady 后调用一次）
+func (a *SettingsApi) RecordStartup(ms int64) { a.startupMs.Store(ms) }
+
+// StartupMs 已记录的冷启动耗时；0 = 未记录（不支持负值语义）
+func (a *SettingsApi) StartupMs() int64 { return a.startupMs.Load() }
 
 // NewSettingsApi restores saved proxy and TLS settings and retains recoverable
 // startup diagnostics for the settings UI.
