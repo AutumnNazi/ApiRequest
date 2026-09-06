@@ -1,8 +1,13 @@
 // GraphQL 内省面板：endpoint URL → 内省 → 展示 Queries/Mutations 列表 + schema JSON 预览
 import { useState } from 'react';
 import { normalizeSchema, validateQueryAgainstSchema, type ValidationIssue } from '../utils/graphqlValidate';
+import { useEffect, useRef } from 'react';
 import {
   graphqlIntrospect,
+  openSession,
+  sendSessionMessage,
+  closeSession,
+  onProtoMessage,
   toAppError,
   type GraphqlResult,
 } from '../ipc';
@@ -30,11 +35,62 @@ export default function GraphqlPanel({ onClose, onOpenRequest }: Props) {
   // schema 断言：粘贴 query 按内省结果校验字段路径
   const [checkQuery, setCheckQuery] = useState('');
   const [checkIssues, setCheckIssues] = useState<ValidationIssue[] | null>(null);
+  // 订阅模式（graphql-transport-ws）：一个会话一条订阅
+  const [subMode, setSubMode] = useState(false);
+  const [subQuery, setSubQuery] = useState('subscription { countUp }');
+  const [subActive, setSubActive] = useState(false);
+  const [subEnded, setSubEnded] = useState(false);
+  const [subBusy, setSubBusy] = useState(false);
+  const [subEvents, setSubEvents] = useState<Array<{ direction: string; kind: string; data: string; ts: number }>>([]);
+  const subSessionRef = useRef('');
+  const subEndedRef = useRef(false);
+  subEndedRef.current = subEnded;
   const { recents, recall } = useRecentTargets('protocol:recent:graphql');
 
   const pickRecent = (value: string) => {
     setUrl(value);
     setError('');
+  };
+
+  useEffect(() => {
+    if (!subMode) return;
+    return onProtoMessage((m) => {
+      if (m.sessionId !== subSessionRef.current) return;
+      setSubEvents((prev) => [...prev.slice(-199), { direction: m.direction, kind: m.kind, data: m.data, ts: m.ts }]);
+      if (m.direction === 'system' && m.kind === 'close') {
+        setSubActive(false);
+        setSubEnded(true);
+      }
+    });
+  }, [subMode]);
+
+  const startSubscription = async () => {
+    if (subActive || !url.trim() || !subQuery.trim()) return;
+    setSubBusy(true);
+    setError('');
+    const sessionId = `gql-sub-${Date.now()}`;
+    subSessionRef.current = sessionId;
+    setSubEvents([]);
+    setSubEnded(false);
+    try {
+      const headers = authHeader.trim() ? [authHeader.trim()] : [];
+      await openSession(sessionId, { protocol: 'graphql-ws', url: url.trim(), headers: headers.map((line) => parseHeaderLine(line)).filter(Boolean) } as never);
+      await sendSessionMessage(sessionId, subQuery.trim());
+      setSubActive(true);
+    } catch (e) {
+      setError(toAppError(e).detail);
+      void closeSession(sessionId);
+      subSessionRef.current = '';
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  const stopSubscription = async () => {
+    if (!subSessionRef.current) return;
+    await closeSession(subSessionRef.current);
+    setSubActive(false);
+    subSessionRef.current = '';
   };
 
   const runValidate = () => {
@@ -134,6 +190,13 @@ export default function GraphqlPanel({ onClose, onOpenRequest }: Props) {
           >
             {busy ? formatMessage('内省中…') : formatMessage('内省 Schema')}
           </button>
+          <button
+            className={`border rounded px-3 py-1 text-sm ${subMode ? 'bg-purple-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+            title={formatMessage('graphql-transport-ws 订阅：一个会话一条订阅')}
+            onClick={() => setSubMode((v) => !v)}
+          >
+            {formatMessage('订阅')}
+          </button>
           <button className="text-gray-400 hover:text-gray-700 ml-1" onClick={onClose}>
             ×
           </button>
@@ -143,6 +206,64 @@ export default function GraphqlPanel({ onClose, onOpenRequest }: Props) {
 
         <RecentTargets recents={recents} current={url} onPick={pickRecent} />
 
+        {subMode ? (
+          <div className="flex-1 flex flex-col min-h-0 text-sm">
+            <div className="px-4 py-2 space-y-2 border-b">
+              <textarea
+                className="w-full h-24 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400"
+                aria-label={formatMessage('订阅查询')}
+                placeholder="subscription { countUp }"
+                value={subQuery}
+                onChange={(e) => setSubQuery(e.target.value)}
+              />
+              <div className="flex items-center gap-2">
+                {!subActive ? (
+                  <button
+                    className="bg-purple-600 text-white rounded px-4 py-1 text-sm hover:bg-purple-700 disabled:opacity-50"
+                    disabled={subBusy || !url.trim() || !subQuery.trim()}
+                    onClick={() => void startSubscription()}
+                  >
+                    {subBusy ? formatMessage('连接中…') : formatMessage('开始订阅')}
+                  </button>
+                ) : (
+                  <button
+                    className="border border-red-200 text-red-500 rounded px-4 py-1 text-sm hover:bg-red-50"
+                    onClick={() => void stopSubscription()}
+                  >
+                    {formatMessage('断开订阅')}
+                  </button>
+                )}
+                {subActive && (
+                  <span className="text-xs text-green-600 flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+                    {formatMessage('订阅中')}
+                  </span>
+                )}
+                {subEnded && <span className="text-xs text-gray-400">{formatMessage('服务器已结束本次订阅')}</span>}
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-3 font-mono text-xs space-y-1">
+              {subEvents.length === 0 && (
+                <p className="text-gray-400 text-center py-6">{formatMessage('尚无数据；服务器推送的事件会显示在这里')}</p>
+              )}
+              {subEvents.map((ev, i) => (
+                <div
+                  key={i}
+                  className={
+                    ev.kind === 'error'
+                      ? 'text-red-600 whitespace-pre-wrap break-all'
+                      : ev.direction === 'in'
+                        ? 'text-gray-800 whitespace-pre-wrap break-all'
+                        : 'text-gray-400 whitespace-pre-wrap break-all'
+                  }
+                >
+                  <span className="text-gray-300 mr-2">{new Date(ev.ts).toLocaleTimeString()}</span>
+                  <Verbatim value={ev.data} />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
         <div className="flex-1 flex min-h-0">
           {/* 操作列表 */}
           <div className="w-72 border-r overflow-auto">
@@ -210,6 +331,7 @@ export default function GraphqlPanel({ onClose, onOpenRequest }: Props) {
             </div>
           </div>
         </div>
+        )}
     </ModalFrame>
   );
 }

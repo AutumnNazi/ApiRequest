@@ -47,6 +47,14 @@ type ProtocolSession interface {
 
 ---
 
+## 6. GraphQL Subscriptions (graphql-transport-ws, Implemented)
+
+- **Session model**: one `graphql-ws` protocol session = one subscription. Opening performs the `connection_init` / `connection_ack` handshake automatically (10s timeout; `connection_error` fails the open), and Send accepts `{query, variables?, operationName?}` wrapped into a subscribe frame.
+- **Inbound unwrapping**: `next` arrives as inbound data; `error` as an error line; `complete` as a system close notice that ends the session; Close is idempotent (after a server complete the connection is already gone and is not an error).
+- **Entry point**: the GraphQL panel's "Subscribe" mode (URL + subscription query + Authorization header) with a live event stream.
+
+---
+
 ## 5. GraphQL
 
 - Model GraphQL as a specialized HTTP body (`body.kind='graphql'`) and POST `{query, variables}`.

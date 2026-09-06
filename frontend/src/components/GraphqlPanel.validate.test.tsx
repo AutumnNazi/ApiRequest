@@ -24,11 +24,19 @@ const schemaJson = JSON.stringify({
 const ipc = vi.hoisted(() => ({
   graphqlIntrospect: vi.fn(),
   openRequest: vi.fn(),
+  openSession: vi.fn(),
+  sendSessionMessage: vi.fn(),
+  closeSession: vi.fn(),
+  onProtoMessage: vi.fn(() => () => {}),
 }));
 
 vi.mock('../ipc', () => ({
   graphqlIntrospect: ipc.graphqlIntrospect,
   openRequest: ipc.openRequest,
+  openSession: ipc.openSession,
+  sendSessionMessage: ipc.sendSessionMessage,
+  closeSession: ipc.closeSession,
+  onProtoMessage: ipc.onProtoMessage,
   toAppError: (cause: unknown) => ({ detail: cause instanceof Error ? cause.message : String(cause) }),
 }));
 
@@ -69,5 +77,46 @@ describe('GraphqlPanel query validation', () => {
     fireEvent.click(screen.getByRole('button', { name: '校验' }));
 
     await waitFor(() => expect(screen.getByText('校验通过')).toBeInTheDocument());
+  });
+});
+
+describe('GraphqlPanel 订阅模式', () => {
+  it('打开 graphql-ws 会话并发送订阅 payload，事件经 proto:message 展示', async () => {
+    ipc.openSession.mockResolvedValue(null);
+    ipc.sendSessionMessage.mockResolvedValue(null);
+    type Msg = { sessionId: string; direction: string; kind: string; data: string; ts: number };
+    const holder: { handler?: (m: Msg) => void } = {};
+    (ipc.onProtoMessage as unknown as ReturnType<typeof vi.fn>).mockImplementation((h: (m: Msg) => void) => {
+      holder.handler = h;
+      return () => {};
+    });
+
+    render(
+      <GraphqlPanel onClose={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '订阅' }));
+    fireEvent.change(screen.getByLabelText('订阅查询'), {
+      target: { value: 'subscription { countUp }' },
+    });
+    const urlInput = screen.getByPlaceholderText(/graph/);
+    fireEvent.change(urlInput, { target: { value: 'wss://x.test/graphql' } });
+    fireEvent.click(screen.getByRole('button', { name: '开始订阅' }));
+
+    await waitFor(() => expect(ipc.openSession).toHaveBeenCalled());
+    expect(ipc.openSession.mock.calls[0][1]).toMatchObject({
+      protocol: 'graphql-ws',
+      url: 'wss://x.test/graphql',
+    });
+    await waitFor(() => expect(ipc.sendSessionMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      'subscription { countUp }',
+    ));
+
+    // 推送一条 next：入站事件上屏
+    const ts = Date.now();
+    const calls = (ipc.openSession as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    holder.handler?.({ sessionId: calls[0][0] as string, direction: 'in', kind: 'text', data: '{"data":{"countUp":1}}', ts });
+    expect(await screen.findByText(/countUp":1/)).toBeInTheDocument();
   });
 });

@@ -47,6 +47,14 @@ type ProtocolSession interface {
 
 ---
 
+## 6. GraphQL 订阅（graphql-transport-ws，已实现）
+
+- **会话模型**：一个 `graphql-ws` 协议会话 = 一条订阅。打开时自动完成 `connection_init` / `connection_ack` 握手（10s 超时，`connection_error` 使打开失败），Send 收 `{query, variables?, operationName?}` 并包装为 subscribe 帧。
+- **入站解包**：`next` 推为入站数据；`error` 推为错误行；`complete` 推系统关闭通知并自动结束会话；Close 幂等（complete 后连接已自关不算失败）。
+- **入口**：GraphQL 面板"订阅"模式（URL + 订阅查询 + Authorization header），事件流面板实时展示。
+
+---
+
 ## 5. GraphQL
 
 - 作为 HTTP body 的特化（`body.kind='graphql'`），POST `{query, variables}`。
