@@ -54,7 +54,7 @@ func (s *Store) SaveRunnerRun(workspaceId, collectionId string, report *runner.R
 		    WHERE workspace_id = ? AND collection_id = ?
 		    ORDER BY created_at DESC, id DESC
 		    LIMIT ?)`,
-		workspaceId, collectionId, workspaceId, collectionId, runnerRunRetentionLimit)
+		workspaceId, collectionId, workspaceId, collectionId, s.runnerRunRetention())
 	return err
 }
 

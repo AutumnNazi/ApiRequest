@@ -90,6 +90,24 @@ export default function SettingsDialog({ onClose }: Props) {
   const [capturing, setCapturing] = useState<string | null>(null);
   const [hotkeyHint, setHotkeyHint] = useState('');
   const statsQuery = useQuery({ queryKey: ['storage-stats'], queryFn: storageStats });
+  const [retentionEdits, setRetentionEdits] = useState<{ history: string; runnerRuns: string } | null>(null);
+  const [retentionSaving, setRetentionSaving] = useState(false);
+  // 保留策略：空值 = 默认（历史 1000 / 运行 200）；输入即时校验正整数
+  const retentionQuery = useQuery({
+    queryKey: ['retention'],
+    queryFn: async () => ({
+      history: (await getRawSetting('retention.history')) || '1000',
+      runnerRuns: (await getRawSetting('retention.runnerRuns')) || '200',
+    }),
+  });
+  const retentionDraft =
+    retentionEdits ?? { history: retentionQuery.data?.history ?? '', runnerRuns: retentionQuery.data?.runnerRuns ?? '' };
+  const retentionDirty =
+    retentionDraft.history !== (retentionQuery.data?.history ?? '') ||
+    retentionDraft.runnerRuns !== (retentionQuery.data?.runnerRuns ?? '');
+  const retentionValid =
+    /^\d+$/.test(retentionDraft.history) && Number(retentionDraft.history) > 0 &&
+    /^\d+$/.test(retentionDraft.runnerRuns) && Number(retentionDraft.runnerRuns) > 0;
   const backupsQuery = useQuery({ queryKey: ['backups'], queryFn: listBackups });
   const [backingUp, setBackingUp] = useState(false);
   const [vacuuming, setVacuuming] = useState(false);
@@ -505,6 +523,56 @@ export default function SettingsDialog({ onClose }: Props) {
                     </div>
                   </div>
                 )}
+                <div className="border rounded p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-700">{formatMessage('保留策略')}</span>
+                    <span className="text-gray-400">{formatMessage('超出上限的最旧记录在写入时自动清理')}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="retention-history" className="w-32 text-gray-500">{formatMessage('历史记录上限')}</label>
+                    <input
+                      id="retention-history"
+                      className="w-28 border rounded px-2 py-1 text-gray-800"
+                      inputMode="numeric"
+                      value={retentionDraft.history}
+                      onChange={(e) => setRetentionEdits({ ...retentionDraft, history: e.target.value })}
+                      placeholder="1000"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="retention-runs" className="w-32 text-gray-500">{formatMessage('运行报告上限')}</label>
+                    <input
+                      id="retention-runs"
+                      className="w-28 border rounded px-2 py-1 text-gray-800"
+                      inputMode="numeric"
+                      value={retentionDraft.runnerRuns}
+                      onChange={(e) => setRetentionEdits({ ...retentionDraft, runnerRuns: e.target.value })}
+                      placeholder="200"
+                    />
+                    <button
+                      className="ml-auto border rounded px-3 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      disabled={!retentionDirty || !retentionValid || retentionSaving}
+                      onClick={() => {
+                        setRetentionSaving(true);
+                        Promise.all([
+                          setRawSetting('retention.history', retentionDraft.history),
+                          setRawSetting('retention.runnerRuns', retentionDraft.runnerRuns),
+                        ])
+                          .then(() => {
+                            setRetentionEdits(null);
+                            return qc.invalidateQueries({ queryKey: ['retention'] });
+                          })
+                          .catch((cause) => setError(toAppError(cause).detail))
+                          .finally(() => setRetentionSaving(false));
+                      }}
+                    >
+                      {retentionSaving ? formatMessage('保存中…') : formatMessage('保存')}
+                    </button>
+                  </div>
+                  {retentionDirty && !retentionValid && (
+                    <p className="text-red-600">{formatMessage('上限须为正整数')}</p>
+                  )}
+                </div>
                 <div className="border rounded p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-700">{formatMessage('自动备份')}</span>

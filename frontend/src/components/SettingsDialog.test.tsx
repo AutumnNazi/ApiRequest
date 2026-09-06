@@ -82,6 +82,42 @@ describe('SettingsDialog', () => {
     expect(screen.getByDisplayValue('alice')).toBeInTheDocument();
   });
 
+  it('edits retention caps in the storage pane and saves both settings', async () => {
+    ipc.getRawSetting.mockImplementation((key: string) =>
+      Promise.resolve(key === 'retention.history' ? '1000' : key === 'retention.runnerRuns' ? '200' : ''));
+    renderDialog();
+    fireEvent.click(screen.getByRole('button', { name: '存储' }));
+
+    const historyInput = await screen.findByLabelText('历史记录上限');
+    // 查询返回时数据可能尚未流入输入框，等待显示值就位
+    await waitFor(() => expect(historyInput).toHaveDisplayValue('1000'));
+    const runsInput = screen.getByLabelText('运行报告上限');
+    expect(runsInput).toHaveDisplayValue('200');
+
+    // 无修改时保存禁用（设置弹窗底部还有一个全局"保存"按钮，只取保留策略卡片内的）
+    const save = screen.getAllByRole('button', { name: '保存' })[0];
+    expect(save).toBeDisabled();
+
+    fireEvent.change(historyInput, { target: { value: '50' } });
+    fireEvent.change(runsInput, { target: { value: '30' } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+
+    await waitFor(() => expect(ipc.setRawSetting).toHaveBeenCalledWith('retention.history', '50'));
+    expect(ipc.setRawSetting).toHaveBeenCalledWith('retention.runnerRuns', '30');
+  });
+
+  it('rejects non-positive retention caps with a validation hint', async () => {
+    ipc.getRawSetting.mockImplementation((key: string) =>
+      Promise.resolve(key === 'retention.history' ? '1000' : key === 'retention.runnerRuns' ? '200' : ''));
+    renderDialog();
+    fireEvent.click(screen.getByRole('button', { name: '存储' }));
+
+    const historyInput = await screen.findByLabelText('历史记录上限');
+    fireEvent.change(historyInput, { target: { value: '0' } });
+    expect(await screen.findByText('上限须为正整数')).toBeInTheDocument();
+  });
+
   it('saves all settings and shows the success message', async () => {
     renderDialog();
     await waitFor(() => expect(ipc.getVaultStatus).toHaveBeenCalled());

@@ -287,6 +287,9 @@ func (s *Store) InsertHistory(item model.HistoryRecord) (string, error) {
 		}
 		tests = sql.NullString{String: string(data), Valid: true}
 	}
+	// 保留上限必须在 Begin 前读：tx 会独占连接，事务内再走 s.GetSetting
+	// （另一个连接）会在 SQLite 库锁上死等
+	retention := s.historyRetention()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return "", err
@@ -304,7 +307,7 @@ func (s *Store) InsertHistory(item model.HistoryRecord) (string, error) {
 	if err != nil {
 		return item.Id, err
 	}
-	prunedRefs, err := pruneHistoryTx(tx, item.WorkspaceId, historyRetentionLimit)
+	prunedRefs, err := pruneHistoryTx(tx, item.WorkspaceId, retention)
 	if err != nil {
 		return item.Id, err
 	}
