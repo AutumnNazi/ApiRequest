@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"apirequest/backend/binding"
+	"apirequest/backend/convert"
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
 	"apirequest/backend/platform"
@@ -30,6 +31,8 @@ func main() {
 		os.Exit(cmdList(os.Args[2:]))
 	case "export":
 		os.Exit(cmdExport(os.Args[2:]))
+	case "import":
+		os.Exit(cmdImport(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -51,6 +54,17 @@ Usage:
 
   apirequest-cli export --collection <name|id> --format <fmt> [flags]
       Export a collection headlessly (Postman/OpenAPI/cURL/HAR/Insomnia/.http...).
+
+  apirequest-cli import --file <path> [flags]
+      Import a file headlessly into a workspace (same formats as the desktop importer).
+
+Import flags:
+  --file          input file path (required)
+  --format        import format id; omit for auto-detection
+  --workspace     target workspace name or id (default: first workspace)
+  --db            app data dir override (default: OS config dir)
+
+Import prints a JSON summary (collectionId, name, requests, environments) to stdout.
 
 Export flags:
   --collection    collection name or id (required)
@@ -152,6 +166,80 @@ func isDescendant(nodes []model.Node, n model.Node, ancestorId string) bool {
 
 // cmdExport 无头导出：复用桌面端 ConvertApi（含 collectTree + 脱敏），
 // 输出走 stdout 或 --out 文件。退出码 2 = 用法/找不到目标
+// cmdImport 无头导入：解析文件 → ImportNodeTree 落库（建议环境一并创建，不激活）。
+// 语义对齐桌面端 ConvertApi.ImportCommit；stdout 输出 JSON 摘要供脚本消费
+func cmdImport(args []string) int {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	file := fs.String("file", "", "")
+	format := fs.String("format", "", "")
+	workspace := fs.String("workspace", "", "")
+	dbDir := fs.String("db", "", "")
+	fs.Parse(args)
+
+	if *file == "" {
+		fmt.Fprintln(os.Stderr, "--file is required")
+		return 2
+	}
+	payload, err := os.ReadFile(*file)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "read file:", err)
+		return 2
+	}
+
+	store, err := openStore(*dbDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "open store:", err)
+		return 2
+	}
+	defer store.Close()
+
+	wsId, _, err := resolveTargetWorkspace(store, *workspace)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+
+	res, err := convert.Import(*format, string(payload))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "import:", err)
+		return 2
+	}
+	saved, err := store.ImportNodeTree(wsId, res.Collection, res.Children)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "commit:", err)
+		return 2
+	}
+	envs := []string{}
+	for _, sug := range res.SuggestedEnvironments {
+		env, envErr := store.UpsertEnvironment(model.Environment{
+			WorkspaceId: wsId, Name: sug.Name, Variables: sug.Variables,
+		})
+		if envErr != nil {
+			fmt.Fprintln(os.Stderr, "create environment:", envErr)
+			return 2
+		}
+		envs = append(envs, env.Name)
+	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+	requests := 0
+	for _, n := range res.Children {
+		if n.Kind == "request" {
+			requests++
+		}
+	}
+	out := struct {
+		CollectionId string   `json:"collectionId"`
+		Name         string   `json:"name"`
+		Requests     int      `json:"requests"`
+		Environments []string `json:"environments"`
+	}{CollectionId: saved.Id, Name: saved.Name, Requests: requests, Environments: envs}
+	encoded, _ := json.Marshal(out)
+	fmt.Println(string(encoded))
+	return 0
+}
+
 func cmdExport(args []string) int {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
 	collection := fs.String("collection", "", "")
@@ -360,6 +448,29 @@ func resolveEnv(store *storage.Store, wsId, nameOrId string) (string, error) {
 	default:
 		return "", fmt.Errorf("environment name %q is ambiguous (%d matches); use its id", nameOrId, len(matches))
 	}
+}
+
+// resolveTargetWorkspace 按名称或 id 解析工作区（不带集合；import 场景）
+func resolveTargetWorkspace(store *storage.Store, workspace string) (string, string, error) {
+	workspaces, err := store.ListWorkspaces()
+	if err != nil || len(workspaces) == 0 {
+		return "", "", fmt.Errorf("no workspaces found (has the desktop app been run once?)")
+	}
+	var ws *model.Workspace
+	if workspace == "" {
+		ws = &workspaces[0]
+	} else {
+		for i := range workspaces {
+			if workspaces[i].Id == workspace || workspaces[i].Name == workspace {
+				ws = &workspaces[i]
+				break
+			}
+		}
+		if ws == nil {
+			return "", "", fmt.Errorf("workspace not found: %s", workspace)
+		}
+	}
+	return ws.Id, ws.Name, nil
 }
 
 // resolveTarget 按名称或 id 解析工作区与集合
