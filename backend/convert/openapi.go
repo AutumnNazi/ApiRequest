@@ -34,9 +34,9 @@ type oaDoc struct {
 	Servers []struct {
 		Url string `json:"url" yaml:"url"`
 	} `json:"servers" yaml:"servers"`
-	Host     string                            `json:"host" yaml:"host"`         // swagger 2
-	BasePath string                            `json:"basePath" yaml:"basePath"` // swagger 2
-	Schemes  []string                          `json:"schemes" yaml:"schemes"`   // swagger 2
+	Host     string                                `json:"host" yaml:"host"`         // swagger 2
+	BasePath string                                `json:"basePath" yaml:"basePath"` // swagger 2
+	Schemes  []string                              `json:"schemes" yaml:"schemes"`   // swagger 2
 	Paths    map[string]map[string]json.RawMessage `json:"paths" yaml:"-"`
 	// YAML 时 Paths 单独解析
 	YamlPaths map[string]map[string]*oaOperation `json:"-" yaml:"paths"`

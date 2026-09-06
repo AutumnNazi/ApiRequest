@@ -25,16 +25,16 @@ func selfSignedServer(t *testing.T, dir string) (string, tls.Certificate) {
 		t.Fatal(err)
 	}
 	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "test-ca"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		KeyUsage:     x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IsCA:         true,
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IsCA:                  true,
 		BasicConstraintsValid: true,
-		IPAddresses:  nil,
-		DNSNames:     []string{"localhost", "127.0.0.1"},
+		IPAddresses:           nil,
+		DNSNames:              []string{"localhost", "127.0.0.1"},
 	}
 	// httptest 用 IP 连接
 	tmpl.IPAddresses = append(tmpl.IPAddresses, []byte{127, 0, 0, 1})

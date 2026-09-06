@@ -13,19 +13,19 @@ func TestCurlExportRequest(t *testing.T) {
 	children := []model.Node{
 		{Id: "r1", Kind: "request", Name: "Get User", ParentId: "c1", SortOrder: 10,
 			Request: &model.HttpRequest{
-				Method:  "GET",
-				Url:     "https://api.demo.io/users/1",
-				Params:  []model.KV{{Key: "full", Value: "true", Enabled: true}},
-				Headers: []model.KV{{Key: "Accept", Value: "application/json", Enabled: true}},
-				Auth:    model.Auth{Type: "bearer", Params: map[string]string{"token": "tok"}},
+				Method:   "GET",
+				Url:      "https://api.demo.io/users/1",
+				Params:   []model.KV{{Key: "full", Value: "true", Enabled: true}},
+				Headers:  []model.KV{{Key: "Accept", Value: "application/json", Enabled: true}},
+				Auth:     model.Auth{Type: "bearer", Params: map[string]string{"token": "tok"}},
 				Settings: model.DefaultSettings(),
 			}},
 		{Id: "r2", Kind: "request", Name: "Create User", ParentId: "c1", SortOrder: 20,
 			Request: &model.HttpRequest{
-				Method:  "POST",
-				Url:     "https://api.demo.io/users",
-				Headers: []model.KV{{Key: "Content-Type", Value: "application/json", Enabled: true}},
-				Body:    model.Body{Kind: "raw", Language: "json", Text: `{"name":"x"}`},
+				Method:   "POST",
+				Url:      "https://api.demo.io/users",
+				Headers:  []model.KV{{Key: "Content-Type", Value: "application/json", Enabled: true}},
+				Body:     model.Body{Kind: "raw", Language: "json", Text: `{"name":"x"}`},
 				Settings: model.DefaultSettings(),
 			}},
 	}
@@ -37,10 +37,10 @@ func TestCurlExportRequest(t *testing.T) {
 	var doc struct {
 		Collection string `json:"collection"`
 		Items      []struct {
-			Name    string `json:"name"`
-			Method  string `json:"method"`
-			Url     string `json:"url"`
-			Script  string `json:"script"`
+			Name   string `json:"name"`
+			Method string `json:"method"`
+			Url    string `json:"url"`
+			Script string `json:"script"`
 		} `json:"items"`
 		Shell string `json:"shell"`
 	}

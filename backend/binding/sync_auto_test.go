@@ -124,7 +124,7 @@ func TestAutoSyncStopsAndDedupsStart(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	stop := api.StartAutoSync(time.Hour) // 大 tick：不会真正触发同步
+	stop := api.StartAutoSync(time.Hour)  // 大 tick：不会真正触发同步
 	stop2 := api.StartAutoSync(time.Hour) // 幂等：返回同一停止函数语义
 	stop()
 	stop2()

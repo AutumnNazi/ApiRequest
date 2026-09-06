@@ -273,7 +273,7 @@ func TestPmCallbacksMissingArgsDontPanic(t *testing.T) {
 	s := newTestSandbox()
 	s.SetResponse(&model.ResponseResult{
 		Status: 200, StatusText: "OK",
-		Body:   model.ResponseBody{Inline: true, Text: `{}`},
+		Body: model.ResponseBody{Inline: true, Text: `{}`},
 	})
 	// 漏传回调参数：应报脚本错误而非 panic 打崩进程
 	err := s.Run(`pm.test('missing callback')`, "test")

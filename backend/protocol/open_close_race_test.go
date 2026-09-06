@@ -105,4 +105,3 @@ func TestClosingMarkerClearedWhenDialFails(t *testing.T) {
 		t.Error("closing marker leaked after failed dial")
 	}
 }
-

@@ -31,12 +31,12 @@ func (t *traceTimer) clientTrace() *httptrace.ClientTrace {
 		}
 	}
 	return &httptrace.ClientTrace{
-		DNSStart:     func(httptrace.DNSStartInfo) { stamp(&t.dnsStart)() },
-		DNSDone:      func(httptrace.DNSDoneInfo) { stamp(&t.dnsDone)() },
-		ConnectStart: func(string, string) { stamp(&t.connectStart)() },
-		ConnectDone:  func(_, _ string, _ error) { stamp(&t.connectDone)() },
-		TLSHandshakeStart: func() { stamp(&t.tlsStart)() },
-		TLSHandshakeDone: func(tls.ConnectionState, error) { stamp(&t.tlsDone)() },
+		DNSStart:             func(httptrace.DNSStartInfo) { stamp(&t.dnsStart)() },
+		DNSDone:              func(httptrace.DNSDoneInfo) { stamp(&t.dnsDone)() },
+		ConnectStart:         func(string, string) { stamp(&t.connectStart)() },
+		ConnectDone:          func(_, _ string, _ error) { stamp(&t.connectDone)() },
+		TLSHandshakeStart:    func() { stamp(&t.tlsStart)() },
+		TLSHandshakeDone:     func(tls.ConnectionState, error) { stamp(&t.tlsDone)() },
 		GotFirstResponseByte: func() { stamp(&t.firstByte)() },
 	}
 }
