@@ -18,6 +18,7 @@ var fuzzSeeds = map[string]string{
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"name":"a"}'`,
+	"curl-multi": "curl 'https://a.test/1'\ncurl 'https://a.test/2' -H 'K: v'",
 	"har": `{"log":{"version":"1.2","creator":{"name":"x"},"entries":[
 		{"request":{"method":"GET","url":"https://a.test/","headers":[],"queryString":[]},
 		 "response":{"status":200,"headers":[],"content":{"text":"{}"}}}]}}`,

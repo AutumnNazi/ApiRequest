@@ -70,6 +70,7 @@ Parse `-X/--request`, `-H/--header`, `-d/--data*`, `-F/--form`, `-u/--user`, `--
 - Merge repeated `-d` arguments. If `Content-Type` is JSON, use `body.kind=raw(json)`; otherwise use urlencoded.
 - Convert `-F` to formdata and recognize an `@file` prefix as a file item.
 - Convert `-u user:pass` to Basic auth.
+- Multiple commands (implemented): a pasted bash history splits on top-level `curl ` lines, one sibling request per command; trailing `\` continuations and `#` comment lines are handled correctly, and single-command behavior is unchanged.
 - Reuse the code generator's cURL target for the reverse IR -> cURL conversion.
 
 ### 2.4 HAR -> IR

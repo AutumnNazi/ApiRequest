@@ -2,6 +2,7 @@ package convert
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"apirequest/backend/model"
@@ -14,11 +15,93 @@ type curlImporter struct{}
 func (curlImporter) Format() string { return "curl" }
 
 func (curlImporter) Detect(payload string) bool {
-	return strings.HasPrefix(strings.TrimSpace(payload), "curl ")
+	return firstCurlLine(payload) != ""
 }
 
+// Import 支持多命令：bash 历史整段粘贴时按顶层 `curl` 行拆分，
+// 每条命令一个请求；单命令行为不变
 func (curlImporter) Import(payload string) (*ImportResult, error) {
-	tokens, err := tokenize(payload)
+	commands := splitCurlCommands(payload)
+	if len(commands) == 0 {
+		return nil, &model.AppError{Kind: model.KindImport, Format: "curl", Detail: "not a curl command"}
+	}
+	var parsed []*ImportResult
+	for _, cmd := range commands {
+		res, err := parseCurlCommand(cmd)
+		if err != nil {
+			return nil, err
+		}
+		parsed = append(parsed, res)
+	}
+	if len(parsed) == 1 {
+		return parsed[0], nil
+	}
+	// 多命令：兄弟请求平铺（名字各自独立）
+	out := &ImportResult{Collection: parsed[0].Collection}
+	for _, p := range parsed {
+		for i := range p.Children {
+			p.Children[i].Id = fmt.Sprintf("import-%d", len(out.Children)+1)
+			p.Children[i].SortOrder = float64((len(out.Children) + 1) * 10)
+			out.Children = append(out.Children, p.Children[i])
+		}
+		out.Warnings = append(out.Warnings, p.Warnings...)
+	}
+	return out, nil
+}
+
+// splitCurlCommands 把 payload 切成独立的 curl 命令文本：
+// 1) 行尾 `\` 续行合并（属于同一条命令）；
+// 2) 注释行与空行跳过；
+// 3) 以 `curl ` 开头的新行 = 新命令的起点
+func splitCurlCommands(payload string) []string {
+	lines := strings.Split(payload, "\n")
+	// 逻辑行：先把续行拼回去
+	var logical []string
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		trimmed := strings.TrimSpace(line)
+		if strings.HasSuffix(trimmed, "\\") && !strings.HasSuffix(trimmed, "\\\\") {
+			logical = append(logical, strings.TrimSuffix(trimmed, "\\"))
+			continue
+		}
+		logical = append(logical, trimmed)
+	}
+	var commands []string
+	var current []string
+	flush := func() {
+		joined := strings.TrimSpace(strings.Join(current, "\n"))
+		if joined != "" {
+			commands = append(commands, joined)
+		}
+		current = nil
+	}
+	for _, line := range logical {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "curl ") || line == "curl" {
+			flush()
+		}
+		current = append(current, line)
+	}
+	flush()
+	return commands
+}
+
+// firstCurlLine Detect 用：首个 curl 行存在即认
+func firstCurlLine(payload string) string {
+	for _, line := range strings.Split(payload, "\n") {
+		t := strings.TrimSpace(strings.TrimRight(line, "\r"))
+		if strings.HasPrefix(t, "curl ") || t == "curl" {
+			return t
+		}
+	}
+	return ""
+}
+
+// parseCurlCommand 解析单条 curl 命令（原 Import 主体）
+func parseCurlCommand(command string) (*ImportResult, error) {
+	tokens, err := tokenize(command)
 	if err != nil {
 		return nil, &model.AppError{Kind: model.KindImport, Format: "curl", Detail: err.Error()}
 	}

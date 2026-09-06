@@ -70,6 +70,7 @@
 - `-d` 多次出现 → 合并；有 `Content-Type: json` 时 body.kind=raw(json)，否则 urlencoded。
 - `-F` → formdata（`@file` 前缀识别为文件项）。
 - `-u user:pass` → Basic auth。
+- 多命令（已实现）：bash 历史整段粘贴时按顶层 `curl ` 行拆分，每条命令一个兄弟请求；行尾 `\` 续行与 `#` 注释行正确处理，单命令行为不变。
 - 反向（IR → cURL）复用代码生成器的 curl 目标。
 
 ### 2.4 HAR → IR
