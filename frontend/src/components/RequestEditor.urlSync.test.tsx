@@ -270,3 +270,39 @@ describe('定时器清理', () => {
     }
   });
 });
+
+// ── 断言助手 ──
+describe('scripts 面板断言助手', () => {
+  it('发送响应后可从下拉插入状态码断言到 testScript', async () => {
+    const tab = makeTab('t1', 'https://x.test/p', [{ key: 'a', value: '1', enabled: true }]);
+    renderEditor(tab);
+    fireEvent.click(screen.getByText(/脚本/));
+    fireEvent.click(screen.getByText('测试脚本'));
+
+    // 无响应时下拉不出现
+    expect(screen.queryByLabelText('插入断言')).not.toBeInTheDocument();
+
+    // 模拟一次响应（直接写 store）
+    useTabs.setState((s) => {
+      const session = s.sessions['ws-sync'];
+      return {
+        sessions: {
+          ...s.sessions,
+          'ws-sync': { ...session, tabs: session.tabs.map((t) => t.id === 't1' ? { ...t, response: {
+            status: 201, statusText: 'Created',
+            headers: [{ key: 'Content-Type', value: 'application/json' }],
+            cookies: [], body: { inline: true, text: '{"id":42}' },
+            timing: { dnsMs: 0, connectMs: 0, tlsMs: 0, ttfbMs: 1, downloadMs: 1, totalMs: 120 },
+            sizeBytes: 9, testResults: [], scriptLogs: [],
+          } } as never : t) },
+        },
+      };
+    });
+
+    const select = await screen.findByLabelText('插入断言') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: '状态码 201' } });
+
+    const saved = Object.values(useTabs.getState().sessions)[0].tabs[0].draft;
+    expect(saved.testScript).toContain("pm.response.to.have.status(201)");
+  });
+});

@@ -16,6 +16,7 @@ import { useStableRowIds } from '../hooks/useStableRowIds';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 import { syncParamsFromUrl, withParamsQuery } from '../utils/urlParams';
+import { buildAssertions, fromResponseResult } from '../utils/assertions';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
@@ -49,6 +50,8 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
   const patchDraft = useTabs((s) => s.patchDraft);
   const [pane, setPane] = useState<'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings'>('params');
   const [scriptPhase, setScriptPhase] = useState<'pre' | 'test'>('pre');
+  const [assertionPick, setAssertionPick] = useState('');
+  const assertionSnippets = tab.response ? buildAssertions(fromResponseResult(tab.response)) : [];
   const [showCodegen, setShowCodegen] = useState(false);
   const [urlSuggestOpen, setUrlSuggestOpen] = useState(false);
   const [urlSuggestDebounced, setUrlSuggestDebounced] = useState('');
@@ -556,7 +559,32 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
                   {label}
                 </label>
               ))}
-              <span className="text-xs text-gray-400 ml-auto self-center">
+              {scriptPhase === 'test' && tab.response && (
+                <select
+                  className="ml-auto border rounded px-2 py-0.5 text-xs text-gray-600"
+                  aria-label={formatMessage('插入断言')}
+                  value={assertionPick}
+                  onChange={(e) => {
+                    const snippet = assertionSnippets.find((a) => a.label === e.target.value);
+                    if (!snippet) return;
+                    const current = (d.testScript ?? '').trimEnd();
+                    patchDraft(tab.id, {
+                      testScript: current ? `${current}
+
+${snippet.code}
+` : `${snippet.code}
+`,
+                    });
+                    setAssertionPick('');
+                  }}
+                >
+                  <option value="">{formatMessage('插入断言…')}</option>
+                  {assertionSnippets.map((a) => (
+                    <option key={a.label} value={a.label}>{a.label}</option>
+                  ))}
+                </select>
+              )}
+              <span className={`text-xs text-gray-400 self-center ${scriptPhase === 'test' && tab.response ? '' : 'ml-auto'}`}>
                 {formatMessage('可用 pm.environment / pm.test / pm.expect / console.log')}
               </span>
             </div>

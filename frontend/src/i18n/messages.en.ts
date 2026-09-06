@@ -101,6 +101,8 @@ export const en: Record<string, string> = {
   '点击后按下新组合键': 'Click, then press the new combination',
   '组合需包含 Ctrl/Cmd（或使用 F1-F12），避免与输入冲突；保存即时生效。': 'Combinations must include Ctrl/Cmd (or use F1-F12) to avoid input conflicts; changes apply immediately.',
   '需包含 Ctrl/Cmd，或使用 F1-F12 键': 'Must include Ctrl/Cmd, or use an F1-F12 key',
+  '插入断言': 'Insert assertion',
+  '插入断言…': 'Insert assertion...',
   '数据库文件': 'Database file',
   'WAL 日志': 'WAL log',
   '大响应 blob': 'Large-response blobs',
