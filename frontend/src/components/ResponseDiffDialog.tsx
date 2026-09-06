@@ -7,9 +7,10 @@ import {
   listHistory,
   getHistory,
   readResponseBlobRange,
+  listExamples,
   toAppError,
   type HistorySummary,
-  type HistoryDetail,
+  type Example,
 } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { diffLines, normalizeJsonText, type DiffRow } from '../utils/lineDiff';
@@ -53,15 +54,19 @@ async function loadBlobText(blobRef: string): Promise<{ text: string; truncated:
 
 export default function ResponseDiffDialog({
   workspaceId,
+  nodeId,
   base,
   onClose,
 }: {
   workspaceId: string;
+  nodeId?: string; // 有节点 id 时支持对照"保存的示例"（API 漂移检测）
   base: DiffSide;
   onClose(): void;
 }) {
+  const [source, setSource] = useState<'history' | 'example'>('history');
   const [search, setSearch] = useState(base.label);
   const [picked, setPicked] = useState<HistorySummary | null>(null);
+  const [pickedExample, setPickedExample] = useState<Example | null>(null);
   // 轻量投影：避免把 wails 模型类实例塞进 state（需要 convertValues）
   const [other, setOther] = useState<{ status: number; durationMs: number; bodyInline: string; createdAt: number } | null>(null);
   const [normalize, setNormalize] = useState(true);
@@ -71,7 +76,24 @@ export default function ResponseDiffDialog({
   const history = useQuery({
     queryKey: ['history-diff', workspaceId, search.trim()],
     queryFn: () => listHistory(workspaceId, { search: search.trim(), limit: 30 }),
+    enabled: source === 'history',
   });
+  const examples = useQuery({
+    queryKey: ['examples', nodeId],
+    queryFn: () => listExamples(nodeId ?? ''),
+    enabled: source === 'example' && !!nodeId,
+  });
+
+  const pickExample = (example: Example) => {
+    setPickedExample(example);
+    setSideError('');
+    setOther({
+      status: example.status,
+      durationMs: 0,
+      bodyInline: example.body ?? '',
+      createdAt: example.updatedAt,
+    });
+  };
 
   const pick = async (item: HistorySummary) => {
     setPicked(item);
@@ -87,6 +109,7 @@ export default function ResponseDiffDialog({
     } catch (cause) {
       setSideError(toAppError(cause).detail);
       setPicked(null);
+      setPickedExample(null);
     } finally {
       setLoadingSide(false);
     }
@@ -122,30 +145,59 @@ export default function ResponseDiffDialog({
             {picked && other && (
               <>
                 {' ↔ '}
-                {formatMessage('历史')}：<span data-side="other-status">{other.status}</span> · {other.durationMs}ms · {other.createdAt > 0 ? new Date(other.createdAt).toLocaleString() : ''}
+                {pickedExample ? formatMessage('示例') : formatMessage('历史')}：<span data-side="other-status">{other.status}</span> · {other.durationMs}ms · {other.createdAt > 0 ? new Date(other.createdAt).toLocaleString() : ''}
               </>
             )}
           </p>
         </div>
 
-        {!picked && (
+        {!picked && !pickedExample && (
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="px-4 py-2 border-b">
-              <input
-                className="w-full border rounded px-2 py-1 text-xs outline-none focus:border-blue-400"
-                placeholder={formatMessage('搜索 URL / 方法…')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+            <div className="px-4 py-2 border-b flex items-center gap-2">
+              <button
+                className={`border rounded px-2 py-0.5 text-xs ${source === 'history' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'text-gray-500'}`}
+                onClick={() => setSource('history')}
+              >
+                {formatMessage('历史')}
+              </button>
+              {nodeId && (
+                <button
+                  className={`border rounded px-2 py-0.5 text-xs ${source === 'example' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'text-gray-500'}`}
+                  onClick={() => setSource('example')}
+                >
+                  {formatMessage('示例')}
+                </button>
+              )}
+              {source === 'history' && (
+                <input
+                  className="flex-1 border rounded px-2 py-1 text-xs outline-none focus:border-blue-400"
+                  placeholder={formatMessage('搜索 URL / 方法…')}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              )}
             </div>
             <div className="flex-1 overflow-auto text-xs">
-              {history.isPending && (
+              {source === 'history' && history.isPending && (
                 <p className="text-gray-400 text-center py-6">{formatMessage('加载中…')}</p>
               )}
-              {history.data && history.data.items.length === 0 && (
+              {source === 'history' && history.data && history.data.items.length === 0 && (
                 <p className="text-gray-400 text-center py-6">{formatMessage('没有匹配的历史记录')}</p>
               )}
-              {(history.data?.items ?? []).map((item) => (
+              {source === 'example' && (examples.data ?? []).length === 0 && (
+                <p className="text-gray-400 text-center py-6">{formatMessage('此请求还没有保存的示例')}</p>
+              )}
+              {source === 'example' && (examples.data ?? []).map((example) => (
+                <button
+                  key={example.id}
+                  className="w-full text-left px-4 py-1.5 border-b border-gray-50 hover:bg-blue-50 flex items-center gap-2"
+                  onClick={() => pickExample(example)}
+                >
+                  <span className="flex-1 min-w-0 truncate"><Verbatim value={example.name} /></span>
+                  <span className={example.status < 400 ? 'text-green-600' : 'text-red-600'}>{example.status}</span>
+                </button>
+              ))}
+              {source === 'history' && (history.data?.items ?? []).map((item) => (
                 <button
                   key={item.id}
                   className="w-full text-left px-4 py-1.5 border-b border-gray-50 hover:bg-blue-50 flex items-center gap-2"
@@ -160,13 +212,14 @@ export default function ResponseDiffDialog({
           </div>
         )}
 
-        {picked && (
+        {(picked || pickedExample) && (
           <div className="flex-1 flex flex-col min-h-0">
             <div className="px-4 py-2 border-b flex items-center gap-3 text-xs">
               <button
                 className="border rounded px-2 py-0.5 text-gray-600 hover:bg-gray-50"
                 onClick={() => {
                   setPicked(null);
+                  setPickedExample(null);
                   setOther(null);
                 }}
               >

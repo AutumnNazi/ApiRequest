@@ -107,6 +107,7 @@ export const en: Record<string, string> = {
   '响应体': 'Response body',
   'Mock 脚本': 'Mock script',
   '删除示例「{name}」？': 'Delete example "{name}"?',
+  '此请求还没有保存的示例': 'No saved examples for this request yet',
   '选择 .proto 文件': 'Select a .proto file',
   'proto…': 'proto...',
   '清除，恢复 server reflection 模式': 'Clear and fall back to server reflection',

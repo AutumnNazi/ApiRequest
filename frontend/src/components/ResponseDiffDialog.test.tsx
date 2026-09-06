@@ -7,6 +7,7 @@ const ipc = vi.hoisted(() => ({
   listHistory: vi.fn(),
   getHistory: vi.fn(),
   readResponseBlobRange: vi.fn(),
+  listExamples: vi.fn(),
   toAppError: vi.fn((e: unknown) => ({ kind: 'unknown', detail: String(e) })),
 }));
 
@@ -88,5 +89,30 @@ describe('ResponseDiffDialog', () => {
     ipc.listHistory.mockResolvedValue({ items: [], hasMore: false, nextCursor: '' });
     renderDialog();
     expect(await screen.findByText(/没有匹配的历史记录/)).toBeInTheDocument();
+  });
+});
+
+describe('ResponseDiffDialog 示例对照', () => {
+  const exampleSide = {
+    id: 'ex1', nodeId: 'node-1', name: '预期 200', status: 201, headers: [], body: '{"a":1,"b":2}',
+    createdAt: 1, updatedAt: 1,
+  };
+
+  it('switches to the examples source and diffs against a saved example', async () => {
+    ipc.listExamples.mockResolvedValue([exampleSide]);
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ResponseDiffDialog workspaceId="ws-1" nodeId="node-1" base={base} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '示例' }));
+    fireEvent.click(await screen.findByText('预期 200'));
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-diff="del"]')).not.toBeNull();
+    });
+    const addRows = [...container.querySelectorAll('[data-diff="add"]')].map((el) => el.textContent ?? '');
+    expect(addRows.some((t) => t.includes('"b": 2'))).toBe(true);
   });
 });

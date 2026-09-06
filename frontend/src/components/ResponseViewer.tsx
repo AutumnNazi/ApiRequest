@@ -549,6 +549,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
       {showDiff && diffBase && workspaceId && (
         <ResponseDiffDialog
           workspaceId={workspaceId}
+          nodeId={nodeId}
           base={diffBase}
           onClose={() => setShowDiff(false)}
         />
