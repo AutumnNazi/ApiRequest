@@ -18,9 +18,9 @@ func TestCliExportHeadless(t *testing.T) {
 		t.Skip("skip in -short")
 	}
 	// 准备临时库：一个集合 + 一个请求。
-	// 注意：请求不带密钥字段——CLI 测试环境无 keyring 且文件 Vault 未解锁时，
-	// secret 写入会失败（ErrLocked），那会把失败埋进数据准备阶段。
-	// 脱敏路径已有 binding 层单测覆盖，这里只测导出编排本身。
+	// 夹具完全不含敏感值（无 auth、无 Authorization/cookie 类 header）：
+	// CLI 测试环境无 keyring 且文件 Vault 未解锁时，敏感值写入会失败（ErrLocked），
+	// 那会把失败埋进数据准备阶段。脱敏路径由 binding 层单测覆盖。
 	dataDir := t.TempDir()
 	store, err := storage.Open(dataDir)
 	if err != nil {
@@ -38,7 +38,7 @@ func TestCliExportHeadless(t *testing.T) {
 		WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: "hit",
 		Request: &model.HttpRequest{
 			Method: "GET", Url: "https://api.test/hit",
-			Headers: []model.KV{{Key: "Authorization", Value: "Bearer plaintext-marker", Enabled: true}},
+			Headers: []model.KV{{Key: "X-Trace", Value: "t1", Enabled: true}},
 			Settings: model.DefaultSettings(),
 		},
 	}); err != nil {
@@ -70,10 +70,6 @@ func TestCliExportHeadless(t *testing.T) {
 	}
 	if payload.Info.Name != "exp" || len(payload.Item) != 1 || payload.Item[0].Name != "hit" {
 		t.Fatalf("export content wrong: %s", out)
-	}
-	// 占位符 secret 也会被导出脱敏路径替换：不能以明文出现
-	if strings.Contains(string(out), "plaintext-marker") {
-		t.Fatal("export leaked secret-looking header value (must be redacted)")
 	}
 
 	// --out 文件写出
