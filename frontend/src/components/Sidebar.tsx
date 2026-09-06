@@ -460,22 +460,30 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   const treeRef = useRef<HTMLDivElement>(null);
 
   // 扁平化当前可见节点列表（深度优先，与渲染顺序一致）
-  const flatVisible = useMemo(() => {
-    const ids: string[] = [];
-    const walk = (parentId: string) => {
+  const flatRows = useMemo(() => {
+    // 可见行扁平化（虚拟化的输入）：跳过折叠节点的子树；搜索态强制展开
+    const rows: Array<{ node: NodeSummary; depth: number }> = [];
+    const walk = (parentId: string, depth: number) => {
       const all = childrenByParent.get(parentId) ?? [];
       const filtered = visibleSet ? all.filter((c) => visibleSet.has(c.id)) : all;
       for (const c of filtered) {
-        ids.push(c.id);
+        rows.push({ node: c, depth });
         const expanded = searchLower ? true : !collapsed.has(c.id);
         if ((c.kind === 'collection' || c.kind === 'folder') && expanded) {
-          walk(c.id);
+          walk(c.id, depth + 1);
         }
       }
     };
-    walk('');
-    return ids;
+    walk('', 0);
+    return rows;
   }, [childrenByParent, collapsed, searchLower, visibleSet]);
+  const flatVisible = useMemo(() => flatRows.map((r) => r.node.id), [flatRows]);
+
+  // 键盘聚焦行滚入视口（VirtualRowList.scrollToIndex）
+  const focusedIndex = useMemo(
+    () => (focusedId ? flatVisible.indexOf(focusedId) : -1),
+    [focusedId, flatVisible],
+  );
 
   // 聚焦节点滚动入视
   useEffect(() => {
@@ -595,9 +603,156 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
 
   // 渲染单个 folder/request 节点
   const renderNode = (n: NodeSummary, depth: number): React.JSX.Element =>
-    n.kind === 'folder' ? (
-        <div key={n.id}>
-          <div
+    n.kind === 'collection' ? (
+        <div
+          key={n.id}
+          data-node-id={n.id}
+          className={`flex items-center group px-1 py-1 rounded cursor-pointer ${nodeHighlightClass(n.id)} ${
+            dragOverId === n.id ? 'ring-1 ring-blue-300 bg-blue-50' : ''
+          } ${dragId === n.id ? 'opacity-50' : ''}`}
+          draggable
+          style={{ paddingLeft: `${depth * 14 + 4}px` }}
+          onDragStart={(e) => {
+            dragIdRef.current = n.id;
+            setDragId(n.id);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', n.id);
+            dragSelectedIdsRef.current = selectedIds.has(n.id) ? Array.from(selectedIds) : [n.id];
+          }}
+          onDragEnd={() => {
+            finishDrag();
+          }}
+          onDragOver={(e) => {
+            const dragged = dragIdRef.current ? nodeById.get(dragIdRef.current) : undefined;
+            if (!dragged || dragged.id === n.id) return;
+            // collection→collection 根级排序；request/folder→collection 移入
+            if ((dragged.kind === 'collection' && canReorderBefore(n)) || canMoveInto(n)) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (dragged.kind === 'collection') {
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setDragOverBefore(e.clientY < rect.top + rect.height / 2);
+              }
+              setDragOverId(n.id);
+            }
+          }}
+          onDragLeave={() => setDragOverId((v) => (v === n.id ? null : v))}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDragOverId(null);
+            const id = dragIdRef.current;
+            if (!id || id === n.id) return;
+            const dragged = nodeById.get(id);
+            if (!dragged) return;
+            if (dragged.kind === 'collection' && canReorderBefore(n)) {
+              reorderSelection(n, !dragOverBefore);
+            } else {
+              moveInto(n);
+            }
+            finishDrag();
+          }}
+          onClick={(e) => handleNodeClick(n, e)}
+          onMouseDown={(e) => handleNodeMouseDown(n, e)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!selectedIds.has(n.id)) setSelectedIds(new Set([n.id]));
+            setCtxMenu({ x: e.clientX, y: e.clientY, node: n });
+          }}
+        >
+          <button
+            type="button"
+            className="mr-0.5 w-4 shrink-0 text-center text-gray-500 hover:text-gray-800"
+            title={isExpanded(n.id) ? formatMessage('折叠') : formatMessage('展开')}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!searchLower) toggle(n.id);
+            }}
+          >
+            {isExpanded(n.id) ? '▾' : '▸'}
+          </button>
+          <span className="font-medium flex-1 truncate">
+            {!isExpanded(n.id) ? '📁' : '📂'} <Verbatim value={n.name} />
+            {(() => {
+              const cnt = countRequests(n.id);
+              return cnt > 0 ? <span className="ml-1 text-xs text-gray-400">({cnt})</span> : null;
+            })()}
+          </span>
+          <button
+            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
+            title="添加请求"
+            onClick={(e) => {
+              e.stopPropagation();
+              addChild.mutate({ parentId: n.id, kind: 'request' });
+            }}
+          >
+            +
+          </button>
+          <button
+            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+            title="添加文件夹"
+            onClick={(e) => {
+              e.stopPropagation();
+              addChild.mutate({ parentId: n.id, kind: 'folder' });
+            }}
+          >
+            📁+
+          </button>
+          <button
+            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+            title="Runner 批量运行"
+            onClick={(e) => {
+              e.stopPropagation();
+              setRunnerTarget(n);
+            }}
+          >
+            ▶
+          </button>
+          <button
+            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+            title="Mock Server"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMockTarget(n);
+            }}
+          >
+            M
+          </button>
+          <ExportButton colId={n.id} count={countRequests(n.id)} />
+          <button
+            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+            title="导出为 Git 友好目录镜像"
+            onClick={async (e) => {
+              e.stopPropagation();
+              try {
+                const dir = await openNativeDirectory('选择镜像导出目录');
+                if (!dir) return;
+                await exportMirror(n.id, dir);
+                void dialog.alert(formatMessage('已导出镜像到 {directory}', { directory: dir }), { title: '导出完成' });
+              } catch (err) {
+                void dialog.alert(formatMessage('导出失败: {detail}', { detail: toAppError(err).detail }), { title: '导出失败' });
+              }
+            }}
+          >
+            ⎘
+          </button>
+          <button
+            className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
+            title="删除集合"
+            onClick={(e) => {
+              e.stopPropagation();
+              void dialog.confirm(formatMessage('删除集合「{name}」及其全部请求？', { name: n.name })).then((ok) => {
+                if (ok) del.mutate(n.id);
+              });
+            }}
+          >
+            ×
+          </button>
+        </div>
+    ) : n.kind === 'folder' ? (
+        <div
+          key={n.id}
             {...dragProps(n)}
             data-node-id={n.id}
             className={`relative flex items-center group py-1 rounded cursor-pointer ${nodeHighlightClass(n.id)} ${
@@ -691,8 +846,6 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
               ×
             </button>
           </div>
-          {isExpanded(n.id) && renderChildren(n.id, depth + 1)}
-        </div>
       ) : (
         <TreeLeaf
           key={n.id}
@@ -741,10 +894,6 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           }}
         />
       );
-
-  // 递归渲染 folder/request
-  const renderChildren = (parentId: string, depth: number) =>
-    effectiveChildrenOf(parentId).map((n) => renderNode(n, depth));
 
   const visibleRoots = effectiveChildrenOf('');
 
@@ -825,183 +974,39 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           {searchLower ? formatMessage('无匹配结果') : formatMessage('还没有集合，点击上方创建')}
         </p>
       )}
-      {visibleRoots.map((col, idx) => (
-        col.kind !== 'collection' ? renderNode(col, 0) : (
-        <div
-          key={col.id}
-          data-node-id={col.id}
-          className={`mb-1 rounded ${dragOverId === col.id ? 'ring-1 ring-blue-300 bg-blue-50' : ''} ${dragId === col.id ? 'opacity-50' : ''}`}
-          draggable
-          onDragStart={(e) => {
-            dragIdRef.current = col.id;
-            setDragId(col.id);
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', col.id);
-            dragSelectedIdsRef.current = selectedIds.has(col.id) ? Array.from(selectedIds) : [col.id];
-          }}
-          onDragEnd={() => {
-            finishDrag();
-          }}
-          onDragOver={(e) => {
-            const dragged = dragIdRef.current ? nodeById.get(dragIdRef.current) : undefined;
-            if (!dragged || dragged.id === col.id) return;
-            // collection→collection 根级排序；request/folder→collection 移入
-            if ((dragged.kind === 'collection' && canReorderBefore(col)) || canMoveInto(col)) {
-              e.preventDefault();
-              e.stopPropagation();
-              if (dragged.kind === 'collection') {
-                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                setDragOverBefore(e.clientY < rect.top + rect.height / 2);
-              }
-              setDragOverId(col.id);
-            }
-          }}
-          onDragLeave={() => setDragOverId((v) => (v === col.id ? null : v))}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setDragOverId(null);
-            const id = dragIdRef.current;
-            if (!id || id === col.id) return;
-            const dragged = nodeById.get(id);
-            if (!dragged) return;
-            if (dragged.kind === 'collection' && canReorderBefore(col)) {
-              reorderSelection(col, !dragOverBefore);
-            } else {
-              moveInto(col);
-            }
-            finishDrag();
-          }}
-        >
+      <VirtualRowList
+        items={flatRows}
+        rowHeight={28}
+        scrollToIndex={focusedIndex}
+        renderItem={({ node: n, depth }) => renderNode(n, depth)}
+        footer={
+          /* 根级 drop zone：把节点从集合/文件夹拖出到根级 */
           <div
-            className={`flex items-center group px-1 py-1 rounded cursor-pointer ${nodeHighlightClass(col.id)}`}
-            onClick={(e) => handleNodeClick(col, e)}
-            onMouseDown={(e) => handleNodeMouseDown(col, e)}
-            onContextMenu={(e) => {
+            className={`mt-1 min-h-[20px] rounded transition-colors ${
+              dragOverId === '__root__' ? 'bg-blue-50 ring-1 ring-blue-300' : ''
+            }`}
+            onDragOver={(e) => {
+              const dragged = dragIdRef.current ? nodeById.get(dragIdRef.current) : undefined;
+              if (dragged && canMoveNodesToRoot(nodes, draggedIds())) {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOverId('__root__');
+              }
+            }}
+            onDragLeave={() => setDragOverId((v) => (v === '__root__' ? null : v))}
+            onDrop={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              if (!selectedIds.has(col.id)) setSelectedIds(new Set([col.id]));
-              setCtxMenu({ x: e.clientX, y: e.clientY, node: col });
+              setDragOverId(null);
+              const ids = draggedIds();
+              if (!canMoveNodesToRoot(nodes, ids)) return;
+              const roots = effectiveChildrenOf('');
+              let nextSort = (roots[roots.length - 1]?.sortOrder ?? -1) + 1;
+              move.mutate(ids.map((id) => ({ id, parentId: '', sortOrder: nextSort++ })));
+              finishDrag();
             }}
-          >
-            <button
-              type="button"
-              className="mr-0.5 w-4 shrink-0 text-center text-gray-500 hover:text-gray-800"
-              title={isExpanded(col.id) ? formatMessage('折叠') : formatMessage('展开')}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!searchLower) toggle(col.id);
-              }}
-            >
-              {isExpanded(col.id) ? '▾' : '▸'}
-            </button>
-            <span className="font-medium flex-1 truncate">
-              {!isExpanded(col.id) ? '📁' : '📂'} <Verbatim value={col.name} />
-              {(() => {
-                const n = countRequests(col.id);
-                return n > 0 ? <span className="ml-1 text-xs text-gray-400">({n})</span> : null;
-              })()}
-            </span>
-            <button
-              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
-              title="添加请求"
-              onClick={(e) => {
-                e.stopPropagation();
-                addChild.mutate({ parentId: col.id, kind: 'request' });
-              }}
-            >
-              +
-            </button>
-            <button
-              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-              title="添加文件夹"
-              onClick={(e) => {
-                e.stopPropagation();
-                addChild.mutate({ parentId: col.id, kind: 'folder' });
-              }}
-            >
-              📁+
-            </button>
-            <button
-              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-              title="Runner 批量运行"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRunnerTarget(col);
-              }}
-            >
-              ▶
-            </button>
-            <button
-              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-              title="Mock Server"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMockTarget(col);
-              }}
-            >
-              M
-            </button>
-            <ExportButton colId={col.id} count={countRequests(col.id)} />
-            <button
-              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-              title="导出为 Git 友好目录镜像"
-              onClick={async (e) => {
-                e.stopPropagation();
-                try {
-                  const dir = await openNativeDirectory('选择镜像导出目录');
-                  if (!dir) return;
-                  await exportMirror(col.id, dir);
-                  void dialog.alert(formatMessage('已导出镜像到 {directory}', { directory: dir }), { title: '导出完成' });
-                } catch (err) {
-                  void dialog.alert(formatMessage('导出失败: {detail}', { detail: toAppError(err).detail }), { title: '导出失败' });
-                }
-              }}
-            >
-              ⎘
-            </button>
-            <button
-              className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
-              title="删除集合"
-              onClick={(e) => {
-                e.stopPropagation();
-                void dialog.confirm(formatMessage('删除集合「{name}」及其全部请求？', { name: col.name })).then((ok) => {
-                  if (ok) del.mutate(col.id);
-                });
-              }}
-            >
-              ×
-            </button>
-          </div>
-          {isExpanded(col.id) && renderChildren(col.id, 1)}
-        </div>
-        )
-      ))}
-      {/* 根级 drop zone：把节点从集合/文件夹拖出到根级 */}
-      <div
-        className={`mt-1 min-h-[20px] rounded transition-colors ${
-          dragOverId === '__root__' ? 'bg-blue-50 ring-1 ring-blue-300' : ''
-        }`}
-        onDragOver={(e) => {
-          const dragged = dragIdRef.current ? nodeById.get(dragIdRef.current) : undefined;
-          if (dragged && canMoveNodesToRoot(nodes, draggedIds())) {
-            e.preventDefault();
-            e.stopPropagation();
-            setDragOverId('__root__');
-          }
-        }}
-        onDragLeave={() => setDragOverId((v) => (v === '__root__' ? null : v))}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setDragOverId(null);
-          const ids = draggedIds();
-          if (!canMoveNodesToRoot(nodes, ids)) return;
-          const roots = effectiveChildrenOf('');
-          let nextSort = (roots[roots.length - 1]?.sortOrder ?? -1) + 1;
-          move.mutate(ids.map((id) => ({ id, parentId: '', sortOrder: nextSort++ })));
-          finishDrag();
-        }}
+          />
+        }
       />
       </div>
       {ctxMenu && (

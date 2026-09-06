@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeAll, describe, expect, it, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DialogProvider } from './DialogProvider';
 import Sidebar from './Sidebar';
@@ -59,6 +59,14 @@ function renderTree(workspaceId = 'ws1') {
     },
   };
 }
+
+beforeAll(() => {
+  // 虚拟化列表依赖可视高度；jsdom 全部为 0，会只渲染 1 行。统一注入 600px。
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get: () => 600,
+  });
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -342,5 +350,38 @@ describe('CollectionTree multi-select', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('加载历史失败：database offline');
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     await waitFor(() => expect(ipc.listHistory).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('CollectionTree virtualization', () => {
+  it('keeps only a window of rows in the DOM for large trees and scrolls to the tail', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      id: `col-big-${i}`,
+      workspaceId: 'ws-1',
+      parentId: '',
+      kind: 'collection',
+      name: `bulk ${i}`,
+      sortOrder: i,
+      createdAt: i,
+    })) as unknown as NodeSummary[];
+    ipc.listNodes.mockResolvedValue(many);
+    const view = render(
+      <DialogProvider>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <Sidebar workspaceId="ws-1" />
+        </QueryClientProvider>
+      </DialogProvider>,
+    );
+    await waitFor(() => expect(view.container.querySelector('[data-node-id="col-big-0"]')).not.toBeNull());
+
+    const inDom = view.container.querySelectorAll('[data-node-id]').length;
+    expect(inDom).toBeGreaterThan(5);
+    expect(inDom).toBeLessThan(60); // 虚拟化：60 行不全量进 DOM
+
+    // 滚到底部：末行进入可视窗口
+    const scroller = view.container.querySelector('[data-node-id="col-big-0"]')!.closest('[data-virtual-scroller]') as HTMLElement;
+    scroller.scrollTop = 60 * 28;
+    fireEvent.scroll(scroller);
+    await waitFor(() => expect(view.container.querySelector('[data-node-id="col-big-59"]')).not.toBeNull());
   });
 });

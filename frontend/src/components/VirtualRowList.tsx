@@ -37,6 +37,8 @@ interface Props<T> {
   footer?: ReactNode;
   /** 列表内容变化时回调（首次布局 + 每次滚动）。 */
   onRangeChange?(range: VisibleRange): void;
+  /** 变化时把该索引滚入视口（键盘导航聚焦行用）；undefined 或 -1 表示不滚动 */
+  scrollToIndex?: number;
   className?: string;
 }
 
@@ -47,6 +49,7 @@ export default function VirtualRowList<T>({
   renderItem,
   footer,
   onRangeChange,
+  scrollToIndex,
   className,
 }: Props<T>) {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -65,6 +68,20 @@ export default function VirtualRowList<T>({
   useEffect(() => {
     if (onRangeChange) onRangeChange(range);
   }, [range, onRangeChange]);
+
+  // 键盘导航把焦点行滚入视口；索引超出当前窗口时按行高换算 scrollTop
+  useEffect(() => {
+    if (scrollToIndex === undefined || scrollToIndex < 0) return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    const top = scrollToIndex * rowHeight;
+    const viewport = el.clientHeight;
+    if (top < el.scrollTop) {
+      el.scrollTop = top;
+    } else if (top + rowHeight > el.scrollTop + viewport) {
+      el.scrollTop = top + rowHeight - viewport;
+    }
+  }, [scrollToIndex, rowHeight]);
 
   return (
     <div
