@@ -199,6 +199,8 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	r := sandbox.Result()
 	res.TestResults = r.TestResults
 	res.ScriptLogs = r.Logs
+	// pm.setNextRequest（Runner 串行流转用；单发忽略）
+	res.NextRequest = r.NextRequest
 	if cookiePersistErr != nil {
 		res.ScriptLogs = append(res.ScriptLogs, "[error] persist cookies: "+cookiePersistErr.Error())
 	}

@@ -18,6 +18,9 @@ import (
 
 const maxCachedRunnerReports = 20
 
+// runnerMaxNextRequestHops 单迭代行内 pm.setNextRequest 跳转的步数上限（防自环死循环）
+const runnerMaxNextRequestHops = 200
+
 // RunnerApi Collection Runner 域（docs/api-contract.md §4）
 type RunnerApi struct {
 	ctx     context.Context
@@ -28,6 +31,9 @@ type RunnerApi struct {
 	mu          sync.Mutex
 	reports     map[string]*runner.Report // runId → 最新报告（内存）
 	reportOrder []string
+	// lastNextRequest 最近一次 sendRequest 返回的 pm.setNextRequest 值
+	//（execute 写、串行调度读；并发模式下多 worker 都会写，但流转控制只对串行有意义）
+	lastNextRequest atomic.Value // string
 }
 
 // NewRunnerApi 构造
@@ -41,8 +47,7 @@ func NewRunnerApi(request *RequestApi, store *storage.Store) *RunnerApi {
 		store:      store,
 		operations: operations,
 		reports:    map[string]*runner.Report{},
-	}
-}
+	}}
 
 // startupRunner 注入 Wails context（包级 Startup 统一调）
 func (a *RunnerApi) startup(ctx context.Context) { a.ctx = ctx }
@@ -129,6 +134,14 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 		}
 	}
 
+	// nameIndex 按名称解析集合内请求（pm.setNextRequest 跳转用；重名取第一个）
+	nameIndex := make(map[string]int, len(requests))
+	for i, node := range requests {
+		if _, exists := nameIndex[node.Name]; !exists {
+			nameIndex[node.Name] = i
+		}
+	}
+
 	var mu sync.Mutex
 	canceled := false
 
@@ -169,6 +182,8 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 			rr.Status = res.Status
 			rr.DurationMs = int64(res.Timing.TotalMs)
 			rr.TestResults = res.TestResults
+			// 记录 pm.setNextRequest 的流转意图（串行调度读取；并发模式忽略）
+			a.lastNextRequest.Store(res.NextRequest)
 			for _, t := range res.TestResults {
 				if !t.Pass {
 					rr.Failed = true
@@ -244,10 +259,32 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 		close(taskCh)
 		wg.Wait()
 	} else {
-		for _, tk := range tasks {
+		// 串行：按自然顺序走任务列表；pm.setNextRequest 命中名称时在当前迭代行内
+		// 跳转（Postman 语义：流转不跨迭代行，可回跳形成循环）。
+		// 只有偏离自然顺序的跳转才计入 hops 上限——自环（如 A→A）会在上限处终止，
+		// 而超过上限数量的请求按自然顺序跑完不受影响。
+		hops := 0
+		for i := 0; i < len(tasks); {
+			tk := tasks[i]
 			if !execute(ctx, tk) {
 				break
 			}
+			next, _ := a.lastNextRequest.Load().(string)
+			i++ // 自然顺序默认前进一步
+			if next == "" {
+				continue
+			}
+			if idx, ok := nameIndex[next]; ok {
+				// 任务列表按 (iter, 树序) 排列且每行结构相同：目标索引直接按行内偏移算
+				if target := tk.iter*len(requests) + idx; target != i {
+					i = target
+					hops++
+					if hops >= runnerMaxNextRequestHops {
+						break
+					}
+				}
+			}
+			// 未命中名称：保持自然顺序
 		}
 	}
 	if canceled {

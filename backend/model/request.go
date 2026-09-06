@@ -145,4 +145,6 @@ type ResponseResult struct {
 	TestResults []TestResult `json:"testResults"`
 	ScriptLogs  []string     `json:"scriptLogs"`
 	HistoryId   string       `json:"historyId,omitempty"` // 本次发送落库的历史记录 id
+	// NextRequest 测试脚本 pm.setNextRequest 设置的下一个请求名（Runner 流转控制；空 = 自然顺序）
+	NextRequest string `json:"nextRequest,omitempty"`
 }

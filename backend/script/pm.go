@@ -53,6 +53,21 @@ func (s *Sandbox) injectPM(vm *goja.Runtime) error {
 		}
 	}
 
+	// pm.setNextRequest(name)：测试脚本指定下一个执行的请求（Runner 流转控制）。
+	// 传 null/undefined/空串 = 清除，回到自然顺序。仅收集，不做任何跳转动作。
+	pm.Set("setNextRequest", func(call goja.FunctionCall) goja.Value {
+		name := ""
+		if arg := call.Argument(0); !goja.IsUndefined(arg) && !goja.IsNull(arg) {
+			name = arg.String()
+		}
+		if name == "" {
+			s.nextRequest = nil
+		} else {
+			s.nextRequest = &name
+		}
+		return goja.Undefined()
+	})
+
 	// pm.test(name, fn)：收集断言结果，fn 抛错 = 失败
 	// 回调必须经 AssertFunction 判空：漏传时 goja 会把 goja.Callable 参数置 nil，直接调用即 panic。
 	pm.Set("test", func(call goja.FunctionCall) goja.Value {

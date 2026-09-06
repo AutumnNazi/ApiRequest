@@ -60,7 +60,7 @@ run_collection(target, options):
   return report  // totals for passed/failed/skipped/duration plus per-request details
 ```
 
-- **Execution order**: flatten the tree in display order. Scripts may alter control flow with `pm.setNextRequest(name)` in a later phase.
+- **Execution order (implemented)**: flatten the tree in display order. Test scripts can call `pm.setNextRequest(name)` to jump or loop within the current iteration row (Postman semantics: no cross-iteration jumps; passing null or an empty string clears the override and unknown names fall back to natural order). Only effective in sequential mode — concurrent load runs execute everything in parallel, where flow control is meaningless. Jumps are capped (200 hops) so self-loops terminate instead of hanging.
 - **Data-driven runs**: inject one data-file row into the `data` scope on each iteration. See [variable resolution](./request-lifecycle.md#2-variable-resolution-and-template-engine) for precedence.
 - **Concurrency (implemented)**: sequential by default because many APIs have state dependencies. With a concurrency N > 1, (iteration, request) pairs run through a fixed worker pool — data rows still bind per iteration, results sort stably by (iteration, tree order), and StopOnError converges quickly via a cancel channel (in-flight tasks finish; undispatched tasks count as skipped).
 - **Cancellation**: every run owns a unique `runId`. Cancellation propagates to the active HTTP request and prevents later iterations. Closing an active Runner requires confirmation and cancellation so no background run is orphaned.

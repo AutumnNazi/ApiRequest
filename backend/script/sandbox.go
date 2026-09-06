@@ -37,6 +37,8 @@ type Result struct {
 	GlobalChanges     *VarChanges
 	// 前置脚本对请求的修改
 	MutatedRequest *model.HttpRequest
+	// 测试脚本设置的下一个请求名（pm.setNextRequest；空 = 自然顺序）
+	NextRequest string
 }
 
 // Sandbox 一次请求内的脚本执行环境（前置 + 测试共享变量变更缓冲）
@@ -58,6 +60,8 @@ type Sandbox struct {
 
 	testResults []model.TestResult
 	logs        []string
+	// pm.setNextRequest 记录的下一个请求名；nil = 未设置（自然顺序）
+	nextRequest *string
 	// 脚本执行结束后的回写钩子（pm.request 的 method/url 同步等）
 	onFinish []func()
 }
@@ -153,7 +157,7 @@ func (s *Sandbox) runFinishHooks() {
 
 // Result 汇总执行产出
 func (s *Sandbox) Result() Result {
-	return Result{
+	res := Result{
 		TestResults:       s.testResults,
 		Logs:              s.logs,
 		EnvChanges:        s.envChanges,
@@ -161,6 +165,10 @@ func (s *Sandbox) Result() Result {
 		GlobalChanges:     s.globalChanges,
 		MutatedRequest:    s.request,
 	}
+	if s.nextRequest != nil {
+		res.NextRequest = *s.nextRequest
+	}
+	return res
 }
 
 func scriptError(err error, phase string) *model.AppError {
