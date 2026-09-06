@@ -2,6 +2,8 @@
 // 若过期的 runningMocks 快照晚于新一轮操作落地，就会把 addr 覆盖成错误值：
 // UI 显示"已停止"而服务实际在跑，再次点击会重启并换掉端口。
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import MockPanel from './MockPanel';
 
@@ -10,6 +12,8 @@ const ipc = vi.hoisted(() => ({
   stopMockServer: vi.fn(),
   runningMocks: vi.fn(),
   onMockLog: vi.fn(() => () => {}),
+  listCollectionExamples: vi.fn(() => Promise.resolve([])),
+  upsertExample: vi.fn((e: unknown) => Promise.resolve(e)),
   toAppError: vi.fn((e: unknown) => ({
     kind: 'unknown',
     detail: e instanceof Error ? e.message : String(e),
@@ -28,8 +32,14 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+const testClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+function wrap(ui: ReactElement) {
+  return <QueryClientProvider client={testClient}>{ui}</QueryClientProvider>;
+}
+
 function renderPanel(collectionId = 'c1') {
-  return render(<MockPanel collectionId={collectionId} collectionName="集合1" onClose={() => {}} />);
+  return render(wrap(<MockPanel collectionId={collectionId} collectionName="集合1" onClose={() => {}} />));
 }
 
 beforeEach(() => {
@@ -63,7 +73,9 @@ describe('MockPanel 初始查询与启停的竞态', () => {
     ipc.runningMocks.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
 
     const { rerender } = renderPanel('c1');
-    rerender(<MockPanel collectionId="c2" collectionName="集合2" onClose={() => {}} />);
+    rerender(
+      wrap(<MockPanel collectionId="c2" collectionName="集合2" onClose={() => {}} />)
+    );
 
     await act(async () => {
       second.resolve({ c2: '127.0.0.1:9200' });
@@ -93,7 +105,9 @@ describe('MockPanel 初始查询与启停的竞态', () => {
     fireEvent.click(screen.getByRole('button', { name: '启动' }));
     expect(ipc.startMockServer).toHaveBeenCalledWith('c1');
 
-    rerender(<MockPanel collectionId="c2" collectionName="集合2" onClose={() => {}} />);
+    rerender(
+      wrap(<MockPanel collectionId="c2" collectionName="集合2" onClose={() => {}} />)
+    );
 
     await act(async () => {
       staleStart.resolve({ addr: '127.0.0.1:9300' });
@@ -124,7 +138,9 @@ describe('MockPanel 初始查询与启停的竞态', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '启动' }));
 
-    rerender(<MockPanel collectionId="c2" collectionName="集合2" onClose={() => {}} />);
+    rerender(
+      wrap(<MockPanel collectionId="c2" collectionName="集合2" onClose={() => {}} />)
+    );
     await act(async () => {
       secondQuery.resolve({});
     });
@@ -175,5 +191,36 @@ describe('MockPanel 初始查询与启停的竞态', () => {
 
     expect(await screen.findByText(/port in use/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '启动' })).toBeEnabled();
+  });
+});
+
+describe('MockPanel 响应脚本', () => {
+  it('展开示例并保存脚本', async () => {
+    ipc.listCollectionExamples.mockResolvedValue([
+      { id: 'e1', nodeId: 'r1', name: 'one user', status: 200, headers: [], body: '{"id":42}', mockScript: '', createdAt: 1, updatedAt: 1 },
+    ] as never);
+    ipc.runningMocks.mockResolvedValue({});
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: '响应脚本' }));
+    expect(await screen.findByText('one user')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('one user'));
+    const area = await screen.findByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: 'respond({ status: 201, body: "ok" });' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(ipc.upsertExample).toHaveBeenCalled());
+    const saved = ipc.upsertExample.mock.calls[0][0] as { mockScript: string };
+    expect(saved.mockScript).toContain('respond');
+  });
+
+  it('空集合显示引导文案', async () => {
+    ipc.listCollectionExamples.mockResolvedValue([]);
+    ipc.runningMocks.mockResolvedValue({});
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: '响应脚本' }));
+    expect(await screen.findByText(/还没有示例/)).toBeInTheDocument();
   });
 });

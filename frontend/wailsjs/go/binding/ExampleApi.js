@@ -6,6 +6,10 @@ export function DeleteExample(arg1) {
   return window['go']['binding']['ExampleApi']['DeleteExample'](arg1);
 }
 
+export function ListCollectionExamples(arg1) {
+  return window['go']['binding']['ExampleApi']['ListCollectionExamples'](arg1);
+}
+
 export function ListExamples(arg1) {
   return window['go']['binding']['ExampleApi']['ListExamples'](arg1);
 }

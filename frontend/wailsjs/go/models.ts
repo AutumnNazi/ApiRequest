@@ -586,6 +586,7 @@ export namespace model {
 	    status: number;
 	    headers: KV[];
 	    body?: string;
+	    mockScript?: string;
 	    createdAt: number;
 	    updatedAt: number;
 	
@@ -602,6 +603,7 @@ export namespace model {
 	        this.status = source["status"];
 	        this.headers = this.convertValues(source["headers"], KV);
 	        this.body = source["body"];
+	        this.mockScript = source["mockScript"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }

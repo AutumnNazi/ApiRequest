@@ -232,6 +232,8 @@ var migrations = []string{
 	  merged_at      INTEGER NOT NULL
 	);
 	`,
+	// 0013: 示例级 Mock 响应脚本（docs/advanced.md §1.3）
+	`ALTER TABLE example ADD COLUMN mock_script TEXT NOT NULL DEFAULT '';`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录

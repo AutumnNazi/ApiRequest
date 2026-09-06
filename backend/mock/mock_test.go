@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"apirequest/backend/model"
@@ -159,5 +160,43 @@ func TestNoExamplesError(t *testing.T) {
 	}
 	if _, err := m.Start("col", nodes, nil, Options{}, nil); err == nil {
 		t.Error("no examples should error")
+	}
+}
+
+// 示例 mock 脚本：响应按请求 query 动态生成；脚本出错回 500
+func TestServeHTTPWithMockScript(t *testing.T) {
+	m := NewManager()
+	nodes, _ := testNodesAndExamples()
+	// 只挂脚本示例：排除 pickExample 命中静态示例的干扰
+	examples := []model.Example{model.Example{
+		Id: "e5", NodeId: "r2", Name: "scripted", Status: 200, Body: `{"static":true}`,
+		MockScript: `
+			if (mockRequest.queryFirst("fail") === "1") { throw new Error("injected"); }
+			respond({
+				status: 200,
+				headers: { "X-Mock-Script": "1", "Content-Type": "application/json" },
+				body: JSON.stringify({ dynamic: true, q: mockRequest.queryFirst("q") ?? "" }),
+			});
+		`,
+	}}
+	srv, err := m.Start("col", nodes, examples, Options{}, nil)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { m.StopAll() })
+
+	// 动态响应：body 由脚本按 query 生成，静态示例体不再出现
+	resp, body := get(t, srv.Addr+"/users?q=hello", nil)
+	if resp.StatusCode != 200 || resp.Header.Get("X-Mock-Script") != "1" {
+		t.Fatalf("status = %d headers=%v", resp.StatusCode, resp.Header)
+	}
+	if body != `{"dynamic":true,"q":"hello"}` {
+		t.Fatalf("dynamic body = %s", body)
+	}
+
+	// 脚本异常 → 500 且带错误信息
+	resp, body = get(t, srv.Addr+"/users?fail=1", nil)
+	if resp.StatusCode != 500 || !strings.Contains(body, "injected") {
+		t.Fatalf("script error path: status=%d body=%s", resp.StatusCode, body)
 	}
 }

@@ -27,6 +27,15 @@ func (a *ExampleApi) ListExamples(nodeId string) ([]model.Example, error) {
 	return out, nil
 }
 
+// ListCollectionExamples 列出集合下全部示例（Mock 面板按集合展示脚本编辑）
+func (a *ExampleApi) ListCollectionExamples(collectionId string) ([]model.Example, error) {
+	out, err := a.store.ListExamplesForCollection(collectionId)
+	if err != nil {
+		return nil, model.WrapError(model.KindStorage, err)
+	}
+	return out, nil
+}
+
 // UpsertExample 保存示例
 func (a *ExampleApi) UpsertExample(e model.Example) (model.Example, error) {
 	if e.NodeId == "" || e.Name == "" {

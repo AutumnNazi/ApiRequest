@@ -188,7 +188,10 @@ export const clearRunnerRuns = (workspaceId: string) => call(() => RunnerApi.Cle
 // ── Example / Mock ──
 
 export const listExamples = (nodeId: string) => call(() => ExampleApi.ListExamples(nodeId));
-export const upsertExample = (e: Example) => call(() => ExampleApi.UpsertExample(e));
+export const listCollectionExamples = (collectionId: string) =>
+  call(() => ExampleApi.ListCollectionExamples(collectionId));
+export const upsertExample = (e: Partial<Example>) =>
+  call(() => ExampleApi.UpsertExample(model.Example.createFrom(e)));
 export const deleteExample = (exampleId: string) => call(() => ExampleApi.DeleteExample(exampleId));
 export const startMockServer = (collectionId: string, opts: Partial<MockOptions> = {}) =>
   call(() => MockApi.StartMockServer(collectionId, mock.Options.createFrom(opts)));

@@ -41,6 +41,7 @@ For each incoming `(method, path)`, score and match all request nodes in the col
 
 ---
 
+- **Response scripts (implemented)**: an example can carry a JS snippet (`Example.MockScript`, goja sandbox, fresh runtime per request, 2s watchdog interrupt). Inside the script, a read-only `mockRequest` (`method`/`path`/`query`/`queryFirst(name)`/`headers`/`body`) is available along with `respond({ status, headers, body, delayMs })` to produce the response dynamically; not calling `respond` falls back to the static example, and a thrown error returns 500. Configure per example in the Mock panel's "Response scripts" view.
 ## 2. Collection Runner
 
 Execute requests in a collection sequentially and iteratively, with optional CSV/JSON data files driving multiple iterations. Aggregate each request's test results into a run report containing pass/fail status and duration.

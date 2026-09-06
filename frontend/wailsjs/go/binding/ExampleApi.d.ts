@@ -4,6 +4,8 @@ import {model} from '../models';
 
 export function DeleteExample(arg1:string):Promise<void>;
 
+export function ListCollectionExamples(arg1:string):Promise<Array<model.Example>>;
+
 export function ListExamples(arg1:string):Promise<Array<model.Example>>;
 
 export function UpsertExample(arg1:model.Example):Promise<model.Example>;

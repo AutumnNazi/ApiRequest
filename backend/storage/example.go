@@ -15,7 +15,7 @@ const exampleRedactionMigrationKey = "example.redaction.v2"
 // ListExamples 列出请求节点下的示例
 func (s *Store) ListExamples(nodeId string) ([]model.Example, error) {
 	rows, err := s.db.Query(`
-		SELECT id, node_id, name, request_snap, status, headers, body, created_at, updated_at
+		SELECT id, node_id, name, request_snap, status, headers, body, mock_script, created_at, updated_at
 		FROM example WHERE node_id = ? AND deleted_at IS NULL ORDER BY created_at`, nodeId)
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func (s *Store) ListExamplesForCollection(collectionId string) ([]model.Example,
 		  SELECT n.id FROM node n JOIN sub ON n.parent_id = sub.id WHERE n.deleted_at IS NULL
 		)
 		SELECT e.id, e.node_id, e.name, e.request_snap, e.status, e.headers, e.body,
-		       e.created_at, e.updated_at
+		       e.mock_script, e.created_at, e.updated_at
 		FROM example e JOIN sub ON e.node_id = sub.id
 		WHERE e.deleted_at IS NULL ORDER BY e.created_at`, collectionId)
 	if err != nil {
@@ -47,12 +47,13 @@ func scanExamples(rows *sql.Rows) ([]model.Example, error) {
 	out := []model.Example{}
 	for rows.Next() {
 		var e model.Example
-		var snap, body sql.NullString
+		var snap, body, mockScript sql.NullString
 		var headers string
 		if err := rows.Scan(&e.Id, &e.NodeId, &e.Name, &snap, &e.Status, &headers, &body,
-			&e.CreatedAt, &e.UpdatedAt); err != nil {
+			&mockScript, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
+		e.MockScript = mockScript.String
 		e.Body = body.String
 		if snap.Valid && snap.String != "" {
 			var req model.HttpRequest
@@ -109,17 +110,18 @@ func (s *Store) UpsertExample(e model.Example) (model.Example, error) {
 		snap = sql.NullString{String: string(b), Valid: true}
 	}
 	_, err = s.db.Exec(`
-		INSERT INTO example (id, node_id, name, request_snap, status, headers, body, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?)
+		INSERT INTO example (id, node_id, name, request_snap, status, headers, body, mock_script, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 		  name = excluded.name,
 		  request_snap = excluded.request_snap,
 		  status = excluded.status,
 		  headers = excluded.headers,
 		  body = excluded.body,
+		  mock_script = excluded.mock_script,
 		  updated_at = excluded.updated_at`,
 		e.Id, e.NodeId, e.Name, snap, e.Status, string(headers),
-		sql.NullString{String: e.Body, Valid: e.Body != ""}, e.CreatedAt, e.UpdatedAt)
+		sql.NullString{String: e.Body, Valid: e.Body != ""}, e.MockScript, e.CreatedAt, e.UpdatedAt)
 	return e, err
 }
 

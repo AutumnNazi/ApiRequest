@@ -140,6 +140,8 @@ type Example struct {
 	Status      int          `json:"status"`
 	Headers     []KV         `json:"headers"`
 	Body        string       `json:"body,omitempty"`
+	// MockScript 非空时 Mock Server 用它按请求动态生成响应（docs/advanced.md §1.3）
+	MockScript  string       `json:"mockScript,omitempty"`
 	CreatedAt   int64        `json:"createdAt"`
 	UpdatedAt   int64        `json:"updatedAt"`
 }

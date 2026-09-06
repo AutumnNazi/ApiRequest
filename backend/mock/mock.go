@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -228,6 +229,49 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ex := pickExample(rt.examples, r)
+
+	// 示例携带 mock 脚本：按请求动态生成响应（docs/advanced.md §1.3）；
+	// 脚本未调用 respond 或执行出错时分别回退静态示例 / 返回 500
+	if ex.MockScript != "" {
+		body, readErr := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if readErr != nil {
+			body = nil
+		}
+		headers := map[string]string{}
+		for k := range r.Header {
+			headers[k] = r.Header.Get(k)
+		}
+		query := r.URL.Query()
+		resp, called, scriptErr := RunMockScript(ex.MockScript, MockRequest{
+			Method:  r.Method,
+			Path:    r.URL.Path,
+			Query:   query,
+			Headers: headers,
+			Body:    string(body),
+		})
+		if scriptErr != nil {
+			s.log(r, rt.name, 500)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(500)
+			json.NewEncoder(w).Encode(map[string]any{"error": scriptErr.Error()})
+			return
+		}
+		if called {
+			if resp.DelayMs > 0 {
+				time.Sleep(time.Duration(resp.DelayMs) * time.Millisecond)
+			}
+			for k, v := range resp.Headers {
+				if k != "" {
+					w.Header().Set(k, v)
+				}
+			}
+			s.log(r, rt.name, resp.Status)
+			w.WriteHeader(resp.Status)
+			w.Write([]byte(resp.Body))
+			return
+		}
+	}
+
 	for _, h := range ex.Headers {
 		if h.Key != "" {
 			w.Header().Set(h.Key, h.Value)
