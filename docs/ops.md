@@ -64,6 +64,7 @@ func (e *AppError) Error() string { return string(e.Kind) + ": " + e.Detail }
 | 前端单元测试 | store 逻辑、IPC wrapper、纯组件 | Vitest + Testing Library |
 | E2E | 关键用户路径（建请求→发送→看响应→存集合） | Wails + Playwright/WebDriver |
 | 跨平台冒烟 | Windows / macOS 构建产物可启动、可发一次请求、可读写应用数据目录 | CI matrix |
+| 依赖漏洞扫描 | Go 模块按调用路径（govulncheck）；前端依赖 high 及以上（npm audit） | CI（dev 与 release 双流水线，失败阻断） |
 
 核心不变量放在 Go 纯函数层，保证脱离 UI 可高覆盖单测。
 

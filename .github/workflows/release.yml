@@ -59,6 +59,12 @@ jobs:
       - name: Frontend type-check and build
         run: npm --prefix frontend run build
 
+      - name: govulncheck (Go dependencies)
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: npm audit (frontend dependencies)
+        run: npm --prefix frontend audit --audit-level=high
+
   build:
     name: Build (${{ matrix.label }})
     needs: test

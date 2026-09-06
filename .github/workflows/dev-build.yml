@@ -81,6 +81,32 @@ jobs:
             exit 1
           fi
 
+  security:
+    name: Security scan (govulncheck + npm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: govulncheck (Go dependencies)
+        # 按调用路径检查可达漏洞（不是仅看版本号）；失败即阻断
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20.19'
+
+      - name: npm audit (frontend dependencies)
+        # 只阻断 high 及以上；dev-only 漏洞同样计入（构建链路也是攻击面）
+        run: npm --prefix frontend audit --audit-level=high
+
   frontend:
     name: Frontend type-check and build
     runs-on: ubuntu-latest
