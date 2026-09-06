@@ -26,8 +26,8 @@ func sampleReq() model.HttpRequest {
 
 func TestTargets(t *testing.T) {
 	targets := Targets()
-	if len(targets) != 9 {
-		t.Fatalf("targets = %d, want 9", len(targets))
+	if len(targets) != 11 {
+		t.Fatalf("targets = %d, want 11", len(targets))
 	}
 	if _, err := Generate("nonexistent", sampleReq()); err == nil {
 		t.Error("unknown target should error")

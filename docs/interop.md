@@ -88,7 +88,7 @@ type CodeGen interface {
 }
 ```
 
-- **目标矩阵**：curl、JavaScript(fetch/axios)、Python(requests/http.client)、Go(net/http)、Java(OkHttp/HttpClient)、Rust(reqwest)、PHP(curl/Guzzle)、C#(HttpClient)、Node(native)、Shell(httpie)。
+- **目标矩阵**（全部已实现）：curl、JavaScript(fetch/axios)、Python(requests/http.client)、Go(net/http)、Java(OkHttp/HttpClient)、Rust(reqwest)、PHP(curl/Guzzle)、C#(HttpClient)、Node(native)、Shell(httpie)。
 - **GenOptions**：是否保留 `{{var}}` 占位 vs 内联已解析值、缩进风格、是否含 auth、是否含注释。
 - **正确性要点**：各语言的转义规则不同（引号、多行 body、二进制），生成后对每个目标各留一组快照测试（golden test）确保稳定。
 - 与导出解耦：代码生成面向"复制片段"，导出面向"文件交换"，但底层 IR 同源。

@@ -88,7 +88,7 @@ type CodeGen interface {
 }
 ```
 
-- **Target matrix**: curl, JavaScript (fetch/axios), Python (requests/http.client), Go (net/http), Java (OkHttp/HttpClient), Rust (reqwest), PHP (curl/Guzzle), C# (HttpClient), Node (native), and Shell (httpie).
+- **Target matrix** (all implemented): curl, JavaScript (fetch/axios), Python (requests/http.client), Go (net/http), Java (OkHttp/HttpClient), Rust (reqwest), PHP (curl/Guzzle), C# (HttpClient), Node (native), and Shell (httpie).
 - **GenOptions**: preserve `{{var}}` placeholders or inline resolved values, indentation style, include auth, and include comments.
 - **Correctness**: quoting, multiline bodies, and binary data require different escaping in each language. Keep golden tests per target to prevent generator drift.
 - Keep code generation separate from export: generation produces copyable snippets, export produces exchange files, but both share the same IR.
