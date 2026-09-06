@@ -323,6 +323,7 @@ export const getRawSetting = (key: string) => call(() => SettingsApi.GetRawSetti
 export const storageStats = () => call(() => SettingsApi.StorageStats());
 export const vacuumDb = () => call(() => SettingsApi.VacuumDb());
 export const runBackup = () => call(() => SettingsApi.RunBackup());
+export const exportDiagnostics = (path: string) => call(() => SettingsApi.ExportDiagnostics(path));
 export const listBackups = () => call(() => SettingsApi.ListBackups());
 export const setRawSetting = (key: string, value: string) =>
   call(() => SettingsApi.SetRawSetting(key, value));

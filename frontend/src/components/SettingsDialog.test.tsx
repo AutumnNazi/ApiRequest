@@ -16,12 +16,14 @@ const ipc = vi.hoisted(() => ({
   lockVault: vi.fn(),
   openReleasePage: vi.fn(),
   openNativeFile: vi.fn(),
+  saveNativeFile: vi.fn(),
   getNetworkStatus: vi.fn(),
   refreshSystemProxy: vi.fn(),
   listRemoteWorkspaces: vi.fn(),
   importRemoteWorkspace: vi.fn(),
   getRawSetting: vi.fn(() => Promise.resolve('')),
   setRawSetting: vi.fn(() => Promise.resolve(null)),
+  exportDiagnostics: vi.fn(() => Promise.resolve('x.json')),
   storageStats: vi.fn(() => Promise.resolve({
     workspaces: 1, nodes: 0, examples: 0, environments: 0, history: 0, runnerRuns: 0,
     blobFiles: 0, blobBytes: 0, dbBytes: 1024, walBytes: 0,
@@ -116,6 +118,26 @@ describe('SettingsDialog', () => {
     const historyInput = await screen.findByLabelText('历史记录上限');
     fireEvent.change(historyInput, { target: { value: '0' } });
     expect(await screen.findByText('上限须为正整数')).toBeInTheDocument();
+  });
+
+  it('exports a diagnostics bundle to the user-chosen path', async () => {
+    ipc.saveNativeFile.mockResolvedValue('C:/out/diag.json');
+    renderDialog();
+    fireEvent.click(screen.getByRole('button', { name: '存储' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '导出诊断包' }));
+    await waitFor(() => expect(ipc.exportDiagnostics).toHaveBeenCalledWith('C:/out/diag.json'));
+    expect(await screen.findByText('诊断包已导出')).toBeInTheDocument();
+  });
+
+  it('cancels diagnostics export when the save dialog is dismissed', async () => {
+    ipc.saveNativeFile.mockResolvedValue('');
+    renderDialog();
+    fireEvent.click(screen.getByRole('button', { name: '存储' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '导出诊断包' }));
+    await waitFor(() => expect(ipc.saveNativeFile).toHaveBeenCalled());
+    expect(ipc.exportDiagnostics).not.toHaveBeenCalled();
   });
 
   it('saves all settings and shows the success message', async () => {

@@ -15,6 +15,7 @@ import {
   lockVault,
   openReleasePage,
   openNativeFile,
+  saveNativeFile,
   toAppError,
   type ProxySettings,
   type NetworkStatus,
@@ -32,6 +33,7 @@ import {
   storageStats,
   vacuumDb,
   runBackup,
+  exportDiagnostics,
   listBackups,
   type StorageStats,
   type BackupInfo,
@@ -111,6 +113,7 @@ export default function SettingsDialog({ onClose }: Props) {
   const backupsQuery = useQuery({ queryKey: ['backups'], queryFn: listBackups });
   const [backingUp, setBackingUp] = useState(false);
   const [vacuuming, setVacuuming] = useState(false);
+  const [exportingDiag, setExportingDiag] = useState(false);
   const [vault, setVault] = useState<VaultStatus | null>(null);
   const [vaultPassword, setVaultPassword] = useState('');
   const [vaultBusy, setVaultBusy] = useState(false);
@@ -603,6 +606,32 @@ export default function SettingsDialog({ onClose }: Props) {
                   {backupsQuery.data && backupsQuery.data.length === 0 && (
                     <p className="text-gray-400">{formatMessage('暂无备份')}</p>
                   )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="border rounded px-3 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    disabled={exportingDiag}
+                    onClick={() => {
+                      const now = new Date();
+                      const pad = (n: number) => String(n).padStart(2, '0');
+                      const stamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}`;
+                      saveNativeFile('导出诊断包', `apirequest-diagnostics-${stamp}.json`)
+                        .then((path) => {
+                          if (!path) return null;
+                          setExportingDiag(true);
+                          return exportDiagnostics(path)
+                            .then(() => setMsg('诊断包已导出'))
+                            .catch((cause) => setError(toAppError(cause).detail))
+                            .finally(() => setExportingDiag(false));
+                        })
+                        .catch((cause) => setError(toAppError(cause).detail));
+                    }}
+                  >
+                    {exportingDiag ? formatMessage('导出中…') : formatMessage('导出诊断包')}
+                  </button>
+                  <span className="text-gray-400">
+                    {formatMessage('环境与存储状态快照（不含请求内容与敏感值），用于问题排查。')}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button

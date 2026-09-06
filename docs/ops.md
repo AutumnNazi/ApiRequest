@@ -11,6 +11,7 @@
 
 - **自动备份（已实现）**：应用启动时经 `VACUUM INTO` 生成一致性快照（24h 频控，滚动保留 7 份，存于数据目录 `backups/`）；设置页"存储"分区可查看列表并手动触发。备份只含 SQLite 库文件，密钥值仍由 Vault 保护。
 - **保留策略（已实现）**：历史记录（默认 1000/工作区）与 Runner 运行报告（默认 200/集合）在写入时按上限自动裁剪；上限可在设置页"存储 → 保留策略"调整（setting 键 `retention.history` / `retention.runnerRuns`），非法值回落默认。
+- **诊断包（已实现）**：设置页"存储 → 导出诊断包"生成 JSON 快照（版本、平台、存储统计、Vault/网络状态、白名单设置项），用户报障时随 issue 附上即可；文件权限 0600，且绝不包含请求内容与敏感值（vault 引用与凭据零出现）。
 
 - **凭证保护**：密钥类变量与 OAuth token 默认存入系统 keychain（Windows Credential Manager / macOS Keychain）；系统后端不可用时，使用用户主密码经 Argon2id 派生密钥并用 AES-GCM 加密存储。UI 默认掩码显示，历史和脚本日志统一脱敏。
 - **识别边界**：Vault 保护 Auth 模型中的密钥参数、`type=secret` 变量和同步密码。URL、普通 Header、Body 与脚本是用户控制的请求内容，不自动推断其中是否含密钥；凭据应通过结构化认证字段或密钥变量引用。
