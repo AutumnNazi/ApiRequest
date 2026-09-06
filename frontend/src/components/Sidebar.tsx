@@ -39,6 +39,7 @@ const EXPORT_FORMATS = [
   { value: 'swagger2', label: 'Swagger 2.0' },
   { value: 'curl', label: 'cURL' },
   { value: 'restclient', label: 'REST Client (.http)' },
+  { value: 'har', label: 'HAR 1.2' },
 ];
 
 // 稳定的空数组：作为 nodesQuery.data 的兜底值，避免每次渲染产生新引用
