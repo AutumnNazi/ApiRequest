@@ -34,6 +34,7 @@ import { canMoveNodesInto, canMoveNodesToRoot, orderedTopLevelSelection } from '
 // 导出格式选项：value 对应后端 convert.Export(format, ...) 注册名
 const EXPORT_FORMATS = [
   { value: 'postman', label: 'Postman v2.1' },
+  { value: 'insomnia', label: 'Insomnia v4' },
   { value: 'openapi', label: 'OpenAPI 3.0.3' },
   { value: 'openapi3.1', label: 'OpenAPI 3.1.0' },
   { value: 'swagger2', label: 'Swagger 2.0' },
