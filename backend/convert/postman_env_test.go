@@ -78,3 +78,36 @@ func TestPostmanEnvironmentRejectsMalformed(t *testing.T) {
 		t.Fatal("missing name must error")
 	}
 }
+
+// 敏感键标记：token/password/secret/api_key 类 key 的变量 type=secret，
+// 落库后走 Vault 保护（binding 的 lifecycle 链按 type=secret 收纳）
+func TestPostmanEnvironmentMarksSecretKeys(t *testing.T) {
+	payload := `{
+		"name": "E",
+		"_postman_variable_scope": "environment",
+		"values": [
+			{"key": "baseUrl", "value": "https://api.test"},
+			{"key": "apiToken", "value": "tk"},
+			{"key": "db_password", "value": "pw"},
+			{"key": "clientSecret", "value": "s"},
+			{"key": "X_API_KEY", "value": "k"}
+		]
+	}`
+	res, err := Import("postman-env", payload)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	vars := res.SuggestedEnvironments[0].Variables
+	types := map[string]string{}
+	for _, v := range vars {
+		types[v.Key] = v.Type
+	}
+	for _, secret := range []string{"apiToken", "db_password", "clientSecret", "X_API_KEY"} {
+		if types[secret] != "secret" {
+			t.Errorf("variable %q type = %q, want secret", secret, types[secret])
+		}
+	}
+	if types["baseUrl"] != "default" {
+		t.Errorf("baseUrl type = %q, want default", types["baseUrl"])
+	}
+}
