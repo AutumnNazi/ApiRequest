@@ -153,6 +153,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # -s -w 剥离符号表与 DWARF：对齐 30MiB 包体预算（见 dev-build 同名步骤注释）
+          export GOFLAGS="-ldflags=-s -w"
           if [[ "${{ matrix.kind }}" == "linux" ]]; then
             wails build -m -trimpath -platform "${{ matrix.platform }}" -tags webkit2_41
           else
