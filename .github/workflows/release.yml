@@ -154,11 +154,10 @@ jobs:
         run: |
           set -euo pipefail
           # -s -w 剥离符号表与 DWARF：对齐 30MiB 包体预算（见 dev-build 同名步骤注释）
-          export GOFLAGS="-ldflags=-s -w"
           if [[ "${{ matrix.kind }}" == "linux" ]]; then
-            wails build -m -trimpath -platform "${{ matrix.platform }}" -tags webkit2_41
+            wails build -m -trimpath -ldflags "-s -w" -platform "${{ matrix.platform }}" -tags webkit2_41
           else
-            wails build -m -trimpath -platform "${{ matrix.platform }}"
+            wails build -m -trimpath -ldflags "-s -w" -platform "${{ matrix.platform }}"
           fi
 
       - name: Install WiX Toolset

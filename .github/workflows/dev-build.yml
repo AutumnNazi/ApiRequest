@@ -231,12 +231,11 @@ jobs:
         run: |
           set -euo pipefail
           # -s -w 剥离符号表与 DWARF：对齐 30MiB 包体预算（符号不影响运行；
-          # 崩溃栈定位由 Go 的 PC→行号在编译期表完成，不依赖符号文件）
-          export GOFLAGS="-ldflags=-s -w"
+          # wails build 自己拼 ldflags，GOFLAGS 会被覆盖，故走显式 -ldflags）
           if [[ "${{ matrix.kind }}" == "linux" ]]; then
-            wails build -m -trimpath -platform "${{ matrix.platform }}" -tags webkit2_41
+            wails build -m -trimpath -ldflags "-s -w" -platform "${{ matrix.platform }}" -tags webkit2_41
           else
-            wails build -m -trimpath -platform "${{ matrix.platform }}"
+            wails build -m -trimpath -ldflags "-s -w" -platform "${{ matrix.platform }}"
           fi
 
       - name: Cross-platform smoke (platform paths / keychain fallback / engine)
