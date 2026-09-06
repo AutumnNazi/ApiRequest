@@ -22,16 +22,29 @@ func (a *ConvertApi) ImportPreview(format, payload string) (*convert.ImportResul
 	return convert.Import(format, payload)
 }
 
-// ImportCommit 确认导入：把预览树落库（id 重新生成，占位 id 映射到新 id）
-func (a *ConvertApi) ImportCommit(workspaceId string, res convert.ImportResult) (model.Node, error) {
+// ImportCommit 确认导入：把预览树落库（id 重新生成，占位 id 映射到新 id）。
+// 导入器建议的环境（OpenAPI servers 等）一并创建（不激活），返回创建的环境列表。
+func (a *ConvertApi) ImportCommit(workspaceId string, res convert.ImportResult) (convert.ImportCommitResult, error) {
 	if workspaceId == "" {
-		return model.Node{}, model.NewError(model.KindValidation, "workspaceId is required")
+		return convert.ImportCommitResult{}, model.NewError(model.KindValidation, "workspaceId is required")
 	}
 	saved, err := a.store.ImportNodeTree(workspaceId, res.Collection, res.Children)
 	if err != nil {
-		return model.Node{}, model.WrapError(model.KindStorage, err)
+		return convert.ImportCommitResult{}, model.WrapError(model.KindStorage, err)
 	}
-	return saved, nil
+	out := convert.ImportCommitResult{Collection: saved}
+	for _, sug := range res.SuggestedEnvironments {
+		env, envErr := a.store.UpsertEnvironment(model.Environment{
+			WorkspaceId: workspaceId,
+			Name:        sug.Name,
+			Variables:   sug.Variables,
+		})
+		if envErr != nil {
+			return out, model.WrapError(model.KindStorage, envErr)
+		}
+		out.Environments = append(out.Environments, env)
+	}
+	return out, nil
 }
 
 // ExportData 导出集合为目标格式文本
@@ -93,7 +106,8 @@ func (a *ConvertApi) ImportMirror(workspaceId, dir string) (model.Node, error) {
 	if err != nil {
 		return model.Node{}, model.WrapError(model.KindImport, err)
 	}
-	return a.ImportCommit(workspaceId, convert.ImportResult{Collection: collection, Children: children})
+	out, err := a.ImportCommit(workspaceId, convert.ImportResult{Collection: collection, Children: children})
+	return out.Collection, err
 }
 
 // collectTree 取集合根与其全部后代

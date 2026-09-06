@@ -1,6 +1,7 @@
 // 导入弹窗：粘贴 Postman JSON / cURL → 预览 → 确认落库
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useDialog } from './DialogProvider';
 import { importPreview, importCommit, openNativeFile, readNativeTextFile, toAppError, type ImportResult } from '../ipc';
 import { Verbatim, formatMessage } from '../i18n/locale';
 import ModalFrame from './ModalFrame';
@@ -12,6 +13,7 @@ interface Props {
 
 export default function ImportDialog({ workspaceId, onClose }: Props) {
   const qc = useQueryClient();
+  const dialog = useDialog();
   const [payload, setPayload] = useState('');
   const [sourcePath, setSourcePath] = useState('');
   const [preview, setPreview] = useState<ImportResult | null>(null);
@@ -49,8 +51,19 @@ export default function ImportDialog({ workspaceId, onClose }: Props) {
     if (!preview) return;
     setBusy(true);
     try {
-      await importCommit(workspaceId, preview);
+      const committed = await importCommit(workspaceId, preview);
+      const createdEnvs = committed?.environments ?? [];
       qc.invalidateQueries({ queryKey: ['nodes', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['envs', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['globals', workspaceId] });
+      if (createdEnvs && createdEnvs.length > 0) {
+        void dialog.toast(
+          formatMessage('已创建 {count} 个导入环境（{names}），可在左上角切换', {
+            count: createdEnvs.length,
+            names: createdEnvs.map((e) => e.name).join('、'),
+          }),
+        );
+      }
       onClose();
     } catch (e) {
       setError(toAppError(e).detail);

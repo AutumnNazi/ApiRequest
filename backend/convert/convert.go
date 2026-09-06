@@ -13,6 +13,21 @@ type ImportResult struct {
 	Collection model.Node   `json:"collection"` // 根（kind=collection）
 	Children   []model.Node `json:"children"`   // 全部后代（parentId 已串好，id 为占位）
 	Warnings   []string     `json:"warnings"`   // 转换中丢失/降级的信息
+	// SuggestedEnvironments 导入器建议创建的环境（如 OpenAPI servers → 每服务器一个
+	// baseUrl 环境）；由 ImportCommit 落库，切换环境即切换服务器
+	SuggestedEnvironments []SuggestedEnvironment `json:"suggestedEnvironments,omitempty"`
+}
+
+// SuggestedEnvironment 建议创建的环境
+type SuggestedEnvironment struct {
+	Name      string           `json:"name"`
+	Variables []model.Variable `json:"variables"`
+}
+
+// ImportCommitResult ImportCommit 的返回：落库的集合 + 新建的环境
+type ImportCommitResult struct {
+	Collection   model.Node          `json:"collection"`
+	Environments []model.Environment `json:"environments"`
 }
 
 // Importer 导入器接口

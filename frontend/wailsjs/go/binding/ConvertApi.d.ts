@@ -12,7 +12,7 @@ export function ExportMirror(arg1:string,arg2:string):Promise<void>;
 
 export function GenerateCode(arg1:string,arg2:model.HttpRequest):Promise<string>;
 
-export function ImportCommit(arg1:string,arg2:convert.ImportResult):Promise<model.Node>;
+export function ImportCommit(arg1:string,arg2:convert.ImportResult):Promise<convert.ImportCommitResult>;
 
 export function ImportMirror(arg1:string,arg2:string):Promise<model.Node>;
 

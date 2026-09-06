@@ -100,6 +100,34 @@ func (openapiImporter) Import(payload string) (*ImportResult, error) {
 		baseUrl = "http://localhost"
 		res.Warnings = append(res.Warnings, "no servers defined; set {{baseUrl}} manually")
 	}
+	// 每个服务器建议一个环境（切换环境即切换服务器）；swagger2 host 同理；
+	// 无服务器/主机时集合变量仍兜底 http://localhost
+	envName := doc.Info.Title
+	if envName == "" {
+		envName = "导入的环境"
+	}
+	if len(doc.Servers) > 0 {
+		for _, srv := range doc.Servers {
+			name := srv.Url
+			if len(doc.Servers) == 1 {
+				name = envName
+			}
+			res.SuggestedEnvironments = append(res.SuggestedEnvironments, SuggestedEnvironment{
+				Name: name,
+				Variables: []model.Variable{
+					{Key: "baseUrl", Value: srv.Url, Type: "default", Enabled: true},
+				},
+			})
+		}
+	} else if doc.Host != "" {
+		// 仅在显式声明了 host 时建议环境；localhost 兜底不值得建环境
+		res.SuggestedEnvironments = append(res.SuggestedEnvironments, SuggestedEnvironment{
+			Name: envName,
+			Variables: []model.Variable{
+				{Key: "baseUrl", Value: baseUrl, Type: "default", Enabled: true},
+			},
+		})
+	}
 	res.Collection.Variables = []model.Variable{
 		{Key: "baseUrl", Value: baseUrl, Type: "default", Enabled: true},
 	}
