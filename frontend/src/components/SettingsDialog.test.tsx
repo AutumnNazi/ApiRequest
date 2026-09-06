@@ -21,7 +21,7 @@ const ipc = vi.hoisted(() => ({
   refreshSystemProxy: vi.fn(),
   listRemoteWorkspaces: vi.fn(),
   importRemoteWorkspace: vi.fn(),
-  getRawSetting: vi.fn(() => Promise.resolve('')),
+  getRawSetting: vi.fn((_key: string) => Promise.resolve('')),
   setRawSetting: vi.fn(() => Promise.resolve(null)),
   exportDiagnostics: vi.fn(() => Promise.resolve('x.json')),
   storageStats: vi.fn(() => Promise.resolve({

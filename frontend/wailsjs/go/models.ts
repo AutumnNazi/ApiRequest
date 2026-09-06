@@ -1044,6 +1044,7 @@ export namespace model {
 	    testResults: TestResult[];
 	    scriptLogs: string[];
 	    historyId?: string;
+	    nextRequest?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ResponseResult(source);
@@ -1061,6 +1062,7 @@ export namespace model {
 	        this.testResults = this.convertValues(source["testResults"], TestResult);
 	        this.scriptLogs = source["scriptLogs"];
 	        this.historyId = source["historyId"];
+	        this.nextRequest = source["nextRequest"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

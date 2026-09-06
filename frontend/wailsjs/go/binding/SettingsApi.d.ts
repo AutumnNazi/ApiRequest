@@ -5,6 +5,8 @@ import {httpengine} from '../models';
 import {secrets} from '../models';
 import {model} from '../models';
 
+export function ExportDiagnostics(arg1:string):Promise<string>;
+
 export function GetNetworkStatus():Promise<binding.NetworkStatus>;
 
 export function GetProxySettings():Promise<binding.ProxySettings>;
