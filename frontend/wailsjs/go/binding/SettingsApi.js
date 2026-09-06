@@ -22,12 +22,20 @@ export function GetVaultStatus() {
   return window['go']['binding']['SettingsApi']['GetVaultStatus']();
 }
 
+export function ListBackups() {
+  return window['go']['binding']['SettingsApi']['ListBackups']();
+}
+
 export function LockVault() {
   return window['go']['binding']['SettingsApi']['LockVault']();
 }
 
 export function RefreshSystemProxy() {
   return window['go']['binding']['SettingsApi']['RefreshSystemProxy']();
+}
+
+export function RunBackup() {
+  return window['go']['binding']['SettingsApi']['RunBackup']();
 }
 
 export function SetProxySettings(arg1) {

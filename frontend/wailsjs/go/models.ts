@@ -344,6 +344,22 @@ export namespace model {
 	        this.params = source["params"];
 	    }
 	}
+	export class BackupInfo {
+	    name: string;
+	    sizeBytes: number;
+	    createdAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BackupInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.sizeBytes = source["sizeBytes"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
 	export class FormItem {
 	    key: string;
 	    type: string;

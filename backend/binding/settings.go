@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"apirequest/backend/httpengine"
+	"path/filepath"
+
 	"apirequest/backend/model"
 	"apirequest/backend/platform"
 	"apirequest/backend/secrets"
@@ -49,6 +51,24 @@ func NewSettingsApi(store *storage.Store, engine *httpengine.Engine) *SettingsAp
 // StorageStats 存储体检（设置页"存储"分区）
 func (a *SettingsApi) StorageStats() (model.StorageStats, error) {
 	return a.store.StorageStats()
+}
+
+// RunBackup 立即生成一次备份快照（滚动保留 7 份）
+func (a *SettingsApi) RunBackup() (string, error) {
+	path, err := a.store.Backup(a.backupDir(), 7)
+	if err != nil {
+		return "", model.WrapError(model.KindStorage, err)
+	}
+	return path, nil
+}
+
+// ListBackups 列出现有备份（新→旧）
+func (a *SettingsApi) ListBackups() ([]model.BackupInfo, error) {
+	return a.store.ListBackups(a.backupDir())
+}
+
+func (a *SettingsApi) backupDir() string {
+	return filepath.Join(filepath.Dir(a.store.DbPath()), "backups")
 }
 
 // VacuumDb 显式回收数据库空间（VACUUM）

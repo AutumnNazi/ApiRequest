@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"path/filepath"
 	"time"
 
 	"apirequest/backend/binding"
@@ -89,6 +90,17 @@ func (a *App) startup(ctx context.Context) {
 	binding.Startup(ctx, a.Request, a.Runner, a.Mock, a.Protocol, a.OAuth2, a.Grpc, a.Graphql, a.Sync, a.Dialog, a.Lifecycle)
 	// 30s 检查一次是否到期；实际间隔由各工作区 intervalMinutes 决定
 	a.stopAutoSync = a.Sync.StartAutoSync(30 * time.Second)
+	// 每日滚动备份（24h 内已有快照则跳过）：异步执行，失败只记日志不阻塞启动
+	go func() {
+		paths, err := platform.ResolvePaths()
+		if err != nil {
+			log.Printf("auto backup: resolve paths: %v", err)
+			return
+		}
+		if _, err := a.store.AutoBackup(filepath.Join(paths.Data, "backups"), 7); err != nil {
+			log.Printf("auto backup: %v", err)
+		}
+	}()
 }
 
 func (a *App) beforeClose(ctx context.Context) bool { return binding.BeforeClose(a.Lifecycle, ctx) }

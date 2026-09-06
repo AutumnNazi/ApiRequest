@@ -15,9 +15,13 @@ export function GetTLSSettings():Promise<httpengine.TLSSettings>;
 
 export function GetVaultStatus():Promise<secrets.Status>;
 
+export function ListBackups():Promise<Array<model.BackupInfo>>;
+
 export function LockVault():Promise<secrets.Status>;
 
 export function RefreshSystemProxy():Promise<binding.NetworkStatus>;
+
+export function RunBackup():Promise<string>;
 
 export function SetProxySettings(arg1:binding.ProxySettings):Promise<void>;
 

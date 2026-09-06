@@ -307,6 +307,7 @@ export type SyncDavConfig = sync.DavConfig;
 export type RemoteWorkspaceInfo = sync.RemoteWorkspaceInfo;
 export type UpdateCheckResult = updater.CheckResult;
 export type StorageStats = model.StorageStats;
+export type BackupInfo = model.BackupInfo;
 export type SyncReport = sync.Report;
 
 export const getSyncConfig = () => call(() => SyncApi.GetSyncConfig());
@@ -320,6 +321,8 @@ export const checkForUpdates = () => call(() => UpdateApi.CheckForUpdates());
 export const getRawSetting = (key: string) => call(() => SettingsApi.GetRawSetting(key));
 export const storageStats = () => call(() => SettingsApi.StorageStats());
 export const vacuumDb = () => call(() => SettingsApi.VacuumDb());
+export const runBackup = () => call(() => SettingsApi.RunBackup());
+export const listBackups = () => call(() => SettingsApi.ListBackups());
 export const setRawSetting = (key: string, value: string) =>
   call(() => SettingsApi.SetRawSetting(key, value));
 

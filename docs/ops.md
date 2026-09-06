@@ -9,6 +9,8 @@
 
 ## 1. 安全考量
 
+- **自动备份（已实现）**：应用启动时经 `VACUUM INTO` 生成一致性快照（24h 频控，滚动保留 7 份，存于数据目录 `backups/`）；设置页"存储"分区可查看列表并手动触发。备份只含 SQLite 库文件，密钥值仍由 Vault 保护。
+
 - **凭证保护**：密钥类变量与 OAuth token 默认存入系统 keychain（Windows Credential Manager / macOS Keychain）；系统后端不可用时，使用用户主密码经 Argon2id 派生密钥并用 AES-GCM 加密存储。UI 默认掩码显示，历史和脚本日志统一脱敏。
 - **识别边界**：Vault 保护 Auth 模型中的密钥参数、`type=secret` 变量和同步密码。URL、普通 Header、Body 与脚本是用户控制的请求内容，不自动推断其中是否含密钥；凭据应通过结构化认证字段或密钥变量引用。
 - **脚本沙箱**：JS 脚本无法访问宿主文件系统与任意网络，执行有超时上限（见 [请求生命周期](./request-lifecycle.md)）。

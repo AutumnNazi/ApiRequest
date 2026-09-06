@@ -27,6 +27,8 @@ const ipc = vi.hoisted(() => ({
     blobFiles: 0, blobBytes: 0, dbBytes: 1024, walBytes: 0,
   })),
   vacuumDb: vi.fn(() => Promise.resolve(null)),
+  listBackups: vi.fn(() => Promise.resolve([])),
+  runBackup: vi.fn(() => Promise.resolve('path')),
 }));
 
 vi.mock('../ipc', () => ({

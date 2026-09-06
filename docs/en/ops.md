@@ -9,6 +9,8 @@ English | [简体中文](../ops.md)
 
 ## 1. Security Considerations
 
+- **Automatic backups (implemented)**: at startup the app creates a consistent snapshot via `VACUUM INTO` (24h throttle, rolling retention of 7, stored under `backups/` in the data directory); the Settings "Storage" section lists snapshots and offers a manual trigger. Backups contain only the SQLite database file; secret values remain protected by the Vault.
+
 - **Credential protection**: store secret variables and OAuth tokens in the system keychain by default (Windows Credential Manager / macOS Keychain). If the system backend is unavailable, derive a key with Argon2id and encrypt the fallback vault with AES-GCM. Mask values in the UI by default; history and script logs use the same redaction policy.
 - **Classification boundary**: the Vault protects secret parameters in the Auth model, `type=secret` variables, and the sync password. URLs, ordinary headers, bodies, and scripts are user-controlled request content; the application does not infer whether arbitrary strings are credentials. Reference credentials through structured auth fields or secret variables.
 - **Script sandbox**: JavaScript cannot access the host filesystem or arbitrary network destinations and has an execution timeout. See [Request Lifecycle](./request-lifecycle.md).

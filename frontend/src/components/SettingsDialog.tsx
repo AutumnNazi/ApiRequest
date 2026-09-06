@@ -30,7 +30,10 @@ import {
   setRawSetting,
   storageStats,
   vacuumDb,
+  runBackup,
+  listBackups,
   type StorageStats,
+  type BackupInfo,
 } from '../ipc';
 import { eventCombo, formatCombo, parseHotkeySettings, detectPlatform, isSafeCombo, type HotkeyMap } from '../utils/hotkeys';
 import { formatSize } from '../utils/formatSize';
@@ -85,6 +88,8 @@ export default function SettingsDialog({ onClose }: Props) {
   const [capturing, setCapturing] = useState<string | null>(null);
   const [hotkeyHint, setHotkeyHint] = useState('');
   const statsQuery = useQuery({ queryKey: ['storage-stats'], queryFn: storageStats });
+  const backupsQuery = useQuery({ queryKey: ['backups'], queryFn: listBackups });
+  const [backingUp, setBackingUp] = useState(false);
   const [vacuuming, setVacuuming] = useState(false);
   const [vault, setVault] = useState<VaultStatus | null>(null);
   const [vaultPassword, setVaultPassword] = useState('');
@@ -498,6 +503,37 @@ export default function SettingsDialog({ onClose }: Props) {
                     </div>
                   </div>
                 )}
+                <div className="border rounded p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-700">{formatMessage('自动备份')}</span>
+                    <span className="text-gray-400">
+                      {formatMessage('每日启动时滚动快照（保留 7 份，存于数据目录 backups/）')}
+                    </span>
+                    <button
+                      className="ml-auto border rounded px-3 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      disabled={backingUp}
+                      onClick={() => {
+                        setBackingUp(true);
+                        runBackup()
+                          .then(() => qc.invalidateQueries({ queryKey: ['backups'] }))
+                          .catch((cause) => setError(toAppError(cause).detail))
+                          .finally(() => setBackingUp(false));
+                      }}
+                    >
+                      {backingUp ? formatMessage('备份中…') : formatMessage('立即备份')}
+                    </button>
+                  </div>
+                  {(backupsQuery.data ?? []).slice(0, 7).map((b) => (
+                    <div key={b.name} className="flex items-center gap-2 text-gray-600">
+                      <span className="font-mono flex-1 min-w-0 truncate"><Verbatim value={b.name} /></span>
+                      <span className="text-gray-400">{formatSize(b.sizeBytes)}</span>
+                      <span className="text-gray-400">{new Date(b.createdAt).toLocaleString()}</span>
+                    </div>
+                  ))}
+                  {backupsQuery.data && backupsQuery.data.length === 0 && (
+                    <p className="text-gray-400">{formatMessage('暂无备份')}</p>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     className="border rounded px-3 py-1 text-gray-700 hover:bg-gray-50 disabled:opacity-50"

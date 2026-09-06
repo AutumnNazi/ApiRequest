@@ -40,3 +40,10 @@ type StorageStats struct {
 	DbBytes      int64 `json:"dbBytes"`
 	WalBytes     int64 `json:"walBytes"`
 }
+
+// BackupInfo 单个备份快照（设置页"存储"分区展示）
+type BackupInfo struct {
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"sizeBytes"`
+	CreatedAt int64  `json:"createdAt"`
+}
