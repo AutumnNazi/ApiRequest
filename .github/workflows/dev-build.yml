@@ -105,6 +105,9 @@ jobs:
       - name: Documentation checks
         run: node scripts/check-docs.mjs
 
+      - name: i18n key coverage
+        run: node scripts/check-i18n.mjs
+
       - name: Frontend tests
         run: npm --prefix frontend test -- --run
 
