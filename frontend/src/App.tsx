@@ -21,6 +21,7 @@ import { isHotkeySuppressed } from './utils/hotkeys';
 
 // 仅在打开时加载，降低初始渲染的脚本体积。
 const CookieManager = lazy(() => import('./components/CookieManager'));
+const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const WsPanel = lazy(() => import('./components/WsPanel'));
 const SettingsDialog = lazy(() => import('./components/SettingsDialog'));
 const GrpcPanel = lazy(() => import('./components/GrpcPanel'));
@@ -153,6 +154,7 @@ export default function App() {
   const [editorRatio, setEditorRatio] = usePersistentState('apirequest-layout-editor', 0.5);
   // Ctrl/Cmd+E 展开环境下拉：每次按下递增，EnvSwitcher 侧按信号变化响应
   const [envOpenSignal, setEnvOpenSignal] = useState(0);
+  const [showPalette, setShowPalette] = useState(false);
 
   useEffect(() => onRequestProgress(updateProgress), [updateProgress]);
 
@@ -557,6 +559,9 @@ export default function App() {
       } else if (e.key === 'e') {
         e.preventDefault();
         setEnvOpenSignal((n) => n + 1);
+      } else if (e.key === 'k') {
+        e.preventDefault();
+        setShowPalette(true);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -675,6 +680,17 @@ export default function App() {
           <WindowControls onClose={() => void requestClose()} />
       </header>
       <Suspense fallback={null}>
+        {workspace && showPalette && (
+          <CommandPalette
+            workspaceId={workspace.id}
+            onSwitchWorkspace={(id) => {
+              setWorkspaceOverride({ id, name: '' });
+              qc.invalidateQueries({ queryKey: ['nodes', id] });
+              qc.invalidateQueries({ queryKey: ['envs', id] });
+            }}
+            onClose={() => setShowPalette(false)}
+          />
+        )}
         {workspace && <CookieManager workspaceId={workspace.id} onClose={() => setShowCookies(false)} />}
         {showWs && <WsPanel onClose={() => setShowWs(false)} />}
         {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}

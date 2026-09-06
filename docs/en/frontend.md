@@ -57,6 +57,7 @@ All invocations of Wails-generated binding functions go through domain-specific 
 | New tab | Ctrl+T | Cmd+T |
 | Close tab | Ctrl+W | Cmd+W |
 | Switch environment | Ctrl+E | Cmd+E |
+| Command palette | Ctrl+K | Cmd+K |
 
 - **Themes and accessibility**: light/dark/system; forms and primary actions provide visible focus and keyboard access.
 - **Platform consistency**: map shortcuts as shown above. File selection, drag and drop, clipboard access, and the system browser use Wails runtime capabilities rather than private WebView APIs. Include these critical flows in Windows/macOS smoke tests.
