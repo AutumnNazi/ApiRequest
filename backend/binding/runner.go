@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	wailsrt "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -101,15 +102,16 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 
 	report := &runner.Report{RunId: runId, Results: []runner.RequestResult{}}
 	total := len(rows) * len(requests)
-	done := 0
+	// 并发模式下 emit 会被多个 worker 同时调用：done 必须原子
+	var done atomic.Int64
 	start := time.Now()
 
 	emit := func(iter int, name, status string) {
-		done++
+		current := done.Add(1)
 		if a.ctx != nil {
 			wailsrt.EventsEmit(a.ctx, "runner:progress", runnerProgress{
 				RunId: runId, Iteration: iter, RequestName: name,
-				Status: status, Done: done, Total: total,
+				Status: status, Done: int(current), Total: total,
 			})
 		}
 	}
