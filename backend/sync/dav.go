@@ -19,6 +19,10 @@ import (
 
 const maxSnapshotSize = 64 << 20
 
+// ErrRemoteConcurrent PUT 以 If-Match 检测到远端在本次 GET 之后被并发修改
+// （412 Precondition Failed）。引擎捕获后重拉重合并（有界重试）。
+var ErrRemoteConcurrent = errors.New("remote snapshot changed concurrently")
+
 // DavConfig WebDAV 连接配置
 type DavConfig struct {
 	Url           string `json:"url"` // 根地址，如 https://dav.jianguoyun.com/dav/
@@ -84,7 +88,7 @@ func (b *cancelOnCloseBody) Close() error {
 	return err
 }
 
-func (c *davClient) do(ctx context.Context, method, rel string, body io.Reader, timeout time.Duration) (*http.Response, error) {
+func (c *davClient) do(ctx context.Context, method, rel string, body io.Reader, timeout time.Duration, extraHeaders ...map[string]string) (*http.Response, error) {
 	ref, err := url.Parse(rel)
 	if err != nil {
 		return nil, err
@@ -103,6 +107,11 @@ func (c *davClient) do(ctx context.Context, method, rel string, body io.Reader, 
 	}
 	if c.auth != "" {
 		req.Header.Set("Authorization", c.auth)
+	}
+	for _, headers := range extraHeaders {
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -126,38 +135,44 @@ func (c *davClient) do(ctx context.Context, method, rel string, body io.Reader, 
 	return resp, nil
 }
 
-// Get 读远端文件；404 返回 (nil, false, nil)
-func (c *davClient) Get(ctx context.Context, rel string) ([]byte, bool, error) {
+// Get 读远端文件与当前 ETag（服务器不支持 ETag 时为空串）；404 返回 (nil, false, "", nil)
+func (c *davClient) Get(ctx context.Context, rel string) ([]byte, bool, string, error) {
 	// 远端快照大小事先未知，最大可达 maxSnapshotSize，故按上限给超时；
 	// 否则拉取大快照会在固定 30s 处被掐断（与 PUT 方向不对称）
 	resp, err := c.do(ctx, "GET", rel, nil, davTransferTimeout(maxSnapshotSize))
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 	defer resp.Body.Close()
+	etag := resp.Header.Get("ETag")
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, false, nil
+		return nil, false, "", nil
 	}
 	if resp.StatusCode >= 300 {
-		return nil, false, davError("GET", rel, resp)
+		return nil, false, "", davError("GET", rel, resp)
 	}
 	if resp.ContentLength > maxSnapshotSize {
-		return nil, false, model.NewError(model.KindImport, "WebDAV snapshot exceeds 64 MiB limit")
+		return nil, false, "", model.NewError(model.KindImport, "WebDAV snapshot exceeds 64 MiB limit")
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSnapshotSize+1))
 	if err == nil && len(data) > maxSnapshotSize {
-		return nil, false, model.NewError(model.KindImport, "WebDAV snapshot exceeds 64 MiB limit")
+		return nil, false, "", model.NewError(model.KindImport, "WebDAV snapshot exceeds 64 MiB limit")
 	}
-	return data, true, err
+	return data, true, etag, err
 }
 
-// Put 写远端文件；自动补建父目录（MKCOL 幂等）
-func (c *davClient) Put(ctx context.Context, rel string, data []byte) error {
+// Put 写远端文件；ifMatch 非空时以 If-Match 条件写入（乐观并发控制），
+// 服务器不支持 ETag（GET 未返回）时退化为无条件写。自动补建父目录（MKCOL 幂等）。
+func (c *davClient) Put(ctx context.Context, rel string, data []byte, ifMatch string) error {
 	if len(data) > maxSnapshotSize {
 		return model.NewError(model.KindValidation, "WebDAV snapshot exceeds 64 MiB limit")
 	}
 	timeout := davTransferTimeout(len(data))
-	put := func() (*http.Response, error) { return c.do(ctx, "PUT", rel, bytes.NewReader(data), timeout) }
+	extra := map[string]string{}
+	if ifMatch != "" {
+		extra["If-Match"] = ifMatch
+	}
+	put := func() (*http.Response, error) { return c.do(ctx, "PUT", rel, bytes.NewReader(data), timeout, extra) }
 	resp, err := put()
 	if err != nil {
 		return err
@@ -171,6 +186,9 @@ func (c *davClient) Put(ctx context.Context, rel string, data []byte) error {
 			return err
 		}
 		resp.Body.Close()
+	}
+	if resp.StatusCode == http.StatusPreconditionFailed {
+		return fmt.Errorf("WebDAV PUT %s → %s: %w", rel, resp.Status, ErrRemoteConcurrent)
 	}
 	if resp.StatusCode >= 300 {
 		return davError("PUT", rel, resp)

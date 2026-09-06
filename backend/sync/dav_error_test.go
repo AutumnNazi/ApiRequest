@@ -15,7 +15,7 @@ func TestDavRealNetworkErrorIsNotReportedAsCanceled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, gerr := c.Get(context.Background(), "x.json")
+	_, _, _, gerr := c.Get(context.Background(), "x.json")
 	if gerr == nil {
 		t.Fatal("expected a network error")
 	}
@@ -38,7 +38,7 @@ func TestDavParentCancelIsReportedAsCanceled(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(150*time.Millisecond, cancel)
-	_, _, gerr := c.Get(ctx, "x.json")
+	_, _, _, gerr := c.Get(ctx, "x.json")
 	if gerr == nil {
 		// handler 睡 3s、cancel 在 150ms：能拿到完整响应只可能是取消没传播
 		// （等到 3s 后服务端才写回）。这里跳过等于把本用例要防的回归静默放行

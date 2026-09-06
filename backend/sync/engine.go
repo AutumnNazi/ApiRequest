@@ -309,76 +309,93 @@ func SyncWithClientCtx(ctx context.Context, store *storage.Store, workspaceId st
 	}
 	path := remotePath(workspaceId)
 
-	remoteData, exists, err := client.Get(ctx, path)
-	if err != nil {
-		return nil, err
-	}
+	// 乐观并发控制：PUT 带 If-Match（服务器支持 ETag 时）；远端被并发修改（412）
+	// 则重拉重合并，最多 maxSyncAttempts 轮。服务器不发 ETag 时退化为无条件写。
+	const maxSyncAttempts = 3
+	var report *Report
+	for attempt := 1; ; attempt++ {
+		remoteData, exists, etag, err := client.Get(ctx, path)
+		if err != nil {
+			return nil, err
+		}
 
-	var merged *Snapshot
-	report := &Report{}
-	if !exists {
-		merged = local
-		report.RemoteFresh = true
-		report.Pushed = len(local.Nodes) + len(local.Environments)
-	} else {
-		var remote Snapshot
-		if err := json.Unmarshal(remoteData, &remote); err != nil {
-			return nil, model.NewError(model.KindImport, "remote snapshot corrupt: "+err.Error())
-		}
-		if remote.SchemaVersion > snapshotSchemaVersion {
-			return nil, model.NewError(model.KindValidation,
-				"remote snapshot from newer app version; please upgrade")
-		}
-		if err := validateSnapshot(&remote); err != nil {
-			return nil, model.NewError(model.KindImport, "remote snapshot invalid: "+err.Error())
-		}
-		// 有基线走字段级三路合并（ADR-017）；无基线/基线不可用回退实体级 LWW
-		base := loadSyncBase(store, workspaceId)
-		if base != nil {
-			merged, report, report.Conflicts = mergeThreeWay(local, &remote, base)
+		var merged *Snapshot
+		report = &Report{}
+		if !exists {
+			merged = local
+			report.RemoteFresh = true
+			report.Pushed = len(local.Nodes) + len(local.Environments)
 		} else {
-			merged, report = merge(local, &remote)
+			var remote Snapshot
+			if err := json.Unmarshal(remoteData, &remote); err != nil {
+				return nil, model.NewError(model.KindImport, "remote snapshot corrupt: "+err.Error())
+			}
+			if remote.SchemaVersion > snapshotSchemaVersion {
+				return nil, model.NewError(model.KindValidation,
+					"remote snapshot from newer app version; please upgrade")
+			}
+			if err := validateSnapshot(&remote); err != nil {
+				return nil, model.NewError(model.KindImport, "remote snapshot invalid: "+err.Error())
+			}
+			// 有基线走字段级三路合并（ADR-017）；无基线/基线不可用回退实体级 LWW。
+			// 注意 local 必须每轮重建：上一轮 412 时 applyToLocal 已改写本地库。
+			if attempt > 1 {
+				local, err = buildLocalSnapshot(store, workspaceId)
+				if err != nil {
+					return nil, model.WrapError(model.KindStorage, err)
+				}
+			}
+			base := loadSyncBase(store, workspaceId)
+			if base != nil {
+				merged, report, report.Conflicts = mergeThreeWay(local, &remote, base)
+			} else {
+				merged, report = merge(local, &remote)
+			}
+			// Only snapshots explicitly stripped by their writer may borrow local values.
+			restoreRemoteOmittedSecrets(merged, local, &remote)
+			if err := applyToLocal(store, workspaceId, merged); err != nil {
+				return nil, model.WrapError(model.KindStorage, err)
+			}
 		}
-		// Only snapshots explicitly stripped by their writer may borrow local values.
-		restoreRemoteOmittedSecrets(merged, local, &remote)
-		if err := applyToLocal(store, workspaceId, merged); err != nil {
-			return nil, model.WrapError(model.KindStorage, err)
-		}
-	}
 
-	// 基线 = 本次合并结果（未剥密钥），供下轮三路合并作公共祖先。
-	// 推送失败也保留：远端仍是旧快照，下轮会按"远端 vs 基线"的差量重新并入。
-	if baseJSON, err := json.Marshal(merged); err == nil {
-		if err := store.PutSyncBase(workspaceId, snapshotSchemaVersion, string(baseJSON)); err != nil {
-			// 基线写失败不阻断同步：下轮无基线时回退实体级 LWW，数据不会错，只是少了字段级精度
-			_ = store.DeleteSyncBase(workspaceId)
+		// 基线 = 本次合并结果（未剥密钥），供下轮三路合并作公共祖先。
+		// 推送失败也保留：远端仍是旧快照，下轮会按"远端 vs 基线"的差量重新并入。
+		if baseJSON, err := json.Marshal(merged); err == nil {
+			if err := store.PutSyncBase(workspaceId, snapshotSchemaVersion, string(baseJSON)); err != nil {
+				// 基线写失败不阻断同步：下轮无基线时回退实体级 LWW，数据不会错，只是少了字段级精度
+				_ = store.DeleteSyncBase(workspaceId)
+			}
 		}
-	}
 
-	// 推送合并结果（可选剥密钥）
-	upload := *merged
-	upload.SyncedAt = time.Now().UnixMilli()
-	if cfg.OmitSecrets {
-		// 深拷贝受影响切片再剥离，避免污染已写回本地的数据
-		b, err := json.Marshal(upload)
+		// 推送合并结果（可选剥密钥）
+		upload := *merged
+		upload.SyncedAt = time.Now().UnixMilli()
+		if cfg.OmitSecrets {
+			// 深拷贝受影响切片再剥离，避免污染已写回本地的数据
+			b, err := json.Marshal(upload)
+			if err != nil {
+				return nil, model.WrapError(model.KindValidation, err)
+			}
+			var clone Snapshot
+			if err := json.Unmarshal(b, &clone); err != nil {
+				return nil, model.WrapError(model.KindValidation, err)
+			}
+			stripSecrets(&clone)
+			upload = clone
+		}
+		data, err := json.MarshalIndent(upload, "", "  ")
 		if err != nil {
 			return nil, model.WrapError(model.KindValidation, err)
 		}
-		var clone Snapshot
-		if err := json.Unmarshal(b, &clone); err != nil {
-			return nil, model.WrapError(model.KindValidation, err)
+		if err := client.Put(ctx, path, data, etag); err != nil {
+			if errors.Is(err, ErrRemoteConcurrent) && attempt < maxSyncAttempts {
+				continue // 远端被并发修改：重拉远端、基于本地新状态重新合并
+			}
+			return nil, err
 		}
-		stripSecrets(&clone)
-		upload = clone
+		break
 	}
-	data, err := json.MarshalIndent(upload, "", "  ")
-	if err != nil {
-		return nil, model.WrapError(model.KindValidation, err)
-	}
-	if err := client.Put(ctx, path, data); err != nil {
-		return nil, err
-	}
-	report.SyncedAt = upload.SyncedAt
+	report.SyncedAt = time.Now().UnixMilli()
 	report.Remote = path
 	return report, nil
 }
