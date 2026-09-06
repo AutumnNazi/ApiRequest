@@ -28,7 +28,7 @@ type SyncApi struct {
 	// 使同步可被 DeleteWorkspace 屏蔽、可随应用退出取消
 	operations *operationRegistry
 	// 自动同步调度器：stop 管道存在即运行中（StartAutoSync 幂等）
-	autoMu  sync.Mutex
+	autoMu   sync.Mutex
 	autoStop chan struct{}
 }
 
@@ -265,6 +265,7 @@ func (a *SyncApi) emitAutoSyncResult(workspaceId string, report *appsync.Report)
 			"pulled":      report.Pulled,
 			"deleted":     report.Deleted,
 			"syncedAt":    report.SyncedAt,
+			"conflicts":   len(report.Conflicts),
 		})
 	}
 }

@@ -353,6 +353,7 @@ export interface AutoSyncEvent {
   pulled: number;
   deleted: number;
   syncedAt: number;
+  conflicts: number;
 }
 export function onAutoSync(handler: (e: AutoSyncEvent) => void): () => void {
   return EventsOn('sync:auto', handler);

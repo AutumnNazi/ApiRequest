@@ -12,15 +12,16 @@ Related: [Documentation Index](./index.md) · [Data Model](./data-model.md) · [
 - **Remote representation**: one snapshot per workspace at `ApiRequest/workspace-<id>.json`. This is a complete state snapshot rather than an oplog; snapshots are more robust on "dumb storage" such as WebDAV and require no server-side merge logic.
 - **Transport**: a minimal WebDAV client using GET/PUT/MKCOL + Basic auth. See `backend/sync/dav.go`.
 
-## Merge Algorithm (Entity-Level LWW)
+## Merge Algorithm (Field-Level Three-Way Merge, ADR-017)
 
 One synchronization cycle = pull remote -> merge -> write local -> push merged result:
 
-1. **Nodes** (collections/folders/requests): for the same ID, compare `rev = max(updatedAt, deletedAt)` and keep the larger revision; preserve entities that exist on only one side.
-2. **Deletion propagation**: a soft deletion is a tombstone in LWW. If the deletion is newer than an update, deletion wins and the entity is not resurrected.
-3. **Environments**: apply LWW by ID using `updatedAt`; do not synchronize `is_active`, which is local UI state.
-4. **Global variables**: use an independent `updated_at` value as the revision and apply LWW to the complete variable set.
-5. **Conflict granularity**: entity-level. If two devices change different fields on the same request, the later writer replaces the entire entity. The preferred field-level three-way merge design is captured in [ADR-017](./decisions.md) (not yet implemented; entity-level LWW remains in effect until then).
+1. **Baseline**: a "last-merge baseline" is persisted locally (the `sync_base` table, one per workspace, with secrets unstripped) and serves as the common ancestor for the three-way merge; it is updated to the merged result after every successful local write. The baseline is kept even if the push fails: the remote still holds the old snapshot, so the next round re-incorporates the remote delta.
+2. **Node content fields** (name/request/auth/variables/preScript/testScript/sortOrder): three-way, field by field; within a request the merge recurses per key (arrays such as headers/params are atomic keys). If local matches the baseline take remote; if remote matches the baseline take local; if both sides changed the same field, **local wins** and the conflict is listed in the sync result panel (entity, field, and both value previews). When the merged result differs from both sides, both counters increase.
+3. **Structural operations stay entity-level LWW**: soft-delete tombstones (`deleted_at`; a newer deletion beats an edit and entities are not resurrected) and moves (parent changes follow the newer `rev = max(updatedAt, deletedAt)`). Without a baseline (first sync, first round after an upgrade, or a corrupted baseline) the round falls back to entity-level LWW and rebuilds the baseline.
+4. **Environments**: three-way on the `name` and `variables` fields; `is_active` is not synchronized (local UI state).
+5. **Global variables**: remain whole-set LWW (an independent `updated_at` as the overall revision), not per-field.
+6. **Compatibility**: the baseline is validated against the snapshot `schemaVersion` and rebuilt automatically when the version differs; older peers without baseline semantics are unaffected (they merge independently with their own baseline or fallback).
 
 ## Sensitive Data
 

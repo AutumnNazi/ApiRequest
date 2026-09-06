@@ -160,6 +160,14 @@ CREATE TABLE cookie (
   UNIQUE(workspace_id, domain, path, name)
 );
 
+-- Sync merge baseline (ADR-017: common ancestor for the field-level three-way merge, local only)
+CREATE TABLE sync_base (
+  workspace_id   TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+  schema_version INTEGER NOT NULL,                 -- snapshot schemaVersion at write time
+  snapshot       TEXT NOT NULL,                    -- most recent merged result (secrets unstripped)
+  merged_at      INTEGER NOT NULL
+);
+
 -- Application settings (key/value).
 CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 

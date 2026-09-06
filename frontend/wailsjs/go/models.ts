@@ -1321,6 +1321,28 @@ export namespace sync {
 	        this.intervalMinutes = source["intervalMinutes"];
 	    }
 	}
+	export class SyncConflict {
+	    entityType: string;
+	    entityId: string;
+	    entityName: string;
+	    field: string;
+	    localValue: string;
+	    remoteValue: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncConflict(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entityType = source["entityType"];
+	        this.entityId = source["entityId"];
+	        this.entityName = source["entityName"];
+	        this.field = source["field"];
+	        this.localValue = source["localValue"];
+	        this.remoteValue = source["remoteValue"];
+	    }
+	}
 	export class Report {
 	    pushed: number;
 	    pulled: number;
@@ -1328,6 +1350,7 @@ export namespace sync {
 	    remoteFresh: boolean;
 	    syncedAt: number;
 	    remote: string;
+	    conflicts?: SyncConflict[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Report(source);
@@ -1341,7 +1364,26 @@ export namespace sync {
 	        this.remoteFresh = source["remoteFresh"];
 	        this.syncedAt = source["syncedAt"];
 	        this.remote = source["remote"];
+	        this.conflicts = this.convertValues(source["conflicts"], SyncConflict);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

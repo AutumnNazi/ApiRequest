@@ -233,11 +233,12 @@ export default function App() {
     qc.invalidateQueries({ queryKey: ['envs', e.workspaceId] });
     qc.invalidateQueries({ queryKey: ['globals', e.workspaceId] });
     if (!workspace || e.workspaceId !== workspace.id) return;
-    if (e.pushed === 0 && e.pulled === 0 && e.deleted === 0) return;
-    setSyncMsg(formatMessage('自动同步：↑{pushed} ↓{pulled}{deleted}', {
+    if (e.pushed === 0 && e.pulled === 0 && e.deleted === 0 && e.conflicts === 0) return;
+    setSyncMsg(formatMessage('自动同步：↑{pushed} ↓{pulled}{deleted}{conflicts}', {
       pushed: e.pushed,
       pulled: e.pulled,
       deleted: e.deleted ? formatMessage(' 删除 {count}', { count: e.deleted }) : '',
+      conflicts: e.conflicts ? formatMessage(' ⚠ 冲突 {count}', { count: e.conflicts }) : '',
     }));
     setSyncFailed(false);
     if (syncMsgTimerRef.current !== undefined) window.clearTimeout(syncMsgTimerRef.current);
@@ -251,15 +252,29 @@ export default function App() {
     setSyncFailed(false);
     try {
       const r = await syncNow(workspace.id);
+      const conflictSuffix = r.conflicts?.length
+        ? formatMessage(' ⚠ {count} 个字段冲突（已保留本地）', { count: r.conflicts.length })
+        : '';
       setSyncMsg(
-        r.remoteFresh
+        (r.remoteFresh
           ? formatMessage('已初始化远端（上传 {count} 项）', { count: r.pushed })
           : formatMessage('↑{pushed} ↓{pulled}{deleted}', {
               pushed: r.pushed,
               pulled: r.pulled,
               deleted: r.deleted ? formatMessage(' 删除 {count}', { count: r.deleted }) : '',
-            }),
+            })) + conflictSuffix,
       );
+      if (r.conflicts?.length) {
+        void dialog.alert(
+          r.conflicts
+            .slice(0, 10)
+            .map((c) => `${c.entityName || c.entityId} · ${c.field}
+  本地: ${c.localValue}
+  远端: ${c.remoteValue}`)
+            .join('\n') + (r.conflicts.length > 10 ? `\n… 共 ${r.conflicts.length} 条` : ''),
+          { title: formatMessage('同步字段冲突（已保留本地值）') },
+        );
+      }
       qc.invalidateQueries({ queryKey: ['nodes', workspace.id] });
       qc.invalidateQueries({ queryKey: ['envs', workspace.id] });
       qc.invalidateQueries({ queryKey: ['globals', workspace.id] });

@@ -222,6 +222,16 @@ var migrations = []string{
 	ALTER TABLE cookie_next RENAME TO cookie;
 	CREATE INDEX idx_cookie_ws_domain ON cookie(workspace_id, domain);
 	`,
+	// 0012: 字段级三路合并的"上次合并基线"（ADR-017）。基线只存本地，
+	// 快照为未剥密钥的完整合并结果（剥过的会每轮误判"本地有改动"）。
+	`
+	CREATE TABLE sync_base (
+	  workspace_id   TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+	  schema_version INTEGER NOT NULL,
+	  snapshot       TEXT NOT NULL,
+	  merged_at      INTEGER NOT NULL
+	);
+	`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录

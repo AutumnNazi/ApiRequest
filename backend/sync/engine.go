@@ -15,12 +15,13 @@ import (
 
 // Report 一次同步的结果摘要
 type Report struct {
-	Pushed      int    `json:"pushed"`      // 本地 → 远端的实体数
-	Pulled      int    `json:"pulled"`      // 远端 → 本地的实体数
-	Deleted     int    `json:"deleted"`     // 应用到本地的删除（墓碑）
-	RemoteFresh bool   `json:"remoteFresh"` // 远端首次初始化
-	SyncedAt    int64  `json:"syncedAt"`
-	Remote      string `json:"remote"` // 远端快照路径
+	Pushed      int            `json:"pushed"`      // 本地 → 远端的实体数
+	Pulled      int            `json:"pulled"`      // 远端 → 本地的实体数
+	Deleted     int            `json:"deleted"`     // 应用到本地的删除（墓碑）
+	RemoteFresh bool           `json:"remoteFresh"` // 远端首次初始化
+	SyncedAt    int64          `json:"syncedAt"`
+	Remote      string         `json:"remote"`              // 远端快照路径
+	Conflicts   []SyncConflict `json:"conflicts,omitempty"` // 字段级冲突（已按"本地胜出"落库，ADR-017）
 }
 
 // remotePath 每工作区一个快照文件
@@ -331,11 +332,26 @@ func SyncWithClientCtx(ctx context.Context, store *storage.Store, workspaceId st
 		if err := validateSnapshot(&remote); err != nil {
 			return nil, model.NewError(model.KindImport, "remote snapshot invalid: "+err.Error())
 		}
-		merged, report = merge(local, &remote)
+		// 有基线走字段级三路合并（ADR-017）；无基线/基线不可用回退实体级 LWW
+		base := loadSyncBase(store, workspaceId)
+		if base != nil {
+			merged, report, report.Conflicts = mergeThreeWay(local, &remote, base)
+		} else {
+			merged, report = merge(local, &remote)
+		}
 		// Only snapshots explicitly stripped by their writer may borrow local values.
 		restoreRemoteOmittedSecrets(merged, local, &remote)
 		if err := applyToLocal(store, workspaceId, merged); err != nil {
 			return nil, model.WrapError(model.KindStorage, err)
+		}
+	}
+
+	// 基线 = 本次合并结果（未剥密钥），供下轮三路合并作公共祖先。
+	// 推送失败也保留：远端仍是旧快照，下轮会按"远端 vs 基线"的差量重新并入。
+	if baseJSON, err := json.Marshal(merged); err == nil {
+		if err := store.PutSyncBase(workspaceId, snapshotSchemaVersion, string(baseJSON)); err != nil {
+			// 基线写失败不阻断同步：下轮无基线时回退实体级 LWW，数据不会错，只是少了字段级精度
+			_ = store.DeleteSyncBase(workspaceId)
 		}
 	}
 

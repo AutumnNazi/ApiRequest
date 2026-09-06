@@ -159,6 +159,14 @@ CREATE TABLE cookie (
   UNIQUE(workspace_id, domain, path, name)
 );
 
+-- 同步合并基线（ADR-017：字段级三路合并的公共祖先，仅存本地）
+CREATE TABLE sync_base (
+  workspace_id   TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+  schema_version INTEGER NOT NULL,                 -- 写入时的快照 schemaVersion
+  snapshot       TEXT NOT NULL,                    -- 最近一次合并结果（未剥密钥）
+  merged_at      INTEGER NOT NULL
+);
+
 -- 应用设置（KV）
 CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
