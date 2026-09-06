@@ -5,6 +5,10 @@ import {time} from '../models';
 
 export function GetSyncConfig():Promise<sync.DavConfig>;
 
+export function ImportRemoteWorkspace(arg1:string):Promise<sync.Report>;
+
+export function ListRemoteWorkspaces():Promise<Array<sync.RemoteWorkspaceInfo>>;
+
 export function SetSyncConfig(arg1:sync.DavConfig):Promise<void>;
 
 export function StartAutoSync(arg1:time.Duration):Promise<any>;

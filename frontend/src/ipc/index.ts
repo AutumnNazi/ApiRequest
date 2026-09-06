@@ -300,12 +300,16 @@ export function onGrpcStream(handler: (m: GrpcStreamMessage) => void): () => voi
 // ── WebDAV 同步 ──
 
 export type SyncDavConfig = sync.DavConfig;
+export type RemoteWorkspaceInfo = sync.RemoteWorkspaceInfo;
 export type SyncReport = sync.Report;
 
 export const getSyncConfig = () => call(() => SyncApi.GetSyncConfig());
 export const setSyncConfig = (cfg: Partial<SyncDavConfig>) =>
   call(() => SyncApi.SetSyncConfig(sync.DavConfig.createFrom(cfg)));
 export const syncNow = (workspaceId: string) => call(() => SyncApi.SyncNow(workspaceId));
+export const listRemoteWorkspaces = () => call(() => SyncApi.ListRemoteWorkspaces());
+export const importRemoteWorkspace = (workspaceId: string) =>
+  call(() => SyncApi.ImportRemoteWorkspace(workspaceId));
 
 // ── GraphQL 内省 ──
 

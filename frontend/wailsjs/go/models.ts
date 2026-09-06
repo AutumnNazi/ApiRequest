@@ -1321,6 +1321,22 @@ export namespace sync {
 	        this.intervalMinutes = source["intervalMinutes"];
 	    }
 	}
+	export class RemoteWorkspaceInfo {
+	    workspaceId: string;
+	    name: string;
+	    syncedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteWorkspaceInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.workspaceId = source["workspaceId"];
+	        this.name = source["name"];
+	        this.syncedAt = source["syncedAt"];
+	    }
+	}
 	export class SyncConflict {
 	    entityType: string;
 	    entityId: string;

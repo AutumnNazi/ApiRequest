@@ -269,3 +269,32 @@ func (a *SyncApi) emitAutoSyncResult(workspaceId string, report *appsync.Report)
 		})
 	}
 }
+
+// ── 远端工作区发现与导入（docs/sync.md）──
+
+// ListRemoteWorkspaces 列出远端 WebDAV 目录下的工作区快照
+func (a *SyncApi) ListRemoteWorkspaces() ([]appsync.RemoteWorkspaceInfo, error) {
+	cfg, err := a.loadSyncConfig(true)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Url == "" {
+		return nil, model.NewError(model.KindValidation, "WebDAV not configured; set it in Settings first")
+	}
+	return appsync.DiscoverRemoteWorkspaces(cfg)
+}
+
+// ImportRemoteWorkspace 把远端快照导入为本地工作区（id 沿用远端，后续同步命中同一路径）
+func (a *SyncApi) ImportRemoteWorkspace(workspaceId string) (*appsync.Report, error) {
+	if workspaceId == "" {
+		return nil, model.NewError(model.KindValidation, "workspaceId is required")
+	}
+	cfg, err := a.loadSyncConfig(true)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Url == "" {
+		return nil, model.NewError(model.KindValidation, "WebDAV not configured; set it in Settings first")
+	}
+	return appsync.ImportWorkspace(a.store, cfg, workspaceId)
+}

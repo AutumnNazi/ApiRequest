@@ -107,15 +107,16 @@ func mergeThreeWay(local, remote, base *Snapshot) (*Snapshot, *Report, []SyncCon
 		}
 		merged := mergeNodeThreeWay(ln, rn, baseNodes[rn.Id], rec)
 		out.Nodes = append(out.Nodes, merged)
-		// 计数：结果相对每侧的变化（字段合并可能双侧同时变更）
-		if !reflect.DeepEqual(merged, ln) {
+		// 计数：结果相对每侧的变化（字段合并可能双侧同时变更）。
+		// workspaceId 不参与比较：远端快照的归属在 applyToLocal 统一覆写，差异是伪信号
+		if !sameNode(merged, ln) {
 			if merged.DeletedAt > 0 && ln.DeletedAt == 0 {
 				report.Deleted++
 			} else {
 				report.Pulled++
 			}
 		}
-		if !reflect.DeepEqual(merged, rn) && merged.DeletedAt == 0 {
+		if !sameNode(merged, rn) && merged.DeletedAt == 0 {
 			report.Pushed++
 		}
 	}
@@ -415,4 +416,11 @@ func loadSyncBase(store *storage.Store, workspaceId string) *Snapshot {
 		return nil
 	}
 	return &base
+}
+
+// sameNode 忽略 workspaceId 的节点等价比较（同步计数专用）
+func sameNode(a, b SyncNode) bool {
+	a.WorkspaceId = ""
+	b.WorkspaceId = ""
+	return reflect.DeepEqual(a, b)
 }

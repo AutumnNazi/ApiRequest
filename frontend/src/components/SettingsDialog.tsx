@@ -21,8 +21,12 @@ import {
   type TLSSettings,
   type SyncDavConfig,
   type VaultStatus,
+  type RemoteWorkspaceInfo,
+  listRemoteWorkspaces,
+  importRemoteWorkspace,
 } from '../ipc';
 import { useLocale, Verbatim, formatMessage, type Locale } from '../i18n/locale';
+import { useDialog } from './DialogProvider';
 import ModalFrame from './ModalFrame';
 import { useLatestTimeout } from '../hooks/useLatestTimeout';
 
@@ -50,6 +54,7 @@ const categories: Array<[Category, string]> = [
 
 export default function SettingsDialog({ onClose }: Props) {
   const qc = useQueryClient();
+  const dialog = useDialog();
   const locale = useLocale((state) => state.locale);
   const setLocale = useLocale((state) => state.setLocale);
   const [cat, setCat] = useState<Category>('general');
@@ -57,6 +62,9 @@ export default function SettingsDialog({ onClose }: Props) {
   const [network, setNetwork] = useState<NetworkStatus | null>(null);
   const [tls, setTls] = useState<TLSSettings>({});
   const [dav, setDav] = useState<Partial<SyncDavConfig>>({});
+  const [remoteWs, setRemoteWs] = useState<RemoteWorkspaceInfo[] | null>(null);
+  const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteError, setRemoteError] = useState('');
   const [vault, setVault] = useState<VaultStatus | null>(null);
   const [vaultPassword, setVaultPassword] = useState('');
   const [vaultBusy, setVaultBusy] = useState(false);
@@ -429,7 +437,56 @@ export default function SettingsDialog({ onClose }: Props) {
                     onChange={(event) => setDav({ ...dav, intervalMinutes: Number(event.target.value) || 0 })}
                   />
                 </div>
-                <p className="text-xs text-gray-400 leading-relaxed">{formatMessage('快照存于远端 ApiRequest/ 目录，实体级"最后写入优先"合并；顶栏手动触发同步，设置间隔后应用内每 30 秒检查一次到期并自动执行。')}</p>
+                <p className="text-xs text-gray-400 leading-relaxed">{formatMessage('快照存于远端 ApiRequest/ 目录，字段级三路合并（本地胜出并提示冲突）；顶栏手动触发同步，设置间隔后自动执行，跨设备经 If-Match 条件写入互斥。')}</p>
+
+                <div className="border rounded p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="border rounded px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={remoteBusy || !(dav.url ?? '').trim()}
+                      onClick={() => {
+                        setRemoteBusy(true);
+                        setRemoteError('');
+                        listRemoteWorkspaces()
+                          .then((items) => setRemoteWs(items))
+                          .catch((cause) => setRemoteError(toAppError(cause).detail))
+                          .finally(() => setRemoteBusy(false));
+                      }}
+                    >
+                      {remoteBusy ? formatMessage('发现中…') : formatMessage('从远端导入工作区')}
+                    </button>
+                    <span className="text-gray-400">{formatMessage('新设备接入同一快照：导入后即可双向同步')}</span>
+                  </div>
+                  {remoteError && <p className="text-xs text-red-600"><Verbatim value={remoteError} /></p>}
+                  {remoteWs && remoteWs.length === 0 && (
+                    <p className="text-xs text-gray-400">{formatMessage('远端未发现任何工作区快照')}</p>
+                  )}
+                  {(remoteWs ?? []).map((item) => (
+                    <div key={item.workspaceId} className="flex items-center gap-2 text-xs">
+                      <span className="flex-1 min-w-0 truncate">
+                        <Verbatim value={item.name || item.workspaceId} />
+                        <span className="text-gray-400"> · {item.workspaceId}</span>
+                      </span>
+                      <button
+                        className="border rounded px-2 py-0.5 text-blue-600 hover:bg-blue-50"
+                        onClick={() => {
+                          setRemoteBusy(true);
+                          setRemoteError('');
+                          importRemoteWorkspace(item.workspaceId)
+                            .then(() => {
+                              setRemoteWs(null);
+                              void dialog.alert(formatMessage('已导入。左侧工作区列表中切换即可使用。'), { title: formatMessage('导入成功') });
+                              qc.invalidateQueries({ queryKey: ['workspaces'] });
+                            })
+                            .catch((cause) => setRemoteError(toAppError(cause).detail))
+                            .finally(() => setRemoteBusy(false));
+                        }}
+                      >
+                        {formatMessage('导入')}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

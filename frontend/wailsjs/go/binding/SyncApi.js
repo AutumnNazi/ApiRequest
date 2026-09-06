@@ -6,6 +6,14 @@ export function GetSyncConfig() {
   return window['go']['binding']['SyncApi']['GetSyncConfig']();
 }
 
+export function ImportRemoteWorkspace(arg1) {
+  return window['go']['binding']['SyncApi']['ImportRemoteWorkspace'](arg1);
+}
+
+export function ListRemoteWorkspaces() {
+  return window['go']['binding']['SyncApi']['ListRemoteWorkspaces']();
+}
+
 export function SetSyncConfig(arg1) {
   return window['go']['binding']['SyncApi']['SetSyncConfig'](arg1);
 }

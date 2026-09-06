@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsDialog from './SettingsDialog';
+import { DialogProvider } from './DialogProvider';
 
 const ipc = vi.hoisted(() => ({
   getProxySettings: vi.fn(),
@@ -17,6 +18,8 @@ const ipc = vi.hoisted(() => ({
   openNativeFile: vi.fn(),
   getNetworkStatus: vi.fn(),
   refreshSystemProxy: vi.fn(),
+  listRemoteWorkspaces: vi.fn(),
+  importRemoteWorkspace: vi.fn(),
 }));
 
 vi.mock('../ipc', () => ({
@@ -30,7 +33,9 @@ function renderDialog() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SettingsDialog onClose={vi.fn()} />
+      <DialogProvider>
+        <SettingsDialog onClose={vi.fn()} />
+      </DialogProvider>
     </QueryClientProvider>,
   );
 }
@@ -112,3 +117,33 @@ describe('SettingsDialog', () => {
     expect(await screen.findByText(/dialog crashed/)).toBeInTheDocument();
   });
 });
+
+  it('discovers and imports a remote workspace from the sync pane', async () => {
+    ipc.getSyncConfig.mockResolvedValue({ url: 'https://dav.example.test', username: 'alice' });
+    ipc.listRemoteWorkspaces.mockResolvedValue([
+      { workspaceId: 'ws-r1', name: '团队集合', syncedAt: 42 },
+    ]);
+    ipc.importRemoteWorkspace.mockResolvedValue({ pulled: 3 });
+    renderDialog();
+    await waitFor(() => expect(ipc.getSyncConfig).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: '同步' }));
+    fireEvent.click(screen.getByRole('button', { name: '从远端导入工作区' }));
+
+    expect(await screen.findByText('团队集合')).toBeInTheDocument();
+    expect(screen.getByText(/ws-r1/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '导入' }));
+    expect(await screen.findByText('导入成功')).toBeInTheDocument();
+    expect(ipc.importRemoteWorkspace).toHaveBeenCalledWith('ws-r1');
+  });
+
+  it('shows discovery errors in the import panel', async () => {
+    ipc.getSyncConfig.mockResolvedValue({ url: 'https://dav.example.test', username: 'alice' });
+    ipc.listRemoteWorkspaces.mockRejectedValue(new Error('webdav unreachable'));
+    renderDialog();
+    await waitFor(() => expect(ipc.getSyncConfig).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: '同步' }));
+    fireEvent.click(screen.getByRole('button', { name: '从远端导入工作区' }));
+    expect(await screen.findByText(/webdav unreachable/)).toBeInTheDocument();
+  });
