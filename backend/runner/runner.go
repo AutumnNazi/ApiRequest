@@ -13,10 +13,28 @@ import (
 
 // Options 运行选项
 type Options struct {
-	DataFile    string `json:"dataFile,omitempty"`    // CSV 或 JSON 文本（前端读文件后传入）
-	DataFormat  string `json:"dataFormat,omitempty"`  // csv | json | 空=无数据文件
-	StopOnError bool   `json:"stopOnError"`
-	Iterations  int    `json:"iterations,omitempty"` // 无数据文件时的轮数，默认 1
+	DataFile     string            `json:"dataFile,omitempty"`   // CSV 或 JSON 文本（前端读文件后传入）
+	DataFormat   string            `json:"dataFormat,omitempty"` // csv | json | 空=无数据文件
+	StopOnError  bool              `json:"stopOnError"`
+	Iterations   int               `json:"iterations,omitempty"`   // 无数据文件时的轮数，默认 1
+	EnvId        string            `json:"envId,omitempty"`        // 指定环境（CLI --env）；空 = 工作区激活环境
+	EnvOverrides map[string]string `json:"envOverrides,omitempty"` // CLI --env-file 注入的变量（优先级高于环境变量，低于数据行）
+}
+
+// MergeOverrides 合并 CLI 环境文件变量与数据行：数据行优先（同 key 覆盖）。
+// 返回新 map，不修改入参。
+func MergeOverrides(envFileVars, row map[string]string) map[string]string {
+	if len(envFileVars) == 0 && len(row) == 0 {
+		return map[string]string{}
+	}
+	merged := make(map[string]string, len(envFileVars)+len(row))
+	for k, v := range envFileVars {
+		merged[k] = v
+	}
+	for k, v := range row {
+		merged[k] = v
+	}
+	return merged
 }
 
 // RequestResult 单请求执行明细

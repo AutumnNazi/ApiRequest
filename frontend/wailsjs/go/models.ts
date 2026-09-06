@@ -1160,6 +1160,8 @@ export namespace runner {
 	    dataFormat?: string;
 	    stopOnError: boolean;
 	    iterations?: number;
+	    envId?: string;
+	    envOverrides?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new Options(source);
@@ -1171,6 +1173,8 @@ export namespace runner {
 	        this.dataFormat = source["dataFormat"];
 	        this.stopOnError = source["stopOnError"];
 	        this.iterations = source["iterations"];
+	        this.envId = source["envId"];
+	        this.envOverrides = source["envOverrides"];
 	    }
 	}
 	export class RequestResult {

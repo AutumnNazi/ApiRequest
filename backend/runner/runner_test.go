@@ -61,3 +61,19 @@ func TestFlattenOrdered(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeOverrides(t *testing.T) {
+	merged := MergeOverrides(map[string]string{"A": "env", "B": "env"}, map[string]string{"B": "row", "C": "row"})
+	if merged["A"] != "env" || merged["B"] != "row" || merged["C"] != "row" {
+		t.Fatalf("merged = %v (data 行必须优先于 env-file)", merged)
+	}
+	if got := MergeOverrides(map[string]string{"A": "env"}, nil); got["A"] != "env" {
+		t.Fatalf("nil row = %v", got)
+	}
+	if got := MergeOverrides(nil, map[string]string{"B": "row"}); got["B"] != "row" {
+		t.Fatalf("nil env = %v", got)
+	}
+	if got := MergeOverrides(nil, nil); len(got) != 0 {
+		t.Fatalf("both nil = %v", got)
+	}
+}

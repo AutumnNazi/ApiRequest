@@ -63,4 +63,19 @@ run_collection(target, options):
 - **Data-driven runs**: inject one data-file row into the `data` scope on each iteration. See [variable resolution](./request-lifecycle.md#2-variable-resolution-and-template-engine) for precedence.
 - **Concurrency**: sequential by default because many APIs have state dependencies. Optional bounded concurrency may support load-oriented scenarios.
 - **Cancellation**: every run owns a unique `runId`. Cancellation propagates to the active HTTP request and prevents later iterations. Closing an active Runner requires confirmation and cancellation so no background run is orphaned.
-- **Reports**: export structured results as JSON/HTML for CI. In a later phase, CLI mode uses the failure count as its exit code.
+- **Reports**: export structured results as JSON/HTML for CI. The CLI mode's exit code reflects the failure count (see the next section).
+
+### 2.2 Headless CLI (apirequest-cli)
+
+`cmd/cli` shares the same core and local database as the desktop app (see [decisions.md](./decisions.md), OPEN-001):
+
+```bash
+apirequest-cli run --collection <name|id> [--workspace <name|id>]
+  [--data <file>] [--iterations N] [--stop-on-error]
+  [--env <name|id>] [--env-file env.json]
+  [--report report.json] [--junit junit.xml] [--db <dir>]
+```
+
+- **Environment selection**: `--env` picks a workspace environment by name or id (ambiguous names are rejected); without it the workspace's active environment applies. For CI, prefer `--env-file`: a JSON object `{"KEY": "value"}` where non-string values are rejected with a hint to quote them. Variable precedence: data row > env-file > environment variables > globals.
+- **CI integration**: the exit code equals the number of failed requests (capped at 100); 2 means a usage/setup error. `--junit` writes JUnit XML that GitHub Actions test reporting consumes directly; requests skipped by `--stop-on-error` or cancellation count toward the `skipped` attribute and produce no testcase. `--report` writes the full JSON.
+- `apirequest-cli list` prints workspaces and collections (with request counts) to discover the `--collection` argument.

@@ -54,6 +54,9 @@ Run flags:
   --iterations    iteration count when no data file (default 1)
   --stop-on-error stop at first failure
   --report        also write JSON report to this file
+  --junit         also write a JUnit XML report to this file (CI test reporting)
+  --env           environment name or id (default: the workspace's active environment)
+  --env-file      JSON file of variables ({"KEY": "value"}); data-file rows override it
   --db            app data dir override (default: OS config dir)
 
 Exit code: number of failed requests (capped at 100); 2 = usage/setup error.
@@ -139,6 +142,9 @@ func cmdRun(args []string) int {
 	iterations := fs.Int("iterations", 1, "")
 	stopOnError := fs.Bool("stop-on-error", false, "")
 	reportPath := fs.String("report", "", "")
+	envName := fs.String("env", "", "")
+	envFile := fs.String("env-file", "", "")
+	junitPath := fs.String("junit", "", "")
 	dbDir := fs.String("db", "", "")
 	fs.Parse(args)
 
@@ -160,9 +166,34 @@ func cmdRun(args []string) int {
 		return 2
 	}
 
+	envOverrides := map[string]string{}
+	if *envFile != "" {
+		content, ferr := os.ReadFile(*envFile)
+		if ferr != nil {
+			fmt.Fprintln(os.Stderr, "read env file:", ferr)
+			return 2
+		}
+		parsed, perr := parseEnvFile(string(content))
+		if perr != nil {
+			fmt.Fprintln(os.Stderr, "parse env file:", perr)
+			return 2
+		}
+		envOverrides = parsed
+	}
+	envId := ""
+	if *envName != "" {
+		envId, err = resolveEnv(store, wsId, *envName)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+	}
+
 	opts := runner.Options{
-		Iterations:  *iterations,
-		StopOnError: *stopOnError,
+		Iterations:   *iterations,
+		StopOnError:  *stopOnError,
+		EnvId:        envId,
+		EnvOverrides: envOverrides,
 	}
 	if *dataFile != "" {
 		content, err := os.ReadFile(*dataFile)
@@ -175,6 +206,16 @@ func cmdRun(args []string) int {
 			opts.DataFormat = "json"
 		} else {
 			opts.DataFormat = "csv"
+		}
+	}
+
+	collectionName := *collection
+	if nodes, nerr := store.ListNodes(wsId); nerr == nil {
+		for _, n := range nodes {
+			if n.Id == colId {
+				collectionName = n.Name
+				break
+			}
 		}
 	}
 
@@ -196,6 +237,15 @@ func cmdRun(args []string) int {
 			fmt.Fprintln(os.Stderr, "write report:", werr)
 		}
 	}
+	if *junitPath != "" {
+		jout, jerr := runner.MarshalJUnitXML(report, collectionName)
+		if jerr != nil {
+			fmt.Fprintln(os.Stderr, "marshal junit:", jerr)
+		} else if werr := os.WriteFile(*junitPath, jout, 0o644); werr != nil {
+			fmt.Fprintln(os.Stderr, "write junit:", werr)
+		}
+	}
+
 	fmt.Fprintf(os.Stderr, "\n%d passed, %d failed, %d skipped in %dms\n",
 		report.Passed, report.Failed, report.Skipped, report.DurationMs)
 
@@ -203,6 +253,47 @@ func cmdRun(args []string) int {
 		return 100
 	}
 	return report.Failed
+}
+
+// parseEnvFile 解析 --env-file：JSON 对象，key→string 值。非字符串值显式拒绝
+// （提示加引号），避免 CI 里数字/布尔被静默转成意外形态。
+func parseEnvFile(content string) (map[string]string, error) {
+	var raw map[string]any
+	dec := json.NewDecoder(strings.NewReader(content))
+	if err := dec.Decode(&raw); err != nil {
+		return nil, fmt.Errorf("expected a JSON object of string values: %w", err)
+	}
+	vars := make(map[string]string, len(raw))
+	for k, v := range raw {
+		str, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("environment variable %q must be a string (quote the value)", k)
+		}
+		vars[k] = str
+	}
+	return vars, nil
+}
+
+// resolveEnv 按名称或 id 解析工作区内的环境
+func resolveEnv(store *storage.Store, wsId, nameOrId string) (string, error) {
+	envs, err := store.ListEnvironments(wsId)
+	if err != nil {
+		return "", err
+	}
+	var matches []model.Environment
+	for _, e := range envs {
+		if e.Id == nameOrId || e.Name == nameOrId {
+			matches = append(matches, e)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("environment not found in workspace: %s", nameOrId)
+	case 1:
+		return matches[0].Id, nil
+	default:
+		return "", fmt.Errorf("environment name %q is ambiguous (%d matches); use its id", nameOrId, len(matches))
+	}
 }
 
 // resolveTarget 按名称或 id 解析工作区与集合

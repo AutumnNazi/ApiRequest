@@ -126,10 +126,12 @@ loop:
 			rr := runner.RequestResult{
 				Iteration: iter + 1, RequestName: node.Name, NodeId: node.Id,
 			}
-			// 数据行注入为最高优先级变量覆盖（data 作用域）
+			// 数据行注入为最高优先级变量覆盖（data 作用域）；CLI --env-file 变量
+			// 次之（同一 key 时数据行胜出），两者合并后整体高于环境变量
 			sendCtx := model.SendContext{
 				WorkspaceId: workspaceId, RequestId: node.Id,
-				VariableOverrides: row,
+				EnvironmentId:     opts.EnvId,
+				VariableOverrides: runner.MergeOverrides(opts.EnvOverrides, row),
 			}
 			requestSendId := fmt.Sprintf("%s-%d-%s", runId, iter+1, node.Id)
 			res, serr := a.request.sendRequest(ctx, requestSendId, *node.Request, sendCtx)

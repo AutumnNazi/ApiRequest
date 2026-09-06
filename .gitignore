@@ -4,3 +4,5 @@ frontend/dist/*
 !frontend/dist/gitkeep
 .sandbox-appdata/
 frontend/vite*.log
+cli.exe
+*.test

@@ -64,4 +64,19 @@ run_collection(target, options):
 - **数据驱动**：每轮把数据文件一行注入 `data` 作用域（优先级见[变量解析](./request-lifecycle.md#2-变量解析与模板引擎)）。
 - **并发**：默认串行（多数接口有状态依赖）；可选有限并发用于压测型场景。
 - **取消**：每次运行拥有唯一 `runId`；取消会传播到当前 HTTP 请求并阻止后续迭代。关闭运行中的 Runner 前必须确认并取消，不能留下无主后台任务。
-- **报告**：结构化结果可导出 JSON/HTML，供 CI 消费；退出码反映失败数（配合 CLI 模式，后期）。
+- **报告**：结构化结果可导出 JSON/HTML，供 CI 消费；CLI 模式的退出码反映失败数（见下节）。
+
+### 2.2 CLI 无头运行（apirequest-cli）
+
+`cmd/cli` 与桌面端复用同一 core 与本地库（见 [decisions.md](./decisions.md) OPEN-001）：
+
+```bash
+apirequest-cli run --collection <名称|id> [--workspace <名称|id>]
+  [--data <file>] [--iterations N] [--stop-on-error]
+  [--env <名称|id>] [--env-file env.json]
+  [--report report.json] [--junit junit.xml] [--db <dir>]
+```
+
+- **环境选择**：`--env` 按名称或 id 选择工作区内环境（重名时报歧义错误）；缺省用该工作区的激活环境。CI 场景推荐 `--env-file`：JSON 对象 `{"KEY": "value"}`，非字符串值显式拒绝（提示加引号）。变量优先级：数据行 > env-file > 环境变量 > 全局变量。
+- **CI 集成**：退出码 = 失败请求数（上限 100），2 = 用法/准备错误；`--junit` 输出 JUnit XML（GitHub Actions test-report 等可直接消费），因 `--stop-on-error` 或取消跳过的请求计入 `skipped` 属性、不产生 testcase；`--report` 输出完整 JSON。
+- `apirequest-cli list` 列出工作区与集合（含请求计数），用于发现 `--collection` 参数。
