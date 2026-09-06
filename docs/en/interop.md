@@ -12,12 +12,13 @@ All converters follow `external format -> internal model (IR) -> external format
 
 Use a common Adapter interface for every converter:
 
-- **Import**: Postman v2.1, OpenAPI 3.x / Swagger 2, cURL commands, HAR, and Insomnia.
+- **Import**: Postman v2.1 (collections and environment files), OpenAPI 3.x / Swagger 2, cURL commands, HAR, and Insomnia.
 - **Export**: Postman v2.1, OpenAPI, cURL, and code snippets.
 - **REST Client (.http)** (implemented): export a collection as a `.http` request set (compatible with VS Code REST Client and JetBrains HTTP client), and import `.http` text (blocks split by `###` or method lines; detected by auto)
 - **Import-generating environments** (implemented): each OpenAPI server / Swagger2 host+basePath suggests a `baseUrl` environment (created on import confirmation, inactive, top-bar toast)
 - **HAR export** (implemented): export the collection tree as HAR 1.2 JSON in tree order (queryString/postData derived from request definitions; response is a 0 stub — requests are exported, not captured sessions)
 - **Insomnia export** (implemented): export the collection tree as Insomnia v4 JSON (workspace + base environment + request_group/request, metaSortKey preserves tree order; inherit auth resolves to a concrete type before export). Symmetric with the Insomnia importer and round-trip verified
+- **Postman environment file import** (implemented): a `.postman_environment` JSON (`_postman_variable_scope: "environment"`) maps `values` into a suggested environment that lands on import confirmation (inactive); disabled variables are dropped, a missing `enabled` field counts as enabled. Auto-detection never conflicts with collection files
 
 Generate HTTP code from the internal model for cURL, JavaScript (fetch/axios), Python (requests), Go, Java, Rust, PHP, and other targets. Extend the matrix through templates and a generator interface.
 

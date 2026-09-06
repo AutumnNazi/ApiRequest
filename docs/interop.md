@@ -12,12 +12,13 @@
 
 以"转换器（Adapter）"接口统一实现：
 
-- **导入**：Postman v2.1、OpenAPI 3.x / Swagger 2、cURL 命令、HAR、Insomnia。
+- **导入**：Postman v2.1（集合与环境文件）、OpenAPI 3.x / Swagger 2、cURL 命令、HAR、Insomnia。
 - **导出**：Postman v2.1、OpenAPI、cURL、代码片段。
 - **REST Client (.http)**（已实现）：集合导出为 `.http` 请求集（VS Code REST Client / JetBrains HTTP client 通用），也可导入 `.http` 文本（按 `###` 或方法行分块，auto 识别）
 - **导入生成环境**（已实现）：OpenAPI 的每个 server / Swagger2 的 host+basePath 建议一个 `baseUrl` 环境（确认导入时创建，不激活，顶栏提示）
 - **HAR 导出**（已实现）：集合树按序导出为 HAR 1.2 JSON（queryString/postData 从请求定义生成；response 为 0 占位——导出的是请求定义而非捕获会话）
 - **Insomnia 导出**（已实现）：集合树导出为 Insomnia v4 JSON（workspace + base environment + request_group/request，metaSortKey 保树序；inherit auth 导出前解析为具体类型）。与 Insomnia 导入器对称，往返自校验
+- **Postman 环境文件导入**（已实现）：`.postman_environment` JSON（`_postman_variable_scope: "environment"`）按 `values` 生成建议环境，确认导入后落地（不激活）；禁用变量剔除，缺 `enabled` 字段按启用处理。auto 识别与集合文件互不冲突
 
 内部模型 → 各语言 HTTP 代码：cURL、JavaScript(fetch/axios)、Python(requests)、Go、Java、Rust、PHP 等。以模板 + 生成器接口扩展。
 

@@ -27,6 +27,7 @@ var fuzzSeeds = map[string]string{
 	"postman": `{"info":{"name":"c","schema":"https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
 		"item":[{"name":"r","request":{"method":"GET","url":{"raw":"https://a.test"}}}]}`,
 	"restclient": `### one\nGET https://a.test\n\n### two\nPOST https://a.test/b\nContent-Type: application/json\n\n{"a":1}`,
+	"postman-env": `{"name":"e","_postman_variable_scope":"environment","values":[{"key":"k","value":"v"}]}`,
 	"garbage":     `{ not json`,
 	"empty":       ``,
 	"truncated":  `{"openapi":"3.0.0","paths":{"`,
