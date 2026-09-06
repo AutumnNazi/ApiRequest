@@ -126,6 +126,7 @@ CREATE TABLE example (
 CREATE INDEX idx_example_node ON example(node_id);
 
 -- Runner 运行历史（ADR-015：翻转原"仅内存"决策；摘要列为列表投影，明细 JSON 整列存取）
+-- 保留策略：每 (workspace_id, collection_id) 自动只保留最近 200 次运行，超出即清理
 CREATE TABLE runner_run (
   id            TEXT PRIMARY KEY,                   -- = runId（前端生成）
   workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
@@ -183,7 +184,7 @@ CREATE TABLE oplog (
 - 存储层还提供"文件夹镜像"可选模式：把集合序列化为目录树 + JSON 文件，方便团队用 Git 管理（类似 Insomnia/Bruno 的做法）。
 
 **明确不持久化的数据**（避免实现时猜测）：
-- **Runner 运行报告** ~~仅存在于内存~~ **已翻转（2026-09-04，[ADR-015](./decisions.md#adr-015-runner-运行报告落库持久化已定-2026-09-04翻转原仅内存决策)）**：运行结束即落库 `runner_run` 表（摘要列 + 明细 JSON，schema 0010），Runner 弹窗可回看历史运行并单删/清空；落库失败不阻断运行返回。
+- **Runner 运行报告** ~~仅存在于内存~~ **已翻转（2026-09-04，[ADR-015](./decisions.md#adr-015-runner-运行报告落库持久化已定-2026-09-04翻转原仅内存决策)）**：运行结束即落库 `runner_run` 表（摘要列 + 明细 JSON，schema 0010），Runner 弹窗可回看历史运行并单删/清空；落库失败不阻断运行返回。每 (工作区, 集合) 自动保留最近 200 次，防止明细 JSON 无限增长。
 - **gRPC 的 proto 描述**：server reflection 拉取的描述只做内存缓存；用户手动导入的 `.proto` / FileDescriptorSet 以文件形式存 `platform.paths` 下的 `protos/` 目录，DB 的 `setting` 表只记路径引用。
 - **GraphQL introspection schema**：内存 + 磁盘缓存（`cache/` 目录），可随时重新拉取，不进 DB。
 

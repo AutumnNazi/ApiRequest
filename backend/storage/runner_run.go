@@ -10,6 +10,10 @@ import (
 
 const runnerRunsDefaultLimit = 20
 
+// runnerRunRetentionLimit 每 (workspace, collection) 保留的最近运行次数；
+// results JSON 体积可观，不设上限会随使用无限增长（同 history 保留策略思路）
+const runnerRunRetentionLimit = 200
+
 // SaveRunnerRun 落库一次运行报告（按 runId 幂等覆盖，重试不产生重复行）
 func (s *Store) SaveRunnerRun(workspaceId, collectionId string, report *runner.Report) error {
 	if report == nil || report.RunId == "" {
@@ -39,6 +43,18 @@ func (s *Store) SaveRunnerRun(workspaceId, collectionId string, report *runner.R
 		  canceled = excluded.canceled, results = excluded.results`,
 		report.RunId, workspaceId, collectionId, createdAt, report.Total, report.Passed, report.Failed,
 		report.Skipped, report.DurationMs, canceled, string(results))
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`
+		DELETE FROM runner_run
+		WHERE workspace_id = ? AND collection_id = ?
+		  AND id NOT IN (
+		    SELECT id FROM runner_run
+		    WHERE workspace_id = ? AND collection_id = ?
+		    ORDER BY created_at DESC, id DESC
+		    LIMIT ?)`,
+		workspaceId, collectionId, workspaceId, collectionId, runnerRunRetentionLimit)
 	return err
 }
 

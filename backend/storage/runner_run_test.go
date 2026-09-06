@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"testing"
 
 	"apirequest/backend/model"
@@ -153,5 +154,49 @@ func TestDeleteAndClearRunnerRuns(t *testing.T) {
 	}
 	if len(page.Items) != 0 {
 		t.Fatalf("expected empty after clear: %+v", page.Items)
+	}
+}
+
+// 运行报告按 (workspace, collection) 自动保留最近 N 次，防止 results JSON 无限增长
+// （与 history 的 historyRetentionLimit 同思路，见 docs/data-model.md）
+func TestSaveRunnerRunRetention(t *testing.T) {
+	s := newRunnerRunTestStore(t)
+	ws := firstWorkspaceId(t, s)
+	total := runnerRunRetentionLimit + 5
+	for i := 0; i < total; i++ {
+		rep := sampleReport(fmt.Sprintf("run-%03d", i))
+		rep.CreatedAt = int64(1_000_000 + i)
+		if err := s.SaveRunnerRun(ws, "col-A", rep); err != nil {
+			t.Fatalf("SaveRunnerRun %d: %v", i, err)
+		}
+	}
+	// 另一个集合不受影响
+	if err := s.SaveRunnerRun(ws, "col-B", sampleReport("run-b1")); err != nil {
+		t.Fatalf("SaveRunnerRun col-B: %v", err)
+	}
+
+	page, err := s.ListRunnerRuns(ws, model.RunnerRunQuery{CollectionId: "col-A", Limit: 1000})
+	if err != nil {
+		t.Fatalf("ListRunnerRuns: %v", err)
+	}
+	if len(page.Items) != runnerRunRetentionLimit {
+		t.Fatalf("retained = %d, want %d", len(page.Items), runnerRunRetentionLimit)
+	}
+	// 最新 5 条存活、最旧的被清理
+	newest := map[string]bool{}
+	for _, item := range page.Items {
+		newest[item.RunId] = true
+	}
+	for i := total - 5; i < total; i++ {
+		if !newest[fmt.Sprintf("run-%03d", i)] {
+			t.Fatalf("newest run-%03d was pruned", i)
+		}
+	}
+	if newest["run-000"] {
+		t.Fatal("oldest run survived retention")
+	}
+	pageB, err := s.ListRunnerRuns(ws, model.RunnerRunQuery{CollectionId: "col-B", Limit: 10})
+	if err != nil || len(pageB.Items) != 1 {
+		t.Fatalf("col-B = %d items, %v", len(pageB.Items), err)
 	}
 }
