@@ -8,11 +8,14 @@ import {
   onMockLog,
   listCollectionExamples,
   upsertExample,
+  deleteExample,
   toAppError,
   type MockLogEntry,
   type Example,
 } from '../ipc';
+import { formatBatchLines, parseBatchLines } from '../utils/urlParams';
 import { Verbatim, formatMessage } from '../i18n/locale';
+import { useDialog } from './DialogProvider';
 import ModalFrame from './ModalFrame';
 
 interface Props {
@@ -33,20 +36,38 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
   const revision = useRef(0);
   const mounted = useRef(false);
   const qc = useQueryClient();
+  const dialog = useDialog();
   const [showScripts, setShowScripts] = useState(false);
   const [expandedId, setExpandedId] = useState('');
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState<Partial<Example> | null>(null);
   const examplesQuery = useQuery({
     queryKey: ['mock-examples', collectionId],
     queryFn: () => listCollectionExamples(collectionId),
     enabled: showScripts,
   });
-  const saveScript = useMutation({
-    mutationFn: (e: Example) => upsertExample({ ...e, mockScript: draft }),
+  const saveExample = useMutation({
+    mutationFn: (e: Example) => {
+      const { nodeName: _nodeName, ...rest } = e;
+      return upsertExample({
+        ...rest,
+        name: draft?.name ?? e.name,
+        status: draft?.status ?? e.status,
+        headers: draft?.headers ?? e.headers,
+        body: draft?.body ?? e.body,
+        mockScript: draft?.mockScript ?? e.mockScript,
+      });
+    },
     onSuccess: () => {
       setExpandedId('');
       qc.invalidateQueries({ queryKey: ['mock-examples', collectionId] });
     },
+    onError: (cause) => {
+      if (mounted.current) setError(toAppError(cause).detail);
+    },
+  });
+  const removeExample = useMutation({
+    mutationFn: (id: string) => deleteExample(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mock-examples', collectionId] }),
     onError: (cause) => {
       if (mounted.current) setError(toAppError(cause).detail);
     },
@@ -194,32 +215,76 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
                       setExpandedId('');
                     } else {
                       setExpandedId(e.id);
-                      setDraft(e.mockScript ?? '');
+                      setDraft({ name: e.name, status: e.status, headers: e.headers, body: e.body, mockScript: e.mockScript });
                     }
                   }}
                 >
                   <span className="font-medium">{expandedId === e.id ? '▾' : '▸'}</span>
-                  <span className="flex-1 min-w-0 truncate"><Verbatim value={e.name} /></span>
+                  <span className="flex-1 min-w-0 truncate">
+                    <Verbatim value={e.name} />
+                    {e.nodeName && <span className="text-gray-400"> · {e.nodeName}</span>}
+                  </span>
                   {e.mockScript && <span className="text-blue-600">{formatMessage('已配置')}</span>}
                   <span className="text-gray-400">{e.status}</span>
                 </button>
-                {expandedId === e.id && (
+                {expandedId === e.id && draft && (
                   <div className="px-4 pb-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        className="flex-1 border rounded px-2 py-1 text-xs"
+                        value={draft.name ?? ''}
+                        onChange={(ev) => setDraft({ ...draft, name: ev.target.value })}
+                        aria-label={formatMessage('示例名称')}
+                      />
+                      <input
+                        type="number"
+                        className="border rounded px-2 py-1 text-xs w-20"
+                        value={draft.status ?? 200}
+                        onChange={(ev) => setDraft({ ...draft, status: Number(ev.target.value) || 200 })}
+                        aria-label={formatMessage('状态码')}
+                      />
+                    </div>
+                    <textarea
+                      className="w-full h-16 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400"
+                      aria-label={formatMessage('响应头')}
+                      placeholder="Content-Type:application/json"
+                      value={formatBatchLines(draft.headers ?? [])}
+                      onChange={(ev) => setDraft({ ...draft, headers: parseBatchLines(ev.target.value) })}
+                    />
+                    <textarea
+                      className="w-full h-24 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400"
+                      aria-label={formatMessage('响应体')}
+                      value={draft.body ?? ''}
+                      onChange={(ev) => setDraft({ ...draft, body: ev.target.value })}
+                    />
                     <textarea
                       className="w-full h-32 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400"
+                      aria-label={formatMessage('Mock 脚本')}
                       placeholder={formatMessage(
                         'respond({ status: 200, headers: {...}, body: "..." , delayMs: 0 })；不调用则回退静态响应',
                       )}
-                      value={draft}
-                      onChange={(ev) => setDraft(ev.target.value)}
+                      value={draft.mockScript ?? ''}
+                      onChange={(ev) => setDraft({ ...draft, mockScript: ev.target.value })}
                     />
                     <div className="flex items-center gap-2">
                       <button
                         className="bg-blue-600 text-white rounded px-3 py-1 hover:bg-blue-700"
-                        disabled={saveScript.isPending}
-                        onClick={() => saveScript.mutate(e)}
+                        disabled={saveExample.isPending}
+                        onClick={() => saveExample.mutate(e)}
                       >
                         {formatMessage('保存')}
+                      </button>
+                      <button
+                        className="border border-red-200 text-red-500 rounded px-3 py-1 hover:bg-red-50"
+                        onClick={() => {
+                          void dialog.confirm(
+                            formatMessage('删除示例「{name}」？', { name: e.name }),
+                          ).then((ok) => {
+                            if (ok) removeExample.mutate(e.id);
+                          });
+                        }}
+                      >
+                        {formatMessage('删除')}
                       </button>
                       <span className="text-gray-400">
                         {formatMessage('脚本上下文：mockRequest（method/path/query/queryFirst/headers/body）')}

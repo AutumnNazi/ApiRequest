@@ -6,6 +6,7 @@ import type { ReactElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import MockPanel from './MockPanel';
+import { DialogProvider } from './DialogProvider';
 
 const ipc = vi.hoisted(() => ({
   startMockServer: vi.fn(),
@@ -14,6 +15,7 @@ const ipc = vi.hoisted(() => ({
   onMockLog: vi.fn(() => () => {}),
   listCollectionExamples: vi.fn(() => Promise.resolve([])),
   upsertExample: vi.fn((e: unknown) => Promise.resolve(e)),
+  deleteExample: vi.fn(() => Promise.resolve(null)),
   toAppError: vi.fn((e: unknown) => ({
     kind: 'unknown',
     detail: e instanceof Error ? e.message : String(e),
@@ -35,7 +37,11 @@ function deferred<T>() {
 const testClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 function wrap(ui: ReactElement) {
-  return <QueryClientProvider client={testClient}>{ui}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={testClient}>
+      <DialogProvider>{ui}</DialogProvider>
+    </QueryClientProvider>
+  );
 }
 
 function renderPanel(collectionId = 'c1') {
@@ -197,7 +203,7 @@ describe('MockPanel 初始查询与启停的竞态', () => {
 describe('MockPanel 响应脚本', () => {
   it('展开示例并保存脚本', async () => {
     ipc.listCollectionExamples.mockResolvedValue([
-      { id: 'e1', nodeId: 'r1', name: 'one user', status: 200, headers: [], body: '{"id":42}', mockScript: '', createdAt: 1, updatedAt: 1 },
+      { id: 'e1', nodeId: 'r1', nodeName: 'get user', name: 'one user', status: 200, headers: [], body: '{"id":42}', mockScript: '', createdAt: 1, updatedAt: 1 },
     ] as never);
     ipc.runningMocks.mockResolvedValue({});
     renderPanel();
@@ -206,8 +212,10 @@ describe('MockPanel 响应脚本', () => {
     expect(await screen.findByText('one user')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('one user'));
-    const area = await screen.findByRole('textbox') as HTMLTextAreaElement;
-    fireEvent.change(area, { target: { value: 'respond({ status: 201, body: "ok" });' } });
+    const area = await screen.findByLabelText('响应体') as HTMLTextAreaElement;
+    const scriptArea = screen.getByLabelText('Mock 脚本') as HTMLTextAreaElement;
+    fireEvent.change(scriptArea, { target: { value: 'respond({ status: 201, body: "ok" });' } });
+    void area;
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => expect(ipc.upsertExample).toHaveBeenCalled());
@@ -222,5 +230,65 @@ describe('MockPanel 响应脚本', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '响应脚本' }));
     expect(await screen.findByText(/还没有示例/)).toBeInTheDocument();
+  });
+});
+
+describe('MockPanel 示例管理', () => {
+  const baseExample = {
+    id: 'e1', nodeId: 'r1', nodeName: 'get user', name: 'one user', status: 200,
+    headers: [{ key: 'Content-Type', value: 'application/json', enabled: true }],
+    body: '{"id":42}', mockScript: '', createdAt: 1, updatedAt: 1,
+  } as never;
+
+  it('展开编辑 body 并保存到 upsertExample', async () => {
+    ipc.listCollectionExamples.mockResolvedValue([baseExample]);
+    ipc.runningMocks.mockResolvedValue({});
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: '响应脚本' }));
+    fireEvent.click(await screen.findByText('one user'));
+    expect(await screen.findByDisplayValue('{"id":42}')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue('{"id":42}'), { target: { value: '{"id":43}' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(ipc.upsertExample).toHaveBeenCalled());
+    const saved = ipc.upsertExample.mock.calls[0][0] as { body: string; nodeName?: string };
+    expect(saved.body).toBe('{"id":43}');
+    // NodeName 是展示投影，不应被写回存储
+    expect(saved.nodeName).toBeUndefined();
+  });
+
+  it('headers 以批量格式编辑并解析回键值', async () => {
+    ipc.listCollectionExamples.mockResolvedValue([baseExample]);
+    ipc.runningMocks.mockResolvedValue({});
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: '响应脚本' }));
+    fireEvent.click(await screen.findByText('one user'));
+    const headersArea = await screen.findByDisplayValue('Content-Type:application/json');
+    fireEvent.change(headersArea, { target: { value: 'Content-Type:application/json\nX-Trace:abc' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(ipc.upsertExample).toHaveBeenCalled());
+    const saved = ipc.upsertExample.mock.calls[0][0] as { headers: Array<{ key: string; value: string }> };
+    expect(saved.headers.map((h) => `${h.key}=${h.value}`)).toEqual([
+      'Content-Type=application/json',
+      'X-Trace=abc',
+    ]);
+  });
+
+  it('删除示例需确认并调用 deleteExample', async () => {
+    ipc.listCollectionExamples.mockResolvedValue([baseExample]);
+    ipc.runningMocks.mockResolvedValue({});
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: '响应脚本' }));
+    fireEvent.click(await screen.findByText('one user'));
+    fireEvent.click(screen.getByRole('button', { name: '删除' }));
+
+    // DialogProvider 的确认弹窗：点击确认
+    fireEvent.click(await screen.findByRole('button', { name: '确定' }));
+    await waitFor(() => expect(ipc.deleteExample).toHaveBeenCalledWith('e1'));
   });
 });

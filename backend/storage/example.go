@@ -33,14 +33,36 @@ func (s *Store) ListExamplesForCollection(collectionId string) ([]model.Example,
 		  SELECT n.id FROM node n JOIN sub ON n.parent_id = sub.id WHERE n.deleted_at IS NULL
 		)
 		SELECT e.id, e.node_id, e.name, e.request_snap, e.status, e.headers, e.body,
-		       e.mock_script, e.created_at, e.updated_at
-		FROM example e JOIN sub ON e.node_id = sub.id
-		WHERE e.deleted_at IS NULL ORDER BY e.created_at`, collectionId)
+		       e.mock_script, e.created_at, e.updated_at, n.name
+		FROM example e JOIN sub ON e.node_id = sub.id JOIN node n ON n.id = e.node_id
+		WHERE e.deleted_at IS NULL ORDER BY n.name, e.created_at`, collectionId)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanExamples(rows)
+	out := []model.Example{}
+	for rows.Next() {
+		var e model.Example
+		var snap, body, mockScript sql.NullString
+		var headers string
+		if err := rows.Scan(&e.Id, &e.NodeId, &e.Name, &snap, &e.Status, &headers, &body,
+			&mockScript, &e.CreatedAt, &e.UpdatedAt, &e.NodeName); err != nil {
+			return nil, err
+		}
+		e.MockScript = mockScript.String
+		e.Body = body.String
+		if err := json.Unmarshal([]byte(headers), &e.Headers); err != nil {
+			e.Headers = []model.KV{}
+		}
+		if snap.Valid && snap.String != "" {
+			var req model.HttpRequest
+			if err := json.Unmarshal([]byte(snap.String), &req); err == nil {
+				e.RequestSnap = &req
+			}
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 func scanExamples(rows *sql.Rows) ([]model.Example, error) {

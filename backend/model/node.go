@@ -134,14 +134,15 @@ type HistoryDetail struct {
 // Example 请求的示例响应（"保存为示例"落点，Mock Server 数据源）
 type Example struct {
 	Id          string       `json:"id"`
-	NodeId      string       `json:"nodeId"` // 所属请求节点
+	NodeId      string       `json:"nodeId"`             // 所属请求节点
+	NodeName    string       `json:"nodeName,omitempty"` // 集合级列举时的节点名（Mock 面板展示用）
 	Name        string       `json:"name"`
 	RequestSnap *HttpRequest `json:"requestSnap,omitempty"` // 触发该示例的请求快照
 	Status      int          `json:"status"`
 	Headers     []KV         `json:"headers"`
 	Body        string       `json:"body,omitempty"`
 	// MockScript 非空时 Mock Server 用它按请求动态生成响应（docs/advanced.md §1.3）
-	MockScript  string       `json:"mockScript,omitempty"`
-	CreatedAt   int64        `json:"createdAt"`
-	UpdatedAt   int64        `json:"updatedAt"`
+	MockScript string `json:"mockScript,omitempty"`
+	CreatedAt  int64  `json:"createdAt"`
+	UpdatedAt  int64  `json:"updatedAt"`
 }

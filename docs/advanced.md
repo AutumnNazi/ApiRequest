@@ -42,7 +42,7 @@
 
 ---
 
-- **响应脚本（已实现）**：示例可携带一段 JS（`Example.MockScript`，goja 沙箱，每次请求新建 Runtime，2s 看门狗中断）。脚本内可用只读 `mockRequest`（`method`/`path`/`query`/`queryFirst(name)`/`headers`/`body`）并调用 `respond({ status, headers, body, delayMs })` 动态生成响应；未调用 `respond` 回退静态示例，脚本抛错返回 500。Mock 面板「响应脚本」页可按示例配置。
+- **响应脚本（已实现）**：示例可携带一段 JS（`Example.MockScript`，goja 沙箱，每次请求新建 Runtime，2s 看门狗中断）。脚本内可用只读 `mockRequest`（`method`/`path`/`query`/`queryFirst(name)`/`headers`/`body`）并调用 `respond({ status, headers, body, delayMs })` 动态生成响应；未调用 `respond` 回退静态示例，脚本抛错返回 500。Mock 面板「响应脚本」页即示例管理器：可编辑名称/状态码/响应头/响应体与脚本，删除需确认；列表展示所属请求名（集合级查询附带）。
 ## 2. Collection Runner
 
 顺序/迭代执行集合中的请求，支持绑定 CSV/JSON 数据文件驱动多轮。汇总每个请求的测试结果，生成运行报告（通过/失败/耗时）。

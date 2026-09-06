@@ -581,6 +581,7 @@ export namespace model {
 	export class Example {
 	    id: string;
 	    nodeId: string;
+	    nodeName?: string;
 	    name: string;
 	    requestSnap?: HttpRequest;
 	    status: number;
@@ -598,6 +599,7 @@ export namespace model {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.nodeId = source["nodeId"];
+	        this.nodeName = source["nodeName"];
 	        this.name = source["name"];
 	        this.requestSnap = this.convertValues(source["requestSnap"], HttpRequest);
 	        this.status = source["status"];
