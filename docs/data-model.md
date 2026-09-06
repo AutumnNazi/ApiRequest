@@ -70,6 +70,7 @@ CREATE TABLE node (
   variables     TEXT,                             -- JSON 键值
   pre_script    TEXT,
   test_script   TEXT,
+  disabled      INTEGER NOT NULL DEFAULT 0,       -- 0014：请求级禁用（Runner 跳过，单发不受影响）
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL,
   deleted_at    INTEGER

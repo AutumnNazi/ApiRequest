@@ -70,6 +70,7 @@ CREATE TABLE node (
   variables     TEXT,                             -- JSON key/value entries.
   pre_script    TEXT,
   test_script   TEXT,
+  disabled      INTEGER NOT NULL DEFAULT 0,       -- 0014: request-level disable (Runner skips it; single send unaffected)
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL,
   deleted_at    INTEGER

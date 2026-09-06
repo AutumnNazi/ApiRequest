@@ -1019,6 +1019,17 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           y={ctxMenu.y}
           selectedCount={selectedIds.has(ctxMenu.node.id) && selectedIds.size > 1 ? selectedIds.size : 0}
           onRename={() => { void doRename(ctxMenu.node); setCtxMenu(null); }}
+          onToggleDisabled={() => {
+            // 禁用只改 node 级标志：Runner 跳过 + 计入 skipped，单发不受影响
+            const n = ctxMenu.node;
+            getNode(n.workspaceId, n.id)
+              .then((node) => upsertNode({ ...node, disabled: !n.disabled } as Node))
+              .catch((cause) => void dialog.alert(
+                formatMessage('更新节点失败: {detail}', { detail: toAppError(cause).detail }),
+                { title: formatMessage('操作失败') },
+              ));
+            setCtxMenu(null);
+          }}
           onAddRequest={() => { addChild.mutate({ parentId: ctxMenu.node.id, kind: 'request' }); setCtxMenu(null); }}
           onAddFolder={() => { addChild.mutate({ parentId: ctxMenu.node.id, kind: 'folder' }); setCtxMenu(null); }}
           onRunner={() => { setRunnerTarget(ctxMenu.node); setCtxMenu(null); }}
@@ -1044,12 +1055,13 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
 }
 
 // 右键菜单
-function CtxMenu({ node, x, y, selectedCount, onRename, onAddRequest, onAddFolder, onRunner, onMock, onBatchDelete, onDelete }: {
+function CtxMenu({ node, x, y, selectedCount, onRename, onToggleDisabled, onAddRequest, onAddFolder, onRunner, onMock, onBatchDelete, onDelete }: {
   node: NodeSummary;
   x: number;
   y: number;
   selectedCount: number;
   onRename(): void;
+  onToggleDisabled(): void;
   onAddRequest(): void;
   onAddFolder(): void;
   onRunner(): void;
@@ -1076,6 +1088,11 @@ function CtxMenu({ node, x, y, selectedCount, onRename, onAddRequest, onAddFolde
       <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100" onClick={onRename}>
         {formatMessage('重命名')}
       </button>
+      {node.kind === 'request' && (
+        <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100" onClick={onToggleDisabled}>
+          {node.disabled ? formatMessage('启用请求') : formatMessage('禁用请求')}
+        </button>
+      )}
       {canAddChild && (
         <>
           <div className="my-1 border-t border-gray-100" />
@@ -1248,10 +1265,12 @@ function TreeLeaf({
         onContextMenu(e.clientX, e.clientY, node);
       }}
     >
-      <span className={`text-xs font-semibold w-12 shrink-0 ${methodColor(node.method)}`}>
+      <span className={`text-xs font-semibold w-12 shrink-0 ${node.disabled ? 'text-gray-300' : methodColor(node.method)}`}>
         {node.method || 'GET'}
       </span>
-      <span className="flex-1 truncate"><Verbatim value={node.name} /></span>
+      <span className={`flex-1 truncate ${node.disabled ? 'text-gray-400 line-through' : ''}`}>
+        <Verbatim value={node.name} />
+      </span>
       <button
         className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
         onClick={(e) => {

@@ -167,7 +167,7 @@ func (s *Store) ListNodes(workspaceId string) ([]model.Node, error) {
 	rows, err := s.db.Query(`
 		SELECT id, workspace_id, parent_id, kind, name, sort_order,
 		       request_data, auth, variables, pre_script, test_script,
-		       created_at, updated_at
+		       created_at, updated_at, disabled
 		FROM node
 		WHERE workspace_id = ? AND deleted_at IS NULL
 		ORDER BY sort_order, created_at`, workspaceId)
@@ -182,7 +182,7 @@ func (s *Store) ListNodes(workspaceId string) ([]model.Node, error) {
 		var r nodeRow
 		if err := rows.Scan(&n.Id, &n.WorkspaceId, &r.parentId, &n.Kind, &n.Name, &n.SortOrder,
 			&r.requestData, &r.auth, &r.variables, &r.preScript, &r.testScript,
-			&n.CreatedAt, &n.UpdatedAt); err != nil {
+			&n.CreatedAt, &n.UpdatedAt, &n.Disabled); err != nil {
 			return nil, err
 		}
 		if err := s.hydrateNode(&n, &r); err != nil {
@@ -200,7 +200,7 @@ func (s *Store) ListNodeSummaries(workspaceId string) ([]model.NodeSummary, erro
 		SELECT id, workspace_id, parent_id, kind, name, sort_order,
 		       CASE WHEN json_valid(request_data)
 		            THEN COALESCE(json_extract(request_data, '$.method'), '') ELSE '' END,
-		       created_at, updated_at
+		       created_at, updated_at, disabled
 		FROM node
 		WHERE workspace_id = ? AND deleted_at IS NULL
 		ORDER BY sort_order, created_at`, workspaceId)
@@ -216,6 +216,7 @@ func (s *Store) ListNodeSummaries(workspaceId string) ([]model.NodeSummary, erro
 		if err := rows.Scan(
 			&summary.Id, &summary.WorkspaceId, &parentId, &summary.Kind, &summary.Name,
 			&summary.SortOrder, &summary.Method, &summary.CreatedAt, &summary.UpdatedAt,
+			&summary.Disabled,
 		); err != nil {
 			return nil, err
 		}
@@ -232,12 +233,12 @@ func (s *Store) GetNode(workspaceId, nodeId string) (model.Node, error) {
 	err := s.db.QueryRow(`
 		SELECT id, workspace_id, parent_id, kind, name, sort_order,
 		       request_data, auth, variables, pre_script, test_script,
-		       created_at, updated_at
+		       created_at, updated_at, disabled
 		FROM node
 		WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`, nodeId, workspaceId).
 		Scan(&node.Id, &node.WorkspaceId, &row.parentId, &node.Kind, &node.Name, &node.SortOrder,
 			&row.requestData, &row.auth, &row.variables, &row.preScript, &row.testScript,
-			&node.CreatedAt, &node.UpdatedAt)
+			&node.CreatedAt, &node.UpdatedAt, &node.Disabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Node{}, errors.New("node not found")
 	}
@@ -358,8 +359,8 @@ func (s *Store) UpsertNode(n model.Node) (model.Node, error) {
 		_, err = s.db.Exec(`
 			INSERT INTO node (id, workspace_id, parent_id, kind, name, sort_order,
 			                  request_data, auth, variables, pre_script, test_script,
-			                  created_at, updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+			                  created_at, updated_at, disabled)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(id) DO UPDATE SET
 			  parent_id = excluded.parent_id,
 			  name = excluded.name,
@@ -369,12 +370,13 @@ func (s *Store) UpsertNode(n model.Node) (model.Node, error) {
 			  variables = excluded.variables,
 			  pre_script = excluded.pre_script,
 			  test_script = excluded.test_script,
-			  updated_at = excluded.updated_at`,
+			  updated_at = excluded.updated_at,
+			  disabled = excluded.disabled`,
 			n.Id, n.WorkspaceId, parentId, n.Kind, n.Name, n.SortOrder,
 			reqJSON, authJSON, varsJSON,
 			sql.NullString{String: n.PreScript, Valid: n.PreScript != ""},
 			sql.NullString{String: n.TestScript, Valid: n.TestScript != ""},
-			n.CreatedAt, n.UpdatedAt)
+			n.CreatedAt, n.UpdatedAt, boolToInt(n.Disabled))
 		return err
 	})
 	return n, err
@@ -568,4 +570,11 @@ func moveNodeTx(tx *sql.Tx, workspaceId string, move model.NodeMove) error {
 		return err
 	}
 	return nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

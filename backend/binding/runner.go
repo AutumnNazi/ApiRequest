@@ -85,8 +85,19 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 		return nil, model.WrapError(model.KindStorage, err)
 	}
 	requests := runner.FlattenOrdered(collectionId, nodes)
+	// 请求级禁用（docs/advanced.md §2.1）：不参与运行、计入 skipped；单发不受影响
+	disabled := 0
+	active := requests[:0]
+	for _, n := range requests {
+		if n.Disabled {
+			disabled++
+			continue
+		}
+		active = append(active, n)
+	}
+	requests = active
 	if len(requests) == 0 {
-		return nil, model.NewError(model.KindValidation, "collection has no requests")
+		return nil, model.NewError(model.KindValidation, "collection has no enabled requests")
 	}
 
 	// 迭代行：数据文件优先，否则按 iterations 空行
@@ -106,7 +117,8 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 	}
 
 	report := &runner.Report{RunId: runId, Results: []runner.RequestResult{}}
-	total := len(rows) * len(requests)
+	// total 含禁用请求：它们计入 skipped（过滤前口径），报告才如实呈现"跳过了几个"
+	total := len(rows) * (len(requests) + disabled)
 	// 并发模式下 emit 会被多个 worker 同时调用：done 必须原子
 	var done atomic.Int64
 	start := time.Now()

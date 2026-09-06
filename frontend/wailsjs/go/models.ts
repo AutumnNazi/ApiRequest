@@ -892,6 +892,7 @@ export namespace model {
 	    name: string;
 	    sortOrder: number;
 	    request?: HttpRequest;
+	    disabled?: boolean;
 	    auth?: Auth;
 	    variables?: Variable[];
 	    preScript?: string;
@@ -912,6 +913,7 @@ export namespace model {
 	        this.name = source["name"];
 	        this.sortOrder = source["sortOrder"];
 	        this.request = this.convertValues(source["request"], HttpRequest);
+	        this.disabled = source["disabled"];
 	        this.auth = this.convertValues(source["auth"], Auth);
 	        this.variables = this.convertValues(source["variables"], Variable);
 	        this.preScript = source["preScript"];
@@ -962,6 +964,7 @@ export namespace model {
 	    name: string;
 	    sortOrder: number;
 	    method?: string;
+	    disabled?: boolean;
 	    createdAt: number;
 	    updatedAt: number;
 	
@@ -978,6 +981,7 @@ export namespace model {
 	        this.name = source["name"];
 	        this.sortOrder = source["sortOrder"];
 	        this.method = source["method"];
+	        this.disabled = source["disabled"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }

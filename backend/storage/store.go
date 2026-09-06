@@ -234,6 +234,8 @@ var migrations = []string{
 	`,
 	// 0013: 示例级 Mock 响应脚本（docs/advanced.md §1.3）
 	`ALTER TABLE example ADD COLUMN mock_script TEXT NOT NULL DEFAULT '';`,
+	// 0014: 请求级禁用（docs/advanced.md §2.1 执行引擎 disabled 跳过）
+	`ALTER TABLE node ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // Store 持有 DB 连接与 blobs 根目录

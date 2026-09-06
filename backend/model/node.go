@@ -12,6 +12,9 @@ type Node struct {
 	SortOrder   float64 `json:"sortOrder"`
 
 	Request *HttpRequest `json:"request,omitempty"` // kind=request
+	// Disabled 请求级禁用（docs/advanced.md §2.1 执行引擎）：Runner 跳过，单发不受影响。
+	// 草稿/排障请求常驻集合但不参与批量运行的场景用
+	Disabled bool `json:"disabled,omitempty"`
 
 	Auth       *Auth      `json:"auth,omitempty"` // 可继承
 	Variables  []Variable `json:"variables,omitempty"`
@@ -32,6 +35,7 @@ type NodeSummary struct {
 	Name        string  `json:"name"`
 	SortOrder   float64 `json:"sortOrder"`
 	Method      string  `json:"method,omitempty"`
+	Disabled    bool    `json:"disabled,omitempty"`
 	CreatedAt   int64   `json:"createdAt"`
 	UpdatedAt   int64   `json:"updatedAt"`
 }
