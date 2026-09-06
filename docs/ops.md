@@ -126,4 +126,4 @@ Stable Release 与 `dev-latest` 都必须具备以下 8 个包；`<版本>` 在�
 | 1MB JSON 响应格式化渲染 | < 300ms（超阈值走虚拟化/折叠） |
 | 空闲内存占用 | < 200MB |
 | 10 万条历史记录列表滚动 | 稳定 60fps（虚拟列表） |
-| 安装包体积 | 单平台 < 30MB（优先 CM6 而非 Monaco；Go 二进制 + 系统 WebView，远小于 Electron） |
+| 安装包体积 | 单平台 < 30MB（优先 CM6 而非 Monaco；Go 二进制 + 系统 WebView，远小于 Electron）；CI 在产物上传与发布前自动断言（`scripts/check-dist-budget.mjs`），超限阻断 |

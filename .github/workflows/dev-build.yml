@@ -407,6 +407,12 @@ jobs:
             '${{ matrix.label }}' '${{ matrix.arch }}' 'UNSIGNED (Linux artifact)' \
             > "dist/SIGNING_STATUS-${{ matrix.label }}.txt"
 
+      - name: Enforce package size budget
+        # docs/ops.md §5：单平台安装包 < 30MB；超限即失败，防止依赖膨胀悄悄溜进产物
+        if: matrix.kind != 'linux'
+        shell: bash
+        run: node scripts/check-dist-budget.mjs dist
+
       - name: Upload dev artifact
         uses: actions/upload-artifact@v7
         with:
