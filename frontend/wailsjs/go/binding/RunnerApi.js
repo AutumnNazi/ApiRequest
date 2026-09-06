@@ -18,6 +18,10 @@ export function ExportReport(arg1) {
   return window['go']['binding']['RunnerApi']['ExportReport'](arg1);
 }
 
+export function ExportReportHTML(arg1) {
+  return window['go']['binding']['RunnerApi']['ExportReportHTML'](arg1);
+}
+
 export function GetRunnerRun(arg1, arg2) {
   return window['go']['binding']['RunnerApi']['GetRunnerRun'](arg1, arg2);
 }

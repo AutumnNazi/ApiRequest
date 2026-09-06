@@ -66,7 +66,7 @@ run_collection(target, options):
 - **Concurrency (implemented)**: sequential by default because many APIs have state dependencies. With a concurrency N > 1, (iteration, request) pairs run through a fixed worker pool — data rows still bind per iteration, results sort stably by (iteration, tree order), and StopOnError converges quickly via a cancel channel (in-flight tasks finish; undispatched tasks count as skipped).
 - **Request delay (implemented)**: a `delayMs` > 0 inserts a think-time wait between adjacent requests — sequential inserts it between adjacent requests, concurrent inserts it between each worker's tasks; use it for load-test rate control (approaching a target RPS) or polite throttling against rate-limited APIs. The CLI flag is `--delay`.
 - **Cancellation**: every run owns a unique `runId`. Cancellation propagates to the active HTTP request and prevents later iterations. Closing an active Runner requires confirmation and cancellation so no background run is orphaned.
-- **Reports**: export structured results as JSON/HTML for CI. The CLI mode's exit code reflects the failure count (see the next section).
+- **Reports (implemented)**: export structured results as JSON/HTML for CI. The HTML report is a self-contained single file (inline styles, no external dependencies) rendered through `html/template` contextual escaping, so HTML inside request names or error messages is safely escaped and cannot inject. The CLI mode's exit code reflects the failure count (see the next section).
 
 ### 2.2 Headless CLI (apirequest-cli)
 
@@ -76,11 +76,11 @@ run_collection(target, options):
 apirequest-cli run --collection <name|id> [--workspace <name|id>]
   [--data <file>] [--iterations N] [--delay <ms>] [--stop-on-error]
   [--env <name|id>] [--env-file env.json]
-  [--report report.json] [--junit junit.xml] [--db <dir>]
+  [--report report.json] [--junit junit.xml] [--html report.html] [--db <dir>]
 ```
 
 - **Environment selection**: `--env` picks a workspace environment by name or id (ambiguous names are rejected); without it the workspace's active environment applies. For CI, prefer `--env-file`: a JSON object `{"KEY": "value"}` where non-string values are rejected with a hint to quote them. Variable precedence: data row > env-file > environment variables > globals.
-- **CI integration**: the exit code equals the number of failed requests (capped at 100); 2 means a usage/setup error. `--junit` writes JUnit XML that GitHub Actions test reporting consumes directly; requests skipped by `--stop-on-error` or cancellation count toward the `skipped` attribute and produce no testcase. `--report` writes the full JSON.
+- **CI integration**: the exit code equals the number of failed requests (capped at 100); 2 means a usage/setup error. `--junit` writes JUnit XML that GitHub Actions test reporting consumes directly; requests skipped by `--stop-on-error` or cancellation count toward the `skipped` attribute and produce no testcase. `--report` writes the full JSON; `--html` writes a self-contained HTML report (open it directly in a browser — good for human archiving and browsing).
 - `apirequest-cli list` prints workspaces and collections (with request counts) to discover the `--collection` argument.
 - **Headless import (implemented)**: `apirequest-cli import --file <path> [--format <fmt>] [--workspace <name|id>] [--db <dir>]` uses the same formats as the desktop importer (including auto detection and Postman environment files); suggested environments land too (inactive), and stdout carries a JSON summary (collectionId/name/requests/environments) for scripts. Same library and semantics as the desktop app — handy for pipeline assembly.
 - **Headless export (implemented)**: `apirequest-cli export --collection <name|id> --format <fmt> [--out file] [--workspace <name|id>] [--db <dir>]` uses the same formats as the desktop exporter (postman/openapi/openapi3.1/swagger2/curl/restclient/har/insomnia); output goes to stdout or an `--out` file (0600) through the same redaction path — secret values never land in the artifact. Useful for folding a local collection into a pipeline or scripted backups as exchange formats.

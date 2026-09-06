@@ -51,6 +51,22 @@ func (a *DialogApi) SaveFile(title, defaultFilename string) (string, error) {
 	})
 }
 
+// WriteTextFile writes user-facing text to a path (HTML report, exported
+// artifacts). Same size cap as reads; the parent dialog chose the path.
+func (a *DialogApi) WriteTextFile(path, content string) error {
+	if err := a.requireContext(); err != nil {
+		return err
+	}
+	if len(content) > maxTextFileSize {
+		return fmt.Errorf("text exceeds %d MiB limit", maxTextFileSize>>20)
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Clean(path)), 0o755); err != nil {
+		return err
+	}
+	// 0644：报告类产物通常要发给同事/挂内网，保持常规可读权限
+	return os.WriteFile(filepath.Clean(path), []byte(content), 0o644)
+}
+
 // ReadTextFile reads a user-selected text file for import/runner workflows.
 // The size cap prevents an accidental multi-gigabyte read from freezing the UI.
 func (a *DialogApi) ReadTextFile(path string) (string, error) {

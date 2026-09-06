@@ -17,3 +17,7 @@ export function ReadTextFile(arg1) {
 export function SaveFile(arg1, arg2) {
   return window['go']['binding']['DialogApi']['SaveFile'](arg1, arg2);
 }
+
+export function WriteTextFile(arg1, arg2) {
+  return window['go']['binding']['DialogApi']['WriteTextFile'](arg1, arg2);
+}

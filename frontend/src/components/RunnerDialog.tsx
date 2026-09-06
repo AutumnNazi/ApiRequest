@@ -4,6 +4,9 @@ import {
   runCollection,
   cancelRun,
   exportReport,
+  exportReportHTML,
+  saveNativeFile,
+  writeNativeTextFile,
   openNativeFile,
   readNativeTextFile,
   onRunnerProgress,
@@ -165,6 +168,24 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
       const text = await exportReport(report.runId);
       await navigator.clipboard.writeText(text);
       void dialog.alert(formatMessage('报告 JSON 已复制到剪贴板'));
+    } catch (cause) {
+      setError(toAppError(cause).detail);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // HTML 导出：自包含单文件（内联样式），经系统另存为对话框落盘
+  const handleExportHTML = async () => {
+    if (!report || exporting) return;
+    setError('');
+    setExporting(true);
+    try {
+      const path = await saveNativeFile('保存 HTML 报告', `apirequest-report-${report.runId}.html`);
+      if (!path) return;
+      const html = await exportReportHTML(report.runId);
+      await writeNativeTextFile(path, html);
+      void dialog.alert(formatMessage('HTML 报告已保存'));
     } catch (cause) {
       setError(toAppError(cause).detail);
     } finally {
@@ -429,13 +450,22 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
           ) : (
             <>
               {report && (
-                <button
-                  className="border rounded px-4 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void handleExport()}
-                  disabled={exporting}
-                >
-                  {exporting ? formatMessage('导出中…') : formatMessage('导出报告')}
-                </button>
+                <>
+                  <button
+                    className="border rounded px-4 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => void handleExport()}
+                    disabled={exporting}
+                  >
+                    {exporting ? formatMessage('导出中…') : formatMessage('复制 JSON')}
+                  </button>
+                  <button
+                    className="border rounded px-4 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => void handleExportHTML()}
+                    disabled={exporting}
+                  >
+                    {formatMessage('导出 HTML')}
+                  </button>
+                </>
               )}
               <button
                 className="bg-blue-600 text-white rounded px-4 py-1.5 text-sm hover:bg-blue-700"

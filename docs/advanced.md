@@ -67,7 +67,7 @@ run_collection(target, options):
 - **并发（已实现）**：默认串行（多数接口有状态依赖）；设置并发数 N>1 后按 (迭代, 请求) 粒度经工作协程池并行执行——数据行仍按迭代绑定，结果按（迭代，树序）稳定排序，StopOnError 通过取消通道尽快收敛（在途任务跑完，未派发任务计入 skipped）。
 - **请求间隔（已实现）**：`delayMs` 设为 >0 时相邻请求间插入等待（think-time）：串行=插在相邻请求之间，并发=插在每个 worker 的任务之间；用于压测速率控制（逼近目标 RPS）或对限流接口的礼貌节流。CLI 对应 `--delay`。
 - **取消**：每次运行拥有唯一 `runId`；取消会传播到当前 HTTP 请求并阻止后续迭代。关闭运行中的 Runner 前必须确认并取消，不能留下无主后台任务。
-- **报告**：结构化结果可导出 JSON/HTML，供 CI 消费；CLI 模式的退出码反映失败数（见下节）。
+- **报告（已实现）**：结构化结果可导出 JSON/HTML，供 CI 消费；HTML 报告为自包含单文件（内联样式，无外部依赖），经 `html/template` 上下文转义，请求名/错误信息中的 HTML 会被安全转义不可注入。CLI 模式的退出码反映失败数（见下节）。
 
 ### 2.2 CLI 无头运行（apirequest-cli）
 
@@ -77,11 +77,11 @@ run_collection(target, options):
 apirequest-cli run --collection <名称|id> [--workspace <名称|id>]
   [--data <file>] [--iterations N] [--delay <ms>] [--stop-on-error]
   [--env <名称|id>] [--env-file env.json]
-  [--report report.json] [--junit junit.xml] [--db <dir>]
+  [--report report.json] [--junit junit.xml] [--html report.html] [--db <dir>]
 ```
 
 - **环境选择**：`--env` 按名称或 id 选择工作区内环境（重名时报歧义错误）；缺省用该工作区的激活环境。CI 场景推荐 `--env-file`：JSON 对象 `{"KEY": "value"}`，非字符串值显式拒绝（提示加引号）。变量优先级：数据行 > env-file > 环境变量 > 全局变量。
-- **CI 集成**：退出码 = 失败请求数（上限 100），2 = 用法/准备错误；`--junit` 输出 JUnit XML（GitHub Actions test-report 等可直接消费），因 `--stop-on-error` 或取消跳过的请求计入 `skipped` 属性、不产生 testcase；`--report` 输出完整 JSON。
+- **CI 集成**：退出码 = 失败请求数（上限 100），2 = 用法/准备错误；`--junit` 输出 JUnit XML（GitHub Actions test-report 等可直接消费），因 `--stop-on-error` 或取消跳过的请求计入 `skipped` 属性、不产生 testcase；`--report` 输出完整 JSON；`--html` 输出自包含 HTML 报告（浏览器直接打开，适合人工归档浏览）。
 - `apirequest-cli list` 列出工作区与集合（含请求计数），用于发现 `--collection` 参数。
 - **无头导入（已实现）**：`apirequest-cli import --file <path> [--format <fmt>] [--workspace <名称|id>] [--db <dir>]`，格式同桌面端导入器（含 auto 识别与 Postman 环境文件）；建议环境一并落地（不激活），stdout 输出 JSON 摘要（collectionId/name/requests/environments）供脚本消费。与桌面端同库同语义，适合流水线装配集合。
 - **无头导出（已实现）**：`apirequest-cli export --collection <名称|id> --format <fmt> [--out file] [--workspace <名称|id>] [--db <dir>]`，格式同桌面端导出（postman/openapi/openapi3.1/swagger2/curl/restclient/har/insomnia）；输出走 stdout 或 `--out` 文件（0600），与桌面端同路径脱敏——密钥值不进产物。适合把本地库集合并入流水线或脚本化备份为交换格式。

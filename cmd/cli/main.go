@@ -85,6 +85,7 @@ Run flags:
   --stop-on-error stop at first failure
   --report        also write JSON report to this file
   --junit         also write a JUnit XML report to this file (CI test reporting)
+  --html          also write a self-contained HTML report to this file
   --env           environment name or id (default: the workspace's active environment)
   --env-file      JSON file of variables ({"KEY": "value"}); data-file rows override it
   --db            app data dir override (default: OS config dir)
@@ -297,6 +298,7 @@ func cmdRun(args []string) int {
 	envName := fs.String("env", "", "")
 	envFile := fs.String("env-file", "", "")
 	junitPath := fs.String("junit", "", "")
+	htmlPath := fs.String("html", "", "")
 	dbDir := fs.String("db", "", "")
 	delayMs := fs.Int("delay", 0, "")
 	fs.Parse(args)
@@ -382,6 +384,17 @@ func cmdRun(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "run:", err)
 		return 2
+	}
+	if *htmlPath != "" {
+		// HTML 与 JSON/JUnit 同源：rememberReport 已缓存，ExportReportHTML 直接取
+		hout, herr := runnerApi.ExportReportHTML("cli")
+		if herr != nil {
+			fmt.Fprintln(os.Stderr, "render html:", herr)
+		} else if werr := os.WriteFile(*htmlPath, []byte(hout), 0o644); werr != nil {
+			fmt.Fprintln(os.Stderr, "write html:", werr)
+		} else {
+			fmt.Fprintf(os.Stderr, "html report -> %s\n", *htmlPath)
+		}
 	}
 
 	out, _ := json.MarshalIndent(report, "", "  ")

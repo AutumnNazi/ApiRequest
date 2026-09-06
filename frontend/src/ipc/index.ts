@@ -93,6 +93,8 @@ export const openNativeDirectory = (title: string) =>
 export const saveNativeFile = (title: string, defaultFilename: string) =>
   call(() => DialogApi.SaveFile(translate(title), defaultFilename));
 export const readNativeTextFile = (path: string) => call(() => DialogApi.ReadTextFile(path));
+export const writeNativeTextFile = (path: string, content: string) =>
+  call(() => DialogApi.WriteTextFile(path, content));
 export const requestApplicationQuit = () => call(() => LifecycleApi.RequestQuit());
 
 // ── 集合树 ──
@@ -176,6 +178,7 @@ export const runCollection = (
 ) => call(() => RunnerApi.RunCollection(runId, workspaceId, collectionId, runner.Options.createFrom(opts)));
 export const cancelRun = (runId: string) => call(() => RunnerApi.CancelRun(runId));
 export const exportReport = (runId: string) => call(() => RunnerApi.ExportReport(runId));
+export const exportReportHTML = (runId: string) => call(() => RunnerApi.ExportReportHTML(runId));
 
 // 运行历史（持久化报告；docs/decisions.md ADR-015）
 export const listRunnerRuns = (workspaceId: string, q: Partial<RunnerRunQuery> = {}) =>

@@ -7,6 +7,9 @@ const ipc = vi.hoisted(() => ({
   cancelRun: vi.fn(() => Promise.resolve()),
   runCollection: vi.fn(() => new Promise(() => undefined)),
   exportReport: vi.fn(),
+  exportReportHTML: vi.fn(),
+  saveNativeFile: vi.fn(),
+  writeNativeTextFile: vi.fn(() => Promise.resolve()),
   listRunnerRuns: vi.fn(),
   getRunnerRun: vi.fn(),
   deleteRunnerRun: vi.fn(() => Promise.resolve()),
@@ -17,6 +20,9 @@ vi.mock('../ipc', () => ({
   cancelRun: ipc.cancelRun,
   runCollection: ipc.runCollection,
   exportReport: ipc.exportReport,
+  exportReportHTML: ipc.exportReportHTML,
+  saveNativeFile: ipc.saveNativeFile,
+  writeNativeTextFile: ipc.writeNativeTextFile,
   listRunnerRuns: ipc.listRunnerRuns,
   getRunnerRun: ipc.getRunnerRun,
   deleteRunnerRun: ipc.deleteRunnerRun,
@@ -84,9 +90,68 @@ describe('RunnerDialog lifecycle', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: '开始运行' }));
-    fireEvent.click(await screen.findByRole('button', { name: '导出报告' }));
+    fireEvent.click(await screen.findByRole('button', { name: '复制 JSON' }));
 
     expect(await screen.findByText('clipboard unavailable')).toBeInTheDocument();
+  });
+
+  it('exports a self-contained HTML report to the chosen path', async () => {
+    ipc.runCollection.mockResolvedValueOnce({
+      runId: 'run-html',
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      durationMs: 10,
+      canceled: false,
+      results: [],
+    });
+    ipc.saveNativeFile.mockResolvedValueOnce('C:/reports/run.html');
+    ipc.exportReportHTML.mockResolvedValueOnce('<!DOCTYPE html><html>report</html>');
+    render(
+      <DialogProvider>
+        <RunnerDialog
+          workspaceId="workspace-1"
+          collectionId="collection-1"
+          collectionName="html collection"
+          onClose={vi.fn()}
+        />
+      </DialogProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '开始运行' }));
+    fireEvent.click(await screen.findByRole('button', { name: '导出 HTML' }));
+
+    await waitFor(() => expect(ipc.exportReportHTML).toHaveBeenCalledWith('run-html'));
+    expect(ipc.writeNativeTextFile).toHaveBeenCalledWith(
+      'C:/reports/run.html',
+      '<!DOCTYPE html><html>report</html>',
+    );
+    expect(await screen.findByText('HTML 报告已保存')).toBeInTheDocument();
+  });
+
+  it('does nothing when the HTML save dialog is dismissed', async () => {
+    ipc.runCollection.mockResolvedValueOnce({
+      runId: 'run-html-cancel',
+      passed: 1, failed: 0, skipped: 0, durationMs: 5, canceled: false, results: [],
+    });
+    ipc.saveNativeFile.mockResolvedValueOnce('');
+    render(
+      <DialogProvider>
+        <RunnerDialog
+          workspaceId="workspace-1"
+          collectionId="collection-1"
+          collectionName="html cancel collection"
+          onClose={vi.fn()}
+        />
+      </DialogProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '开始运行' }));
+    fireEvent.click(await screen.findByRole('button', { name: '导出 HTML' }));
+
+    await waitFor(() => expect(ipc.saveNativeFile).toHaveBeenCalled());
+    expect(ipc.exportReportHTML).not.toHaveBeenCalled();
+    expect(ipc.writeNativeTextFile).not.toHaveBeenCalled();
   });
 });
 

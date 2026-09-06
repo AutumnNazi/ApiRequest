@@ -11,6 +11,8 @@ export function DeleteRunnerRun(arg1:string,arg2:string):Promise<void>;
 
 export function ExportReport(arg1:string):Promise<string>;
 
+export function ExportReportHTML(arg1:string):Promise<string>;
+
 export function GetRunnerRun(arg1:string,arg2:string):Promise<runner.Report>;
 
 export function ListRunnerRuns(arg1:string,arg2:model.RunnerRunQuery):Promise<model.RunnerRunPage>;

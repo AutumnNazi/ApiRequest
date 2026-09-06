@@ -67,9 +67,10 @@ func TestCliRunEndToEnd(t *testing.T) {
 		t.Errorf("list output missing collection: %s", out)
 	}
 
-	// run 子命令：1 个断言失败 → 退出码 1
+	// run 子命令：1 个断言失败 → 退出码 1；--html 同步产出 HTML 报告
 	reportPath := filepath.Join(t.TempDir(), "report.json")
-	runCmd := exec.Command(bin, "run", "--collection", "smoke", "--db", dataDir, "--report", reportPath)
+	htmlPath := filepath.Join(t.TempDir(), "report.html")
+	runCmd := exec.Command(bin, "run", "--collection", "smoke", "--db", dataDir, "--report", reportPath, "--html", htmlPath)
 	runOut, runErr := runCmd.Output()
 	exitCode := 0
 	if ee, ok := runErr.(*exec.ExitError); ok {
@@ -98,6 +99,15 @@ func TestCliRunEndToEnd(t *testing.T) {
 	// --report 文件也应写出
 	if _, err := os.Stat(reportPath); err != nil {
 		t.Errorf("report file: %v", err)
+	}
+	// --html：自包含 HTML 落盘且含断言名
+	htmlData, err := os.ReadFile(htmlPath)
+	if err != nil {
+		t.Fatalf("html report: %v", err)
+	}
+	if !strings.Contains(string(htmlData), "<!DOCTYPE html>") ||
+		!strings.Contains(string(htmlData), "should be 200") {
+		t.Errorf("html report content wrong: %.200s", htmlData)
 	}
 }
 
