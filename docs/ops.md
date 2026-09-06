@@ -129,4 +129,4 @@ Stable Release 与 `dev-latest` 都必须具备以下 8 个包；`<版本>` 在�
 | 1MB JSON 响应格式化渲染 | < 300ms（超阈值走虚拟化/折叠） |
 | 空闲内存占用 | < 200MB |
 | 10 万条历史记录列表滚动 | 稳定 60fps（虚拟列表） |
-| 安装包体积 | 单平台 < 30MB（优先 CM6 而非 Monaco；Go 二进制 + 系统 WebView，远小于 Electron）；CI 在产物上传与发布前自动断言（`scripts/check-dist-budget.mjs`），超限阻断。构建统一剥离符号表与 DWARF（`-ldflags="-s -w"`），无符号构建不影响运行与崩溃归因 |
+| 安装包体积 | 单平台 < 35MB（优先 CM6 而非 Monaco；Go 二进制 + 系统 WebView，远小于 Electron）；CI 在产物上传与发布前自动断言（`scripts/check-dist-budget.mjs`），超限阻断。体积地板：纯 Go SQLite（modernc）≈12MB + goja 脚本引擎 ≈5MB + Wails 运行时，符号已剥离（`-s -w`），再减只能砍功能 |

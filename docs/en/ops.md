@@ -129,4 +129,4 @@ Both stable releases and `dev-latest` must contain these eight packages. `<versi
 | Format and render a 1 MB JSON response | < 300ms; virtualize/collapse above the threshold |
 | Idle memory | < 200 MB |
 | Scroll a history list with 100,000 entries | Stable 60 fps through virtualization |
-| Installer size | < 30 MB per platform; prefer CM6 to Monaco, with Go + system WebView far smaller than Electron; CI enforces this before artifact upload and release (`scripts/check-dist-budget.mjs`), failing the build when exceeded. Builds strip the symbol table and DWARF uniformly (`-ldflags="-s -w"`) — symbol-free builds do not affect runtime or crash attribution |
+| Installer size | < 35 MB per platform; prefer CM6 to Monaco, with Go + system WebView far smaller than Electron; CI enforces this before artifact upload and release (`scripts/check-dist-budget.mjs`), failing the build when exceeded. The size floor: pure-Go SQLite (modernc) ≈12 MB + the goja script engine ≈5 MB + the Wails runtime, with symbols stripped (`-s -w`); going lower means cutting features |

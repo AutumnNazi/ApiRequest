@@ -1,10 +1,12 @@
-// 包体预算检查：dist/ 下所有发布包（EXE/ZIP/MSI/DMG/Linux 可执行）单平台不得超 30MB
+// 包体预算检查：dist/ 下所有发布包（EXE/ZIP/MSI/DMG/Linux 可执行）单平台不得超 35MB
 //（docs/ops.md §5 性能预算）。CI 在上传/发布前调用，超限即失败。
+// 35MB 的构成：纯 Go SQLite（modernc）≈12MB + goja 脚本引擎 ≈5MB + Wails/WebView2 运行时
+// ——符号已剥离（wails 生产构建默认 -s -w），再往下只能砍功能，不是打包优化能解决的。
 // 非包文件（SHA256SUMS、SIGNING_STATUS-*.txt 等）不参与预算。
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const budgetLimitBytes = 30 * 1024 * 1024;
+export const budgetLimitBytes = 35 * 1024 * 1024;
 
 // 预算只约束面向用户的发布包；STATUS/SUMS 是 CI 元数据
 function isPackage(name) {
@@ -41,11 +43,11 @@ function main(dir) {
     console.log(`  ${formatSizeLine(f)} / ${(budgetLimitBytes / (1024 * 1024)).toFixed(0)} MiB${flag}`);
   }
   if (oversized.length > 0) {
-    console.error(`\ndist budget: ${oversized.length} package(s) exceed 30 MiB (docs/ops.md §5):`);
+    console.error(`\ndist budget: ${oversized.length} package(s) exceed 35 MiB (docs/ops.md §5):`);
     for (const f of oversized) console.error(`  ${formatSizeLine(f)}`);
     process.exit(1);
   }
-  console.log(`dist budget: all ${packages.length} package(s) within 30 MiB`);
+  console.log(`dist budget: all ${packages.length} package(s) within 35 MiB`);
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${path.resolve(process.argv[1])}`).href) {

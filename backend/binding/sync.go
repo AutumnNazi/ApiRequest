@@ -162,8 +162,13 @@ func (a *SyncApi) StartAutoSync(tick time.Duration) (stop func()) {
 	defer a.autoMu.Unlock()
 	if a.autoStop != nil {
 		existing := a.autoStop
+		// 必须非阻塞：首个 stop 关停调度器后（或其正在退出时），
+		// 无缓冲阻塞发送会永久挂死调用方 —— race 模式下 CI 曾因此超时
 		return func() {
-			existing <- struct{}{}
+			select {
+			case existing <- struct{}{}:
+			default:
+			}
 		}
 	}
 	stopCh := make(chan struct{})

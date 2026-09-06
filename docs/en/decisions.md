@@ -98,7 +98,7 @@ Status markers: `Accepted` = adopted and reflected in the design docs; `Preferre
 
 ### ADR-010 Prefer CodeMirror 6 over Monaco
 
-- **Rationale**: CM6 is much smaller, which helps the package-size budget in `ops.md` (< 30 MB per platform), and language packages can load on demand.
+- **Rationale**: CM6 is much smaller, which helps the package-size budget in `ops.md` (< 35 MB per platform), and language packages can load on demand.
 - **Tradeoff**: Monaco has stronger completion and large-file performance, but CM6 is sufficient for this tool's JSON and script editing.
 - **Reversal condition**: switch to Monaco and relax the size budget if script editing needs IDE-grade completion and diagnostics.
 
