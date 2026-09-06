@@ -22,8 +22,10 @@ import {
   type SyncDavConfig,
   type VaultStatus,
   type RemoteWorkspaceInfo,
+  type UpdateCheckResult,
   listRemoteWorkspaces,
   importRemoteWorkspace,
+  checkForUpdates,
 } from '../ipc';
 import { useLocale, Verbatim, formatMessage, type Locale } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
@@ -65,6 +67,9 @@ export default function SettingsDialog({ onClose }: Props) {
   const [remoteWs, setRemoteWs] = useState<RemoteWorkspaceInfo[] | null>(null);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [remoteError, setRemoteError] = useState('');
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [updateError, setUpdateError] = useState('');
+  const [checking, setChecking] = useState(false);
   const [vault, setVault] = useState<VaultStatus | null>(null);
   const [vaultPassword, setVaultPassword] = useState('');
   const [vaultBusy, setVaultBusy] = useState(false);
@@ -496,6 +501,58 @@ export default function SettingsDialog({ onClose }: Props) {
                 <div className="text-center pt-4">
                   <div className="text-2xl font-bold text-gray-800">ApiRequest</div>
                   <div className="mt-1 text-xs text-gray-400">v1.0.0</div>
+                  <button
+                    className="mt-3 border rounded px-3 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    disabled={checking}
+                    onClick={() => {
+                      setChecking(true);
+                      setUpdateError('');
+                      checkForUpdates()
+                        .then((r) => setUpdateResult(r))
+                        .catch((cause) => setUpdateError(toAppError(cause).detail))
+                        .finally(() => setChecking(false));
+                    }}
+                  >
+                    {checking ? formatMessage('检查中…') : formatMessage('检查更新')}
+                  </button>
+                  {updateError && (
+                    <p className="mt-2 text-xs text-red-600"><Verbatim value={updateError} /></p>
+                  )}
+                  {updateResult && (
+                    <div
+                      className={`mt-3 text-left text-xs border rounded p-3 space-y-1 ${
+                        updateResult.status === 'verification-failed'
+                          ? 'border-red-200 bg-red-50 text-red-700'
+                          : 'border-gray-200 bg-gray-50 text-gray-600'
+                      }`}
+                    >
+                      {updateResult.status === 'available' && (
+                        <p className="font-medium text-green-700">
+                          {formatMessage('发现新版本 {version}（已通过签名验证）', { version: updateResult.latestVersion ?? '' })}
+                        </p>
+                      )}
+                      {updateResult.status === 'up-to-date' && (
+                        <p>{formatMessage('已是最新版本')}</p>
+                      )}
+                      {updateResult.status === 'manual-required' && (
+                        <p className="font-medium text-amber-700">
+                          {formatMessage('发现新版本 {version}：当前版本低于最低自动升级线，请手动安装', { version: updateResult.latestVersion ?? '' })}
+                        </p>
+                      )}
+                      {updateResult.status === 'verification-failed' && (
+                        <p className="font-medium">{formatMessage('更新清单签名验证失败，已拒绝本次内容')}</p>
+                      )}
+                      {updateResult.detail && <p><Verbatim value={updateResult.detail} /></p>}
+                      {(updateResult.downloadUrl || updateResult.notesUrl) && (
+                        <button
+                          className="text-blue-600 hover:underline"
+                          onClick={() => void openReleasePage()}
+                        >
+                          {formatMessage('打开下载页')}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2 text-xs text-gray-500 border-t pt-4">
                   <div className="flex justify-between">

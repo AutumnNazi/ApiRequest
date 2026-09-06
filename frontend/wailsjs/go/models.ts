@@ -1410,3 +1410,28 @@ export namespace sync {
 
 }
 
+export namespace updater {
+	
+	export class CheckResult {
+	    status: string;
+	    latestVersion?: string;
+	    notesUrl?: string;
+	    downloadUrl?: string;
+	    detail?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CheckResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.latestVersion = source["latestVersion"];
+	        this.notesUrl = source["notesUrl"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.detail = source["detail"];
+	    }
+	}
+
+}
+

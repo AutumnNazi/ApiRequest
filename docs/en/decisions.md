@@ -165,7 +165,7 @@ The former open question about secret storage was resolved by [ADR-013](#adr-013
 
 - **Background**: Wails does not provide a built-in signed update pipeline.
 - **Current decision (2026-08-04)**: the release workflow publishes only packages and `SHA256SUMS`; Settings only checks and opens the official GitHub release download page. No update manifest is published and no binary is replaced silently until a signature-verification protocol is in place.
-- **Still open**: the protocol design for signature verification, stable/beta channels, atomic replacement, and failure rollback is captured in ADR-018 (preferred, not yet implemented); the only open item left is implementation scheduling. Until it is implemented, the "check and redirect only" behavior stays.
+- **Interim decision (2026-09-06)**: the signature verification chain is implemented (`backend/updater`: channel manifest + ed25519 verification + version floor; the `cmd/updatetool` signing tool). It is disabled by default — "Check for updates" in Settings only works once `update.manifestUrl` is configured, and results are display-only: nothing is downloaded or replaced. Silent replacement and rollback remain deferred per ADR-018's implementation schedule.
 
 ---
 

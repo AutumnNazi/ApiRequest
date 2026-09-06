@@ -80,7 +80,7 @@ Phases 1 through 5 are implemented in the current `dev` line: the native request
 The remaining work is deliberately incremental rather than a second rewrite. Bidirectional URL/query and header bulk editing, the virtualized history viewport, auto-sync intervals, Runner report persistence with the assertion summary, and offline GraphQL validation have all landed (their checkboxes are ticked):
 
 - ~~Field-level sync merge~~ implemented ([ADR-017](./decisions.md): three-way merge + local baseline + conflict list, see sync.md).
-- In-app updates: the signed updater protocol and rollback policy are captured in [ADR-018](./decisions.md); until implementation, the "check and redirect only" behavior stays.
+- In-app updates: the signature verification chain is implemented ([ADR-018](./decisions.md): ed25519 manifest verification + version floor, with the `cmd/updatetool` signing tool); silent replacement and rollback remain deferred.
 - ~~Desktop smoke coverage~~ expanded: the desktop CI matrix includes a CLI core-path smoke (platform data dirs, keychain fallback, engine/Runner); pure-GUI interactions such as native dialogs remain covered by the interactive smoke per ops.md.
 
 ---

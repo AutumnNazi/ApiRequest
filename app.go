@@ -37,6 +37,7 @@ type App struct {
 	Grpc      *binding.GrpcApi
 	Graphql   *binding.GraphqlApi
 	Sync      *binding.SyncApi
+	Update    *binding.UpdateApi
 	Dialog    *binding.DialogApi
 	Lifecycle *binding.LifecycleApi
 }
@@ -78,6 +79,7 @@ func NewApp() *App {
 		Grpc:      binding.NewGrpcApi(),
 		Graphql:   binding.NewGraphqlApi(engine.NewHTTPClient(0)),
 		Sync:      binding.NewSyncApi(store, engine, binding.RequestOperations(request)),
+		Update:    binding.NewUpdateApi(store),
 		Dialog:    binding.NewDialogApi(),
 		Lifecycle: lifecycle,
 	}

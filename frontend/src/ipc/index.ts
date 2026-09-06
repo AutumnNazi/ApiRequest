@@ -14,10 +14,11 @@ import * as SettingsApi from '../../wailsjs/go/binding/SettingsApi';
 import * as GrpcApi from '../../wailsjs/go/binding/GrpcApi';
 import * as GraphqlApi from '../../wailsjs/go/binding/GraphqlApi';
 import * as SyncApi from '../../wailsjs/go/binding/SyncApi';
+import * as UpdateApi from '../../wailsjs/go/binding/UpdateApi';
 import * as DialogApi from '../../wailsjs/go/binding/DialogApi';
 import * as LifecycleApi from '../../wailsjs/go/binding/LifecycleApi';
 import { BrowserOpenURL, EventsOn } from '../../wailsjs/runtime/runtime';
-import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient, graphql, secrets, sync } from '../../wailsjs/go/models';
+import { model, convert, codegen, runner, mock, protocol, binding, httpengine, grpcclient, graphql, secrets, sync, updater } from '../../wailsjs/go/models';
 import { translate } from '../i18n/locale';
 import { call } from './error';
 
@@ -304,6 +305,7 @@ export function onGrpcStream(handler: (m: GrpcStreamMessage) => void): () => voi
 
 export type SyncDavConfig = sync.DavConfig;
 export type RemoteWorkspaceInfo = sync.RemoteWorkspaceInfo;
+export type UpdateCheckResult = updater.CheckResult;
 export type SyncReport = sync.Report;
 
 export const getSyncConfig = () => call(() => SyncApi.GetSyncConfig());
@@ -313,6 +315,7 @@ export const syncNow = (workspaceId: string) => call(() => SyncApi.SyncNow(works
 export const listRemoteWorkspaces = () => call(() => SyncApi.ListRemoteWorkspaces());
 export const importRemoteWorkspace = (workspaceId: string) =>
   call(() => SyncApi.ImportRemoteWorkspace(workspaceId));
+export const checkForUpdates = () => call(() => UpdateApi.CheckForUpdates());
 
 // ── GraphQL 内省 ──
 
