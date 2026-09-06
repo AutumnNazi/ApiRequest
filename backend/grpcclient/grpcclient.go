@@ -34,16 +34,20 @@ type ConnectConfig struct {
 	UseTLS    bool   `json:"useTls"`
 	Insecure  bool   `json:"insecureTls,omitempty"` // TLS 但跳过校验
 	TimeoutMs int    `json:"timeoutMs,omitempty"`   // 默认 15000
+	// ProtoFile 非空 = proto 文件直载模式：描述符来自源文件解析，
+	// 不经 server reflection（服务器未开反射时可 Discover）；import 经 ProtoImportDirs 解析
+	ProtoFile       string   `json:"protoFile,omitempty"`
+	ProtoImportDirs []string `json:"protoImportDirs,omitempty"`
 }
 
 // MethodInfo 反射发现的方法
 type MethodInfo struct {
-	Service        string `json:"service"`  // 完整服务名
-	Method         string `json:"method"`   // 方法名
-	FullName       string `json:"fullName"` // /pkg.Service/Method
-	ClientStream   bool   `json:"clientStream"`
-	ServerStream   bool   `json:"serverStream"`
-	InputExample   string `json:"inputExample"` // 入参消息的 JSON 骨架
+	Service      string `json:"service"`  // 完整服务名
+	Method       string `json:"method"`   // 方法名
+	FullName     string `json:"fullName"` // /pkg.Service/Method
+	ClientStream bool   `json:"clientStream"`
+	ServerStream bool   `json:"serverStream"`
+	InputExample string `json:"inputExample"` // 入参消息的 JSON 骨架
 }
 
 // CallResult 调用结果
@@ -76,20 +80,30 @@ func timeoutOf(cfg ConnectConfig) time.Duration {
 	return 15 * time.Second
 }
 
-// Discover 经 server reflection 列出全部服务与方法
+// Discover 列出全部服务与方法：proto 文件直载模式（离线）或 server reflection
 func Discover(cfg ConnectConfig) ([]MethodInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutOf(cfg))
 	defer cancel()
 
-	conn, err := dial(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	files, serviceNames, err := fetchDescriptors(ctx, conn)
-	if err != nil {
-		return nil, err
+	var files *protoregistry.Files
+	var serviceNames []string
+	var err error
+	if cfg.ProtoFile != "" {
+		files, serviceNames, err = loadProtoFiles(cfg.ProtoFile, cfg.ProtoImportDirs)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var conn *grpc.ClientConn
+		conn, err = dial(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Close()
+		files, serviceNames, err = fetchDescriptors(ctx, conn)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var out []MethodInfo
@@ -141,7 +155,13 @@ func Call(cfg ConnectConfig, fullMethod, requestJSON string, headers map[string]
 	}
 	defer conn.Close()
 
-	files, _, err := fetchDescriptors(ctx, conn)
+	var files *protoregistry.Files
+	if cfg.ProtoFile != "" {
+		// proto 模式描述符来自本地文件，不走 reflection
+		files, _, err = loadProtoFiles(cfg.ProtoFile, cfg.ProtoImportDirs)
+	} else {
+		files, _, err = fetchDescriptors(ctx, conn)
+	}
 	if err != nil {
 		return nil, err
 	}

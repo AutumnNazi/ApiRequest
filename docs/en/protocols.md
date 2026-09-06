@@ -40,7 +40,7 @@ type ProtocolSession interface {
 
 ## 4. gRPC (`grpc-go` + Reflection)
 
-- **Service discovery**: prefer server reflection (`grpc.reflection.v1`) to retrieve service, method, and message descriptors dynamically. When reflection is unavailable, import `.proto` files or a precompiled FileDescriptorSet.
+- **Service discovery**: server reflection (`grpc.reflection.v1`) retrieves service, method, and message descriptors dynamically. **Direct .proto file loading is now supported** (`backend/grpcclient/proto.go`; protoparse parses source files with import-path resolution, and the file's own directory always participates) — methods can be discovered offline when the target has reflection disabled; calls still connect on demand.
 - **Dynamic invocation**: encode and decode from descriptors with `protoreflect` + `dynamicpb`, without pre-generating code for each proto.
 - Support all four modes: unary, server-stream, client-stream, and bidi. Streamed messages use Wails events.
 - Metadata including auth, deadlines, TLS, and proxy settings reuse the HTTP channel's credential and proxy configuration.

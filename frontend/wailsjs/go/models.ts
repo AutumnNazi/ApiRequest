@@ -246,6 +246,8 @@ export namespace grpcclient {
 	    useTls: boolean;
 	    insecureTls?: boolean;
 	    timeoutMs?: number;
+	    protoFile?: string;
+	    protoImportDirs?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectConfig(source);
@@ -257,6 +259,8 @@ export namespace grpcclient {
 	        this.useTls = source["useTls"];
 	        this.insecureTls = source["insecureTls"];
 	        this.timeoutMs = source["timeoutMs"];
+	        this.protoFile = source["protoFile"];
+	        this.protoImportDirs = source["protoImportDirs"];
 	    }
 	}
 	export class MethodInfo {

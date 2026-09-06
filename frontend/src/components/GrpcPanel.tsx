@@ -6,6 +6,7 @@ import {
   grpcDiscover,
   grpcCall,
   grpcStreamOpen,
+  openNativeFile,
   grpcStreamSend,
   grpcStreamClose,
   grpcStreamCloseSend,
@@ -38,6 +39,7 @@ const jsonExtensions = [json()];
 export default function GrpcPanel({ onClose }: Props) {
   const [target, setTarget] = useState('');
   const [useTls, setUseTls] = useState(false);
+  const [protoFile, setProtoFile] = useState('');
   const [methods, setMethods] = useState<GrpcMethodInfo[]>([]);
   const [selected, setSelected] = useState<GrpcMethodInfo | null>(null);
   const [requestJSON, setRequestJSON] = useState('{}');
@@ -59,7 +61,11 @@ export default function GrpcPanel({ onClose }: Props) {
     setError('');
   };
 
-  const cfg = (resolvedTarget = target) => ({ target: resolvedTarget, useTls });
+  const cfg = (resolvedTarget = target) => ({
+    target: resolvedTarget,
+    useTls,
+    ...(protoFile.trim() ? { protoFile: protoFile.trim() } : {}),
+  });
 
   const attemptDiscover = async () => {
     const resolvedTarget = target.trim();
@@ -263,6 +269,27 @@ export default function GrpcPanel({ onClose }: Props) {
             TLS
           </label>
           <button
+            className="border rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
+            title={formatMessage('选择 .proto 文件：直接从源文件解析服务（服务器无需开启 reflection）')}
+            onClick={async () => {
+              const picked = await openNativeFile('选择 .proto 文件');
+              if (picked) setProtoFile(picked);
+            }}
+          >
+            {protoFile.trim()
+              ? `proto: ${protoFile.trim().split(/[\/]/).pop()}`
+              : formatMessage('proto…')}
+          </button>
+          {protoFile.trim() && (
+            <button
+              className="text-gray-400 hover:text-gray-700 text-xs"
+              title={formatMessage('清除，恢复 server reflection 模式')}
+              onClick={() => setProtoFile('')}
+            >
+              ×
+            </button>
+          )}
+          <button
             className="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700 disabled:opacity-50"
             disabled={!target.trim() || busy}
             onClick={attemptDiscover}
@@ -283,7 +310,9 @@ export default function GrpcPanel({ onClose }: Props) {
           <div className="w-72 border-r overflow-auto">
             {methods.length === 0 ? (
               <div className="h-full flex items-center justify-center text-gray-400 text-xs px-6 text-center">
-                {formatMessage('输入地址并"发现服务"（目标需开启 server reflection）')}
+                {protoFile.trim()
+                  ? formatMessage('已选择 .proto 文件：方法直接从源文件解析（离线可用）')
+                  : formatMessage('输入地址并"发现服务"（目标需开启 server reflection）')}
               </div>
             ) : (
               methods.map((m) => (

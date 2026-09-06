@@ -40,7 +40,7 @@ type ProtocolSession interface {
 
 ## 4. gRPC（grpc-go + 反射）
 
-- **服务发现**：优先走 server reflection（`grpc.reflection.v1`）动态拉取服务/方法/消息描述；无反射时导入 `.proto` 或预编译 FileDescriptorSet。
+- **服务发现**：server reflection（`grpc.reflection.v1`）动态拉取服务/方法/消息描述；**已支持 .proto 文件直载**（`backend/grpcclient/proto.go`，protoparse 解析源文件，import 目录解析，文件所在目录自动参与）——目标服务器未开启反射时也可离线发现方法，调用阶段仍按需建连。
 - **动态调用**：用 `protoreflect` + `dynamicpb` 依描述动态编解码，无需为每个 proto 预生成代码。
 - 支持四种模式：unary / server-stream / client-stream / bidi（流式经 Wails 事件推送）。
 - metadata（含 auth）、deadline、TLS 与 HTTP 通道复用同一套凭证/代理配置。
