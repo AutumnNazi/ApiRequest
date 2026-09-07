@@ -11,6 +11,9 @@ interface Props {
   options: Option[];
   onChange(value: string): void;
   className?: string;
+  // 覆盖触发按钮的默认尺寸类（默认是 text-xs 紧凑款；显式传入则整串替换，
+  // 避免 Tailwind 同属性类冲突，如 px-2 py-1.5 text-sm）
+  buttonClassName?: string;
   placeholder?: string;
   title?: string;
   disabled?: boolean;
@@ -25,6 +28,7 @@ export default function Dropdown({
   options,
   onChange,
   className = '',
+  buttonClassName,
   placeholder = '',
   title,
   disabled = false,
@@ -61,7 +65,10 @@ export default function Dropdown({
     <div ref={ref} className={`relative flex items-center ${className}`}>
       <button
         type="button"
-        className="tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:opacity-50"
+        className={
+          buttonClassName ??
+          'tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:opacity-50'
+        }
         onClick={() => setOpen((v) => !v)}
         title={title}
         disabled={disabled}

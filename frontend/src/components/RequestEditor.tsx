@@ -7,6 +7,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import KVTable, { COMMON_HEADERS } from './KVTable';
 import AuthEditor from './AuthEditor';
 import CodegenDialog from './CodegenDialog';
+import Dropdown from './Dropdown';
 import { useLatestTimeout } from '../hooks/useLatestTimeout';
 import VarPreview, { useActiveVariables, VarPreviewMulti } from './VarPreview';
 import type { Tab } from '../stores/tabs';
@@ -118,20 +119,13 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
     <div className="flex flex-col h-full">
       {/* method + url + 按钮行 */}
       <div className="flex gap-2 p-3 border-b">
-        <input
-          list="http-methods"
-          type="text"
-          className={`shrink-0 border rounded px-2 py-1.5 font-semibold text-sm ${methodColor[d.method] ?? ''}`}
+        <Dropdown
+          className="shrink-0"
           value={d.method}
-          autoComplete="off"
-          spellCheck={false}
-          onChange={(e) => patchDraft(tab.id, { method: e.target.value.toUpperCase() })}
+          options={METHODS.map((m) => ({ value: m, label: m }))}
+          onChange={(m) => patchDraft(tab.id, { method: m })}
+          buttonClassName={`tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1.5 font-semibold text-sm bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-none min-w-0 ${methodColor[d.method] ?? 'text-gray-700'}`}
         />
-        <datalist id="http-methods">
-          {METHODS.map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
         <div className="relative flex-1">
           <input
             ref={urlInputRef}
