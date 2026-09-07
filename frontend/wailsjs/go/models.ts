@@ -1171,6 +1171,9 @@ export namespace model {
 	    workspaceId: string;
 	    environmentId?: string;
 	    variableOverrides?: Record<string, string>;
+	    requestName?: string;
+	    iteration?: number;
+	    iterationCount?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SendContext(source);
@@ -1182,6 +1185,9 @@ export namespace model {
 	        this.workspaceId = source["workspaceId"];
 	        this.environmentId = source["environmentId"];
 	        this.variableOverrides = source["variableOverrides"];
+	        this.requestName = source["requestName"];
+	        this.iteration = source["iteration"];
+	        this.iterationCount = source["iterationCount"];
 	    }
 	}
 	export class StorageStats {

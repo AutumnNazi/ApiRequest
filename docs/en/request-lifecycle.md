@@ -88,8 +88,11 @@ persistVariableChanges(ctx)                 // Commit centrally in Go to avoid r
 | `pm.environment.get/set/unset` | Bridge to Go variable scopes; buffer changes and return them | Required |
 | `pm.variables.get/replaceIn` | Same bridge, read-only merged view | Required |
 | `pm.collectionVariables.*` | Same as above | Required |
+| `pm.info` | Execution context (implemented): `eventName` (prerequest/test), `requestId`, `requestName`, `iteration`/`iterationCount` (Runner 1-based iteration and total; single send defaults to 1/1 with the node name) | Required |
 | `pm.request.*` | Expose a mutable request object to pre-request scripts | Required |
-| `pm.response.json()/.text()/.code/.headers` | Read-only response in test scripts | Required |
+| `pm.response.json()/.text()/.code/.headers` | Read-only response in test scripts (implemented; also `responseSize` and a `cookies` array view with get/has) | Required |
+| `pm.response.to.be.*` | Response assertions (implemented): ok/created/accepted/noContent/info/success/redirection/clientError/serverError/badRequest/unauthorized/forbidden/notFound/rateLimited/error | Required |
+| `pm.response.to.have.*` | Response assertions (implemented): status/statusCode/header/bodyContains/jsonBody/responseTimeBelow/responseSizeBelow | Required |
 | `pm.test(name, fn)` | Collect assertion results | Required |
 | `pm.expect` | Inject a compact chai BDD assertion subset | Required |
 | `pm.sendRequest(req, cb)` | Call back into the Go HTTP engine through a controlled channel | Secondary |

@@ -183,6 +183,10 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 			WorkspaceId: workspaceId, RequestId: node.Id,
 			EnvironmentId:     opts.EnvId,
 			VariableOverrides: runner.MergeOverrides(opts.EnvOverrides, tk.row),
+			// pm.info 上下文：1-based 迭代号 + 总轮数（数据驱动分支脚本用）
+			RequestName:    node.Name,
+			Iteration:      tk.iter + 1,
+			IterationCount: len(rows),
 		}
 		requestSendId := fmt.Sprintf("%s-%d-%s", runId, tk.iter+1, node.Id)
 		res, serr := a.request.sendRequest(ctx, requestSendId, *node.Request, sendCtx)

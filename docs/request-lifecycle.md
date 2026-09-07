@@ -85,8 +85,11 @@ SendRequest 内部：
 | `pm.environment.get/set/unset` | 桥接到 Go 变量作用域，变更缓冲后回传 | 必做 |
 | `pm.variables.get/replaceIn` | 同上，只读合并视图 | 必做 |
 | `pm.collectionVariables.*` | 同上 | 必做 |
+| `pm.info` | 执行上下文（已实现）：`eventName`（prerequest/test）、`requestId`、`requestName`、`iteration`/`iterationCount`（Runner 1-based 迭代号与总轮数；单发默认 1/1，请求名取节点名） | 必做 |
 | `pm.request.*` | 前置脚本中暴露可变请求对象 | 必做 |
-| `pm.response.json()/.text()/.code/.headers` | 测试脚本中只读响应 | 必做 |
+| `pm.response.json()/.text()/.code/.headers` | 测试脚本中只读响应（已实现，另含 `responseSize` 与 `cookies` 数组视图 + get/has） | 必做 |
+| `pm.response.to.be.*` | 响应断言（已实现）：ok/created/accepted/noContent/info/success/redirection/clientError/serverError/badRequest/unauthorized/forbidden/notFound/rateLimited/error | 必做 |
+| `pm.response.to.have.*` | 响应断言（已实现）：status/statusCode/header/bodyContains/jsonBody/responseTimeBelow/responseSizeBelow | 必做 |
 | `pm.test(name, fn)` | 收集断言结果 | 必做 |
 | `pm.expect` | 注入精简 chai（BDD assert 子集） | 必做 |
 | `pm.sendRequest(req, cb)` | 走受控通道回调 Go 的 http_engine | 次做 |

@@ -3,6 +3,7 @@ package script
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/dop251/goja"
@@ -10,9 +11,15 @@ import (
 	"apirequest/backend/model"
 )
 
-// injectPM 注入 pm 对象（docs/request-lifecycle.md §3.2 的必做集）
-func (s *Sandbox) injectPM(vm *goja.Runtime) error {
+// injectPM 注入 pm 对象（docs/request-lifecycle.md §3.2 的必做集）。
+// phase 决定 pm.info.eventName（prerequest | test），各段 Run 独立注入。
+func (s *Sandbox) injectPM(vm *goja.Runtime, phase string) error {
 	pm := vm.NewObject()
+
+	// pm.info：执行上下文（请求标识 + Runner 迭代信息）
+	if err := s.injectInfo(vm, pm, phase); err != nil {
+		return err
+	}
 
 	// pm.environment / pm.collectionVariables / pm.globals：各作用域读写
 	pm.Set("environment", s.varScope(vm, s.envVars, s.envChanges))
@@ -265,6 +272,22 @@ func (s *Sandbox) injectRequest(vm *goja.Runtime, pm *goja.Object) error {
 	return nil
 }
 
+// injectInfo 注入 pm.info（执行上下文）。eventName 按脚本阶段取
+// prerequest/test（Postman 事件名子集），其余字段原样透传（零值可见）。
+func (s *Sandbox) injectInfo(vm *goja.Runtime, pm *goja.Object, phase string) error {
+	info := vm.NewObject()
+	eventName := "test"
+	if phase == "pre" {
+		eventName = "prerequest"
+	}
+	info.Set("eventName", eventName)
+	info.Set("iteration", s.info.Iteration)
+	info.Set("iterationCount", s.info.IterationCount)
+	info.Set("requestName", s.info.RequestName)
+	info.Set("requestId", s.info.RequestId)
+	return pm.Set("info", info)
+}
+
 // injectResponse 暴露 pm.response（只读）
 func (s *Sandbox) injectResponse(vm *goja.Runtime, pm *goja.Object) error {
 	resp := vm.NewObject()
@@ -296,7 +319,126 @@ func (s *Sandbox) injectResponse(vm *goja.Runtime, pm *goja.Object) error {
 		}
 		return vm.ToValue(out), nil
 	})
+	resp.Set("responseSize", s.response.SizeBytes)
+
+	// pm.response.cookies：数组视图 + get/has（Postman List 的常用面）
+	cookies := vm.NewArray()
+	for i, c := range s.response.Cookies {
+		if err := cookies.Set(strconv.Itoa(i), map[string]interface{}{
+			"name": c.Name, "value": c.Value, "domain": c.Domain, "path": c.Path,
+			"expires": c.Expires, "httpOnly": c.HttpOnly,
+		}); err != nil {
+			return err
+		}
+	}
+	cookies.Set("get", func(name string) goja.Value {
+		for _, c := range s.response.Cookies {
+			if c.Name == name {
+				return vm.ToValue(c.Value)
+			}
+		}
+		return goja.Undefined()
+	})
+	cookies.Set("has", func(name string) bool {
+		for _, c := range s.response.Cookies {
+			if c.Name == name {
+				return true
+			}
+		}
+		return false
+	})
+	resp.Set("cookies", cookies)
+
+	// pm.response.to.be.*/to.have.*：Postman 响应断言子集（失败抛 Error，pm.test 捕获）
+	if err := s.injectResponseAssertions(vm, resp); err != nil {
+		return err
+	}
 
 	pm.Set("response", resp)
 	return nil
+}
+
+// responseToJS 构造 pm.response.to：工厂函数，入参为响应对象（code/status/
+// responseTime/responseSize/headers.get/text/json）。be.* 为即断言 getter，
+// have.* 为方法。语义对齐 Postman SDK 的响应断言（ok=200、success=2xx、
+// error≥400 等家族）。
+const responseToJS = `(function (r) {
+  function fail(m) { throw new Error(m); }
+  function is(c) { return r.code === c; }
+  function range(lo, hi) { return r.code >= lo && r.code < hi; }
+  var be = {}, have = {}, to = {};
+  function def(k, fn) {
+    Object.defineProperty(be, k, { get: function () { fn(); } });
+  }
+  def('ok', function () { if (!is(200)) fail('expected response to be OK but got ' + r.code); });
+  def('created', function () { if (!is(201)) fail('expected response to be Created (201) but got ' + r.code); });
+  def('accepted', function () { if (!is(202)) fail('expected response to be Accepted (202) but got ' + r.code); });
+  def('noContent', function () { if (!is(204)) fail('expected response to be No Content (204) but got ' + r.code); });
+  def('info', function () { if (!range(100, 200)) fail('expected response to be 1xx info but got ' + r.code); });
+  def('success', function () { if (!range(200, 300)) fail('expected response to be 2xx success but got ' + r.code); });
+  def('redirection', function () { if (!range(300, 400)) fail('expected response to be 3xx redirection but got ' + r.code); });
+  def('clientError', function () { if (!range(400, 500)) fail('expected response to be 4xx client error but got ' + r.code); });
+  def('serverError', function () { if (!(r.code >= 500)) fail('expected response to be 5xx server error but got ' + r.code); });
+  def('badRequest', function () { if (!is(400)) fail('expected response to be Bad Request (400) but got ' + r.code); });
+  def('unauthorized', function () { if (!is(401)) fail('expected response to be Unauthorized (401) but got ' + r.code); });
+  def('forbidden', function () { if (!is(403)) fail('expected response to be Forbidden (403) but got ' + r.code); });
+  def('notFound', function () { if (!is(404)) fail('expected response to be Not Found (404) but got ' + r.code); });
+  def('rateLimited', function () { if (!is(429)) fail('expected response to be Too Many Requests (429) but got ' + r.code); });
+  def('error', function () { if (!(r.code >= 400)) fail('expected response to be 4xx/5xx error but got ' + r.code); });
+  have.status = function (expected) {
+    if (typeof expected === 'number') {
+      if (r.code !== expected) fail('expected response to have status code ' + expected + ' but got ' + r.code);
+      return;
+    }
+    var got = String(r.status || '').toLowerCase();
+    if (String(expected).toLowerCase() !== got) {
+      fail('expected response to have status "' + expected + '" but got "' + r.status + '"');
+    }
+  };
+  have.statusCode = have.status;
+  have.header = function (key, value) {
+    var v = r.headers.get(key);
+    if (v === undefined) fail('expected response to have header "' + key + '"');
+    else if (arguments.length > 1 && v !== value) {
+      fail('expected response header "' + key + '" to be "' + value + '" but got "' + v + '"');
+    }
+  };
+  have.bodyContains = function (str) {
+    if (String(r.text()).indexOf(String(str)) === -1) {
+      fail('expected response body to contain "' + str + '"');
+    }
+  };
+  have.jsonBody = function () {
+    try { r.json(); } catch (e) { fail('expected response body to be valid JSON'); }
+  };
+  have.responseTimeBelow = function (ms) {
+    if (!(r.responseTime < ms)) {
+      fail('expected response time to be below ' + ms + 'ms but got ' + r.responseTime + 'ms');
+    }
+  };
+  have.responseSizeBelow = function (bytes) {
+    if (!(r.responseSize < bytes)) {
+      fail('expected response size to be below ' + bytes + ' bytes but got ' + r.responseSize);
+    }
+  };
+  to.be = be;
+  to.have = have;
+  return to;
+})`
+
+// injectResponseAssertions 把 responseToJS 工厂以响应对象调用，产物挂为 to。
+func (s *Sandbox) injectResponseAssertions(vm *goja.Runtime, resp *goja.Object) error {
+	fn, err := vm.RunString(responseToJS)
+	if err != nil {
+		return err
+	}
+	callable, ok := goja.AssertFunction(fn)
+	if !ok {
+		return fmt.Errorf("response assertions: factory is not callable")
+	}
+	to, err := callable(goja.Undefined(), resp)
+	if err != nil {
+		return err
+	}
+	return resp.Set("to", to)
 }

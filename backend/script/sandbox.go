@@ -41,6 +41,14 @@ type Result struct {
 	NextRequest string
 }
 
+// ScriptInfo pm.info 执行上下文（Postman 兼容）：请求标识 + Runner 迭代信息
+type ScriptInfo struct {
+	RequestId      string
+	RequestName    string
+	Iteration      int
+	IterationCount int
+}
+
 // Sandbox 一次请求内的脚本执行环境（前置 + 测试共享变量变更缓冲）
 type Sandbox struct {
 	timeout time.Duration
@@ -59,9 +67,11 @@ type Sandbox struct {
 	SendFunc func(req model.HttpRequest) (model.ResponseResult, error)
 
 	testResults []model.TestResult
-	logs        []string
+	logs         []string
 	// pm.setNextRequest 记录的下一个请求名；nil = 未设置（自然顺序）
 	nextRequest *string
+	// info 执行上下文（pm.info）；zero 值时 injectInfo 给安全默认
+	info ScriptInfo
 	// 脚本执行结束后的回写钩子（pm.request 的 method/url 同步等）
 	onFinish []func()
 }
@@ -95,6 +105,15 @@ func (s *Sandbox) SetRequest(req *model.HttpRequest) { s.request = req }
 // SetResponse 注入只读响应（测试脚本阶段）
 func (s *Sandbox) SetResponse(resp *model.ResponseResult) { s.response = resp }
 
+// SetInfo 注入 pm.info 执行上下文。调用方决定默认值（单发与 Runner 语义不同），
+// 沙箱存原值：零值 iteration/iterationCount/requestName 对脚本可见。
+func (s *Sandbox) SetInfo(requestId, requestName string, iteration, iterationCount int) {
+	s.info = ScriptInfo{
+		RequestId: requestId, RequestName: requestName,
+		Iteration: iteration, IterationCount: iterationCount,
+	}
+}
+
 // Run 执行一段脚本。phase 为 "pre" 或 "test"（错误归因用）。
 func (s *Sandbox) Run(code, phase string) (runErr error) {
 	if code == "" {
@@ -122,7 +141,7 @@ func (s *Sandbox) Run(code, phase string) (runErr error) {
 	if err := s.injectConsole(vm); err != nil {
 		return err
 	}
-	if err := s.injectPM(vm); err != nil {
+	if err := s.injectPM(vm, phase); err != nil {
 		return err
 	}
 

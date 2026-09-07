@@ -130,6 +130,20 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 		return zero, err
 	}
 	sandbox := script.NewSandbox(scriptTimeout, ec.scope.Snapshot(), ec.envVars, ec.colVars, ec.globalVars)
+	// pm.info 上下文：Runner 填真实迭代；单发补 Postman 语义默认（iteration 1/1）
+	infoCount := sendCtx.IterationCount
+	if infoCount <= 0 {
+		infoCount = 1
+	}
+	infoIter := sendCtx.Iteration
+	if infoIter <= 0 {
+		infoIter = 1
+	}
+	infoName := sendCtx.RequestName
+	if infoName == "" && len(ec.ancestors) > 0 {
+		infoName = ec.ancestors[0].Name
+	}
+	sandbox.SetInfo(sendCtx.RequestId, infoName, infoIter, infoCount)
 	// pm.sendRequest 受控通道：直接走引擎（不递归整个生命周期，避免脚本套脚本）
 	sandbox.SendFunc = func(sreq model.HttpRequest) (model.ResponseResult, error) {
 		resolved := template.ResolveRequest(sreq, ec.scope)
