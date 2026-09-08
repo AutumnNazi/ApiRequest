@@ -1174,6 +1174,7 @@ export namespace model {
 	    requestName?: string;
 	    iteration?: number;
 	    iterationCount?: number;
+	    dataRow?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new SendContext(source);
@@ -1188,6 +1189,7 @@ export namespace model {
 	        this.requestName = source["requestName"];
 	        this.iteration = source["iteration"];
 	        this.iterationCount = source["iterationCount"];
+	        this.dataRow = source["dataRow"];
 	    }
 	}
 	export class StorageStats {

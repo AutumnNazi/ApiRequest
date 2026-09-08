@@ -3,6 +3,7 @@ package script
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,16 @@ func (s *Sandbox) injectPM(vm *goja.Runtime, phase string) error {
 
 	// pm.info：执行上下文（请求标识 + Runner 迭代信息）
 	if err := s.injectInfo(vm, pm, phase); err != nil {
+		return err
+	}
+
+	// pm.iterationData：当前迭代的数据行只读视图（Runner 数据驱动脚本的标准入口）
+	if err := s.injectIterationData(vm, pm); err != nil {
+		return err
+	}
+
+	// pm.cookies：目标域 Jar cookie 只读视图（与 pm.response.cookies 同接口形态）
+	if err := s.injectJarCookies(vm, pm); err != nil {
 		return err
 	}
 
@@ -286,6 +297,76 @@ func (s *Sandbox) injectInfo(vm *goja.Runtime, pm *goja.Object, phase string) er
 	info.Set("requestName", s.info.RequestName)
 	info.Set("requestId", s.info.RequestId)
 	return pm.Set("info", info)
+}
+
+// injectIterationData 注入 pm.iterationData（当前迭代数据行的只读视图）。
+// Postman 语义：get/has/toString/toJSON/size；无数据文件（单发/纯迭代）时恒空。
+func (s *Sandbox) injectIterationData(vm *goja.Runtime, pm *goja.Object) error {
+	data := vm.NewObject()
+	data.Set("get", func(name string) goja.Value {
+		if v, ok := s.dataRow[name]; ok {
+			return vm.ToValue(v)
+		}
+		return goja.Undefined()
+	})
+	data.Set("has", func(name string) bool {
+		_, ok := s.dataRow[name]
+		return ok
+	})
+	// toString：key=value 逗号拼接（Postman SDK 的展示形态）
+	data.Set("toString", func() string {
+		keys := make([]string, 0, len(s.dataRow))
+		for k := range s.dataRow {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, k+"="+s.dataRow[k])
+		}
+		return strings.Join(parts, ",")
+	})
+	// toJSON：对象形态（脚本里 JSON.parse(pm.iterationData.toJSON())）
+	data.Set("toJSON", func() (string, error) {
+		b, err := json.Marshal(s.dataRow)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	})
+	data.Set("size", func() int { return len(s.dataRow) })
+	return pm.Set("iterationData", data)
+}
+
+// injectJarCookies 注入 pm.cookies（目标域 Jar cookie 只读视图）。
+// 与 pm.response.cookies 同接口形态：数组视图 + get/has，便于脚本统一处理。
+func (s *Sandbox) injectJarCookies(vm *goja.Runtime, pm *goja.Object) error {
+	cookies := vm.NewArray()
+	for i, c := range s.jarCookies {
+		if err := cookies.Set(strconv.Itoa(i), map[string]interface{}{
+			"name": c.Name, "value": c.Value, "domain": c.Domain, "path": c.Path,
+			"expires": c.Expires, "httpOnly": c.HttpOnly,
+		}); err != nil {
+			return err
+		}
+	}
+	cookies.Set("get", func(name string) goja.Value {
+		for _, c := range s.jarCookies {
+			if c.Name == name {
+				return vm.ToValue(c.Value)
+			}
+		}
+		return goja.Undefined()
+	})
+	cookies.Set("has", func(name string) bool {
+		for _, c := range s.jarCookies {
+			if c.Name == name {
+				return true
+			}
+		}
+		return false
+	})
+	return pm.Set("cookies", cookies)
 }
 
 // injectResponse 暴露 pm.response（只读）

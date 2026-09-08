@@ -178,3 +178,36 @@ func TestResponseCookies(t *testing.T) {
 		t.Fatalf("results = %+v", r.TestResults)
 	}
 }
+
+// TestIterationData pm.iterationData：数据行作用域（Runner 数据驱动脚本的标准入口）
+func TestIterationData(t *testing.T) {
+	s := NewSandbox(2*time.Second, map[string]string{"row_k": "merged"}, nil, nil, nil)
+	s.SetDataRow(map[string]string{"user": "alice", "role": "admin"})
+	err := s.Run(`
+		if (pm.iterationData.get('user') !== 'alice') throw new Error('get user');
+		if (!pm.iterationData.has('role')) throw new Error('has role');
+		if (pm.iterationData.has('absent')) throw new Error('has absent must be false');
+		if (pm.iterationData.get('absent') !== undefined) throw new Error('get absent must be undefined');
+		var out = pm.iterationData.toString();
+		if (out.indexOf('user=alice') === -1) throw new Error('toString missing user=alice: ' + out);
+		var json = JSON.parse(pm.iterationData.toJSON());
+		if (json.role !== 'admin') throw new Error('toJSON role');
+		if (pm.iterationData.size() !== 2) throw new Error('size');
+	`, "pre")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+// TestIterationDataEmpty 未传数据行（单发/无数据文件）时 API 仍可用，值恒为空
+func TestIterationDataEmpty(t *testing.T) {
+	s := NewSandbox(2*time.Second, nil, nil, nil, nil)
+	err := s.Run(`
+		if (pm.iterationData.has('any')) throw new Error('has on empty');
+		if (pm.iterationData.get('any') !== undefined) throw new Error('get on empty');
+		if (pm.iterationData.size() !== 0) throw new Error('size on empty');
+	`, "pre")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}

@@ -79,11 +79,13 @@ type SendContext struct {
 	EnvironmentId     string            `json:"environmentId,omitempty"`
 	VariableOverrides map[string]string `json:"variableOverrides,omitempty"`
 
-	// 脚本执行上下文（pm.info）。单发默认：请求名取节点名 + iteration 1/1；
-	// Runner 按真实迭代填充（数据驱动分支脚本用）。零值不填则绑定层补默认
-	RequestName    string `json:"requestName,omitempty"`
-	Iteration      int    `json:"iteration,omitempty"`
-	IterationCount int    `json:"iterationCount,omitempty"`
+	// 脚本执行上下文（pm.info / pm.iterationData）。单发默认：请求名取节点名 +
+	// iteration 1/1；Runner 按真实迭代填充（数据驱动分支脚本用）。零值不填则绑定层补默认
+	RequestName    string            `json:"requestName,omitempty"`
+	Iteration      int               `json:"iteration,omitempty"`
+	IterationCount int               `json:"iterationCount,omitempty"`
+	// DataRow 当前迭代的数据行（pm.iterationData 只读视图；仅 Runner 填充，单发恒空）
+	DataRow map[string]string `json:"dataRow,omitempty"`
 }
 
 // Cookie 响应中解析出的 cookie

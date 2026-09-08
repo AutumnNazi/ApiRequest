@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -144,6 +145,15 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 		infoName = ec.ancestors[0].Name
 	}
 	sandbox.SetInfo(sendCtx.RequestId, infoName, infoIter, infoCount)
+	// pm.iterationData：Runner 数据行原样透传（单发 = 恒空）
+	sandbox.SetDataRow(sendCtx.DataRow)
+	// pm.cookies：目标域的 Jar cookie 只读视图。此时 URL 已过前置脚本（可改），
+	// 用最终 URL 的 host 取；解析失败给空视图（脚本仍可调用，值为 undefined）
+	if u, perr := url.Parse(req.Url); perr == nil && u.Hostname() != "" {
+		if jc, jerr := a.store.CookiesForHost(sendCtx.WorkspaceId, u.Hostname()); jerr == nil {
+			sandbox.SetJarCookies(jc)
+		}
+	}
 	// pm.sendRequest 受控通道：直接走引擎（不递归整个生命周期，避免脚本套脚本）
 	sandbox.SendFunc = func(sreq model.HttpRequest) (model.ResponseResult, error) {
 		resolved := template.ResolveRequest(sreq, ec.scope)

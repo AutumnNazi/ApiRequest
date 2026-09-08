@@ -72,11 +72,17 @@ type Sandbox struct {
 	nextRequest *string
 	// info 执行上下文（pm.info）；zero 值时 injectInfo 给安全默认
 	info ScriptInfo
+	// dataRow 当前迭代的数据行（pm.iterationData 作用域；nil = 无数据文件）
+	dataRow map[string]string
+	// jarCookies 目标域的 Jar cookie 只读视图（pm.cookies；binding 层注入）
+	jarCookies []model.Cookie
 	// 脚本执行结束后的回写钩子（pm.request 的 method/url 同步等）
 	onFinish []func()
 }
 
-// NewSandbox 创建沙箱。各作用域传入当前生效值的副本。
+// NewSandbox 创建沙箱。各作用域传入当前生效值的副本。数据行/执行上下文
+// 由调用方按需经 SetDataRow/SetInfo/SetJarCookies 注入（binding 层知道
+// Runner 迭代与目标域信息，沙箱不重复猜测默认值）。
 func NewSandbox(timeout time.Duration, merged, envVars, colVars, globalVars map[string]string) *Sandbox {
 	cp := func(m map[string]string) map[string]string {
 		out := map[string]string{}
@@ -91,6 +97,7 @@ func NewSandbox(timeout time.Duration, merged, envVars, colVars, globalVars map[
 		envVars:       cp(envVars),
 		colVars:       cp(colVars),
 		globalVars:    cp(globalVars),
+		dataRow:       map[string]string{},
 		envChanges:    newVarChanges(),
 		colChanges:    newVarChanges(),
 		globalChanges: newVarChanges(),
@@ -112,6 +119,20 @@ func (s *Sandbox) SetInfo(requestId, requestName string, iteration, iterationCou
 		RequestId: requestId, RequestName: requestName,
 		Iteration: iteration, IterationCount: iterationCount,
 	}
+}
+
+// SetDataRow 注入当前迭代的数据行（pm.iterationData 只读视图；nil = 恒空）。
+func (s *Sandbox) SetDataRow(row map[string]string) {
+	s.dataRow = row
+}
+
+// SetJarCookies 注入目标域的 Jar cookie（pm.cookies 只读视图；nil = 空）。
+// 与 SetRequest/SetResponse 同风格：binding 层在发送前调用。
+func (s *Sandbox) SetJarCookies(cookies []model.Cookie) {
+	if cookies == nil {
+		cookies = []model.Cookie{}
+	}
+	s.jarCookies = cookies
 }
 
 // Run 执行一段脚本。phase 为 "pre" 或 "test"（错误归因用）。

@@ -89,6 +89,7 @@ persistVariableChanges(ctx)                 // Commit centrally in Go to avoid r
 | `pm.variables.get/replaceIn` | Same bridge, read-only merged view | Required |
 | `pm.collectionVariables.*` | Same as above | Required |
 | `pm.info` | Execution context (implemented): `eventName` (prerequest/test), `requestId`, `requestName`, `iteration`/`iterationCount` (Runner 1-based iteration and total; single send defaults to 1/1 with the node name) | Required |
+| `pm.iterationData` | Read-only view of the current iteration's data row (implemented): `get/has/toString/toJSON/size`; always empty for single sends and runs without a data file | Required |
 | `pm.request.*` | Expose a mutable request object to pre-request scripts | Required |
 | `pm.response.json()/.text()/.code/.headers` | Read-only response in test scripts (implemented; also `responseSize` and a `cookies` array view with get/has) | Required |
 | `pm.response.to.be.*` | Response assertions (implemented): ok/created/accepted/noContent/info/success/redirection/clientError/serverError/badRequest/unauthorized/forbidden/notFound/rateLimited/error | Required |
@@ -96,7 +97,7 @@ persistVariableChanges(ctx)                 // Commit centrally in Go to avoid r
 | `pm.test(name, fn)` | Collect assertion results | Required |
 | `pm.expect` | Inject a compact chai BDD assertion subset | Required |
 | `pm.sendRequest(req, cb)` | Call back into the Go HTTP engine through a controlled channel | Secondary |
-| `pm.cookies.*` | Bridge to the Cookie Jar | Secondary |
+| `pm.cookies.*` | Bridge to the Cookie Jar (implemented): read-only view of the target host's jar cookies as an array with `get/has`, mirroring `pm.response.cookies` | Required |
 | `console.log/warn/error` | Collect into `scriptLogs` returned to the frontend | Required |
 
 ### 3.3 Sandbox Constraints

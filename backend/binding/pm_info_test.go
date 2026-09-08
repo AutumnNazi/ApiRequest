@@ -3,11 +3,14 @@ package binding
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"apirequest/backend/httpengine"
 	"apirequest/backend/model"
 	"apirequest/backend/runner"
+	"apirequest/backend/secrets"
+	"apirequest/backend/storage"
 )
 
 // TestRunCollectionPmInfo Runner 内 pm.info 可见迭代号/请求名/总轮数（数据驱动分支脚本用）
@@ -133,5 +136,105 @@ func TestRunnerResponseToAssertions(t *testing.T) {
 	}
 	if report.Passed != 1 || report.Failed != 0 {
 		t.Fatalf("report = %+v", report)
+	}
+}
+
+// TestRunnerIterationData Runner 数据行经 pm.iterationData 暴露（数据驱动脚本标准入口）
+func TestRunnerIterationData(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	store := openRunnerStore(t)
+	ws, _ := store.EnsureDefaultWorkspace()
+	col, _ := store.UpsertNode(model.Node{WorkspaceId: ws.Id, Kind: "collection", Name: "iterdata"})
+	store.UpsertNode(model.Node{
+		WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: "probe",
+		Request: &model.HttpRequest{
+			Method: "GET", Url: srv.URL, Settings: model.DefaultSettings(),
+			TestScript: `
+				pm.test('iterationData', function () {
+					if (pm.iterationData.get('user') !== 'bob') throw new Error('get user');
+					if (pm.iterationData.size() !== 2) throw new Error('size=' + pm.iterationData.size());
+				});
+			`,
+		},
+	})
+
+	engine := httpengine.New()
+	engine.SetBlobsDir(store.BlobsDir())
+	runnerApi := NewRunnerApi(NewRequestApi(engine, store), store)
+	report, err := runnerApi.RunCollection("iterdata-run", ws.Id, col.Id, runner.Options{
+		DataFile: `[{"user":"bob","role":"dev"}]`, DataFormat: "json",
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if report.Passed != 1 || report.Failed != 0 {
+		t.Fatalf("report = %+v", report)
+	}
+}
+
+// TestSingleSendPmCookies 单发请求 pm.cookies 可读目标域的 Jar cookie
+func TestSingleSendPmCookies(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	vault := secrets.NewWithKeyring(t.TempDir(), &bindingMemoryKeyring{})
+	store, err := storage.OpenWithVault(t.TempDir(), vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ws, err := store.EnsureDefaultWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Jar 里放两条：目标域一条 + 无关域一条（只该看到前者）。
+	// 取 host 时去端口：httptest URL 是 127.0.0.1:port，cookie domain 不含端口
+	su, _ := url.Parse(srv.URL)
+	host := su.Hostname()
+	if err := store.UpsertCookies(ws.Id, []model.Cookie{
+		{Name: "session", Value: "jar-sess", Domain: host, Path: "/"},
+		{Name: "other", Value: "nope", Domain: "unrelated.test", Path: "/"},
+	}); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+
+	col, err := store.UpsertNode(model.Node{WorkspaceId: ws.Id, Kind: "collection", Name: "cookies"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := store.UpsertNode(model.Node{
+		WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: "probe",
+		Request: &model.HttpRequest{
+			Method: "GET", Url: srv.URL, Settings: model.DefaultSettings(),
+			TestScript: `
+				pm.test('jar cookies', function () {
+					if (pm.cookies.get('session') !== 'jar-sess') throw new Error('get session');
+					if (pm.cookies.has('other')) throw new Error('unrelated domain leaked');
+				});
+			`,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	engine := httpengine.New()
+	engine.SetBlobsDir(store.BlobsDir())
+	api := NewRequestApi(engine, store)
+	res, err := api.SendRequest("send-cookies", *node.Request, model.SendContext{
+		WorkspaceId: ws.Id, RequestId: node.Id,
+	})
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if len(res.TestResults) != 1 || !res.TestResults[0].Pass {
+		t.Fatalf("test results = %+v", res.TestResults)
 	}
 }
