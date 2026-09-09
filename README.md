@@ -221,7 +221,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch model, PR requirements, an
 
 ## License
 
-To be determined.
+[MIT](./LICENSE) © 2026 chenkaiyuan
 
 <p align="center">
   <sub>Built for people who live in requests, headers, and status codes.</sub>

@@ -157,9 +157,10 @@
 
 - **决定**：JSON 格式（与内部 IR 同构）；`collection.json` + 每请求单文件（`*.request.json`）+ 嵌套目录（`_folder.json`），schemaVersion 前向兼容。文件名 slug 按 Windows/macOS/Linux 的共同安全子集处理；同目录发生大小写不敏感碰撞或占用元数据文件名时追加稳定节点标识，并拒绝通过 symlink 读写镜像 JSON。见 `backend/mirror`。
 
-### OPEN-005 许可协议
+### OPEN-005 许可协议（已定：2026-09-09 采用 MIT）
 
-- README 中标注"待定"。开源（MIT/Apache-2.0）还是闭源，需产品层面确认。
+- **决定**：开源，MIT（仓库根 `LICENSE`；README License 章节同步）。未选 Apache-2.0：项目以个人/社区贡献为主，专利显式授权与修改标注义务的收益撑不起其合规负担；依赖（Wails/React/goja/modernc 等）均为 MIT/BSD 系，MIT 完全兼容。
+- **影响**：贡献随仓库 MIT 默认授权（无 CLA，提交即视为接受，见贡献者指南）；版权人 chenkaiyuan 保留对后续版本变更许可的权利。
 
 ### OPEN-006 自动更新方案（阶段性决策：仅检查与跳转）
 

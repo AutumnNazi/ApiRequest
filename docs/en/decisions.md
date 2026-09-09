@@ -157,9 +157,10 @@ The former open question about secret storage was resolved by [ADR-013](#adr-013
 
 - **Decision**: use JSON isomorphic to the internal IR: `collection.json`, one `*.request.json` file per request, nested directories with `_folder.json`, and forward-compatible `schemaVersion`. Slugs use the common safe subset across Windows, macOS, and Linux. Case-insensitive sibling collisions and metadata filename conflicts receive a stable node suffix, and mirror JSON is never read or written through symlinks. See `backend/mirror`.
 
-### OPEN-005 License
+### OPEN-005 License (Accepted: MIT, 2026-09-09)
 
-- The README marks this as undecided. Product-level confirmation is required for open source (MIT/Apache-2.0) versus closed source.
+- **Decision**: open source under MIT (repo-root `LICENSE`; the README License section updated accordingly). Apache-2.0 was not chosen: the project is driven by individual/community contributions, so the explicit patent grant and modification-notice obligations do not justify the extra compliance weight; all dependencies (Wails/React/goja/modernc, etc.) are MIT/BSD-family and fully compatible.
+- **Impact**: contributions are licensed under the repo's MIT terms by default (no CLA; submitting implies acceptance per the contributing guide); the copyright holder chenkaiyuan retains the right to change the license of future versions.
 
 ### OPEN-006 Automatic Updates (Interim Decision: Check and Redirect Only)
 
