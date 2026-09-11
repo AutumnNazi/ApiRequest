@@ -6,3 +6,7 @@ frontend/dist/*
 frontend/vite*.log
 cli.exe
 *.test
+
+# IDE 与本地产物不入库（审计 2026-09-11）：二进制无法 review，IDE 配置因人而异
+.idea/
+*.exe

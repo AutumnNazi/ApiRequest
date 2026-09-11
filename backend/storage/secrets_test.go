@@ -1595,3 +1595,25 @@ func TestLegacyExampleCredentialsAreRedactedOnReopen(t *testing.T) {
 		t.Fatalf("legacy example leaked credentials: request=%s headers=%s body=%s", requestRaw, headersRaw, body)
 	}
 }
+
+// TestMigrateVariableSecretsRejectsUnregisteredTable 防回归：迁移入口只接受
+// 白名单表组合，动态表名必须被拒绝而不是拼进 SQL（审计 2026-09-11）
+func TestMigrateVariableSecretsRejectsUnregisteredTable(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// 经典注入形态：表名带引号闭合 + OR 恒真
+	for _, bad := range []string{"node", `"global_var" OR 1=1 --`, "global_var; DROP TABLE cookie --"} {
+		if err := s.migrateVariableSecrets(bad, "id", "variables", "x/"); err == nil {
+			t.Errorf("migrateVariableSecrets(%q) accepted an unregistered table", bad)
+		}
+	}
+	// 白名单组合照常工作（空库迁移应为 no-op 成功）
+	for _, table := range []string{"environment", "global_var"} {
+		if err := s.migrateVariableSecrets(table, "ignored-id", "ignored-value", "x/"); err != nil {
+			t.Errorf("migrateVariableSecrets(%q) failed on registered table: %v", table, err)
+		}
+	}
+}

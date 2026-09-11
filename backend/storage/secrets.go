@@ -813,8 +813,22 @@ func (s *Store) migrateNodeSecrets(pending ...*bool) error {
 	return nil
 }
 
-func (s *Store) migrateVariableSecrets(table, idColumn, valueColumn, prefix string, pending ...*bool) error {
-	query := fmt.Sprintf("SELECT %s, %s FROM %s", idColumn, valueColumn, table)
+// variableSecretTables 迁移目标表白名单：migrateVariableSecrets 的表/列名
+// 进 SQL 文本而非参数位（SQLite 不支持标识符占位），只允许注册过的组合，
+// 杜绝未来调用方把动态值传进来拼出注入面
+var variableSecretTables = map[string]struct {
+	idColumn, valueColumn string
+}{
+	"environment": {"id", "variables"},
+	"global_var":  {"workspace_id", "variables"},
+}
+
+func (s *Store) migrateVariableSecrets(table, _ string, _ string, prefix string, pending ...*bool) error {
+	cols, ok := variableSecretTables[table]
+	if !ok {
+		return fmt.Errorf("migrateVariableSecrets: unregistered table %q", table)
+	}
+	query := fmt.Sprintf("SELECT %s, %s FROM %s", cols.idColumn, cols.valueColumn, table)
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return err
@@ -853,7 +867,7 @@ func (s *Store) migrateVariableSecrets(table, idColumn, valueColumn, prefix stri
 			if err != nil {
 				return err
 			}
-			update := fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?", table, valueColumn, idColumn)
+			update := fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?", table, cols.valueColumn, cols.idColumn)
 			_, err = s.db.Exec(update, string(data), row.id)
 			return err
 		}); err != nil {

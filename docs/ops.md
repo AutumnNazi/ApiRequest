@@ -64,6 +64,7 @@ func (e *AppError) Error() string { return string(e.Kind) + ": " + e.Detail }
 | Go 集成测试 | SendRequest 全流程（对 mock HTTP server） | `go test` + `net/http/httptest` |
 | 脚本引擎测试 | `pm.*` API 行为、断言、超时、隔离 | `go test` |
 | 前端单元测试 | store 逻辑、IPC wrapper、纯组件 | Vitest + Testing Library |
+| 静态检查 | Go：golangci-lint 保守集（vet 级 + errorlint/copyloopvar 等，见 `.golangci.yml`，未开 linter 与理由写在配置注释）；前端：ESLint recommended + react-hooks（见 `frontend/eslint.config.mjs`） | CI（dev 与 release 双流水线，零告警门槛） |
 | E2E | 关键用户路径（建请求→发送→看响应→存集合） | Wails + Playwright/WebDriver |
 | 跨平台冒烟 | Windows / macOS 构建产物可启动、可发一次请求、可读写应用数据目录 | CI matrix |
 | 依赖漏洞扫描 | Go 模块按调用路径（govulncheck）；前端依赖 high 及以上（npm audit） | CI（dev 与 release 双流水线，失败阻断） |
@@ -107,7 +108,7 @@ Stable Release 与 `dev-latest` 都必须具备以下 8 个包；`<版本>` 在�
 - `ApiRequest-<版本>-Windows-Arm64-Portable.exe`
 - `ApiRequest-<版本>-Windows-Arm64-Portable.zip`
 
-- **更新链路**：Wails 无内置 updater。Stable Release 与 `dev-latest` 仅发布安装包和 `SHA256SUMS`；设置页当前只打开官方 release 下载页。签名验证链与替换回滚已实现（`backend/updater` + `cmd/updatetool`）：设置页配置更新源后可"检查更新"与"下载并安装"。unix 同卷换入重启生效；Windows 经 `pending-update` 标记在启动时校验→备份→换入，失败回滚清标记。发布侧需 `updatetool keygen` 生成密钥对、私钥入 GitHub secret、公钥内置后，release 工作流再产出签名 manifest。
+- **更新链路**：Wails 无内置 updater。Stable Release 与 `dev-latest` 仅发布安装包和 `SHA256SUMS`；设置页当前只打开官方 release 下载页。签名验证链与替换回滚已实现（`backend/updater` + `cmd/updatetool`）：设置页配置更新源后可"检查更新"与"下载并安装"。unix 同卷换入重启生效；Windows 经 `pending-update` 标记在启动时校验→备份→换入，失败回滚清标记。**发布侧密钥无限期搁置（2026-09-09，ADR-018）**：不生成密钥对、不发布 manifest；需要静默更新时再按 ADR-018 补配（keygen + 私钥入 GitHub secret + 公钥内置 + 签名发布 workflow）。
 - **签名与标识**：Windows/macOS secrets 齐全时，CI 按“签 EXE -> 构建 MSI -> 签 MSI”和“签 App -> 构建/签 DMG -> 公证/staple”的顺序处理。未配置时仍使用相同文件名生成可测试的未签名产物；平台级 `SIGNING_STATUS-*.txt` 仅保留在 Actions 构建 artifact 中，不作为公开 Release 资产。PR 构建永不接收生产签名 secrets。
 - **崩溃与遥测**：可选、默认关闭、明确告知；本地日志滚动留存便于排障。
 

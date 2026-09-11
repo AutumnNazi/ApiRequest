@@ -126,7 +126,7 @@ Browser-based tools hit CORS walls; Electron clients ship a whole Chromium. ApiR
 
 ### 🧩 Stack
 
-`Go 1.26.5` · `Wails v2` · `React 18` · `TypeScript` · `Vite` · `Tailwind CSS` · `Zustand` · `TanStack Query` · `CodeMirror 6` · `goja` · `modernc.org/sqlite` (pure Go, no CGO)
+`Go 1.26.6` · `Wails v2` · `React 18` · `TypeScript` · `Vite` · `Tailwind CSS` · `Zustand` · `TanStack Query` · `CodeMirror 6` · `goja` · `modernc.org/sqlite` (pure Go, no CGO)
 
 ---
 
@@ -146,7 +146,7 @@ Browser-based tools hit CORS walls; Electron clients ship a whole Chromium. ApiR
 
 ### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.26.5+
+- [Go](https://go.dev/dl/) 1.26.6+
 - [Node.js](https://nodejs.org/) 20.19+ on Node 20, or 22.12+
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation) v2
 
