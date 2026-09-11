@@ -142,7 +142,7 @@ jobs:
 
       - name: ESLint
         # 保守集（见 frontend/eslint.config.mjs）：recommended + hooks 规则，零告警门槛
-        run: npm --prefix frontend lint
+        run: npm --prefix frontend run lint
 
       - name: Packaging script tests
         run: node --test scripts/*.test.mjs
