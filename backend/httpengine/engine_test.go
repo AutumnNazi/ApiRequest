@@ -152,8 +152,8 @@ func TestCancel(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error after cancel")
 	}
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Detail != "canceled" {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Detail != "canceled" {
 		t.Errorf("err = %v, want AppError{canceled}", err)
 	}
 }
@@ -576,7 +576,7 @@ func TestInvalidUrl(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error for invalid url")
 	}
-	if ae, ok := err.(*model.AppError); !ok || ae.Kind != model.KindValidation {
+	if ae := (*model.AppError)(nil); !errors.As(err, &ae) || ae.Kind != model.KindValidation {
 		t.Errorf("err = %v, want KindValidation", err)
 	}
 }

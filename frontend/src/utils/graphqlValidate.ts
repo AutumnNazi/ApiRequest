@@ -119,7 +119,7 @@ function typeRefName(ref: unknown): string {
     }
   }
   // 剥掉 NonNull(!) 与 List([]) 装饰，取基础名
-  return raw.replace(/[!\[\]]/g, '').trim();
+  return raw.replace(/[[\]]|!/g, '').trim();
 }
 
 function returnTypeString(ref: unknown): string {

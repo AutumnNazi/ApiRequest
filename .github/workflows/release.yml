@@ -31,6 +31,11 @@ jobs:
       - name: Go vet
         run: go vet ./backend/... ./cmd/...
 
+      - name: golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
+          "$(go env GOPATH)/bin/golangci-lint" run ./backend/... ./cmd/...
+
       - name: Go tests
         run: go test ./backend/... ./cmd/...
 
@@ -43,6 +48,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
+
+      - name: ESLint
+        run: npm --prefix frontend lint
 
       - name: Packaging script tests
         run: node --test scripts/*.test.mjs

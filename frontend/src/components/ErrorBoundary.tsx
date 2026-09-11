@@ -13,7 +13,6 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
 
   componentDidCatch(err: Error, info: React.ErrorInfo) {
     // 输出到 console 便于排查；后续可加 IPC 兜底上报
-    // eslint-disable-next-line no-console
     console.error('[ErrorBoundary] uncaught render error:', err, info.componentStack);
   }
 

@@ -501,7 +501,7 @@ func replaceFile(tempPath, destination string, rename func(string, string) error
 	}
 	if err := rename(tempPath, destination); err != nil {
 		if restoreErr := rename(backupPath, destination); restoreErr != nil {
-			return fmt.Errorf("replace destination: %w; restore original: %v (backup retained at %s)", err, restoreErr, backupPath)
+			return fmt.Errorf("replace destination: %w; restore original: %w (backup retained at %s)", err, restoreErr, backupPath)
 		}
 		return fmt.Errorf("replace destination: %w", err)
 	}

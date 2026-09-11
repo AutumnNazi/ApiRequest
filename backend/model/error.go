@@ -43,7 +43,7 @@ func WrapError(kind ErrorKind, err error) *AppError {
 	if err == nil {
 		return nil
 	}
-	if ae, ok := err.(*AppError); ok {
+	if ae, ok := err.(*AppError); ok { //nolint:errorlint // 本包产出的直传错误，不经包装
 		return ae
 	}
 	return &AppError{Kind: kind, Detail: err.Error()}

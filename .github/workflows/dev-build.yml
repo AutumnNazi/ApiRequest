@@ -34,6 +34,12 @@ jobs:
         # on native runners; this job covers the platform-independent packages.
         run: go vet ./backend/... ./cmd/...
 
+      - name: golangci-lint
+        # 保守集（见 .golangci.yml）：vet 级 + 高置信度检查，零告警门槛
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
+          "$(go env GOPATH)/bin/golangci-lint" run ./backend/... ./cmd/...
+
       - name: Go tests
         shell: bash
         run: |
@@ -133,6 +139,10 @@ jobs:
 
       - name: Install dependencies
         run: npm --prefix frontend ci
+
+      - name: ESLint
+        # 保守集（见 frontend/eslint.config.mjs）：recommended + hooks 规则，零告警门槛
+        run: npm --prefix frontend lint
 
       - name: Packaging script tests
         run: node --test scripts/*.test.mjs

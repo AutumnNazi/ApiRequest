@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -90,7 +91,7 @@ func TestCliRunEndToEnd(t *testing.T) {
 	runCmd := exec.Command(bin, "run", "--collection", "smoke", "--db", dataDir, "--report", reportPath, "--html", htmlPath)
 	runOut, runErr := runCmd.Output()
 	exitCode := 0
-	if ee, ok := runErr.(*exec.ExitError); ok {
+	if ee := (*exec.ExitError)(nil); errors.As(runErr, &ee) {
 		exitCode = ee.ExitCode()
 	} else if runErr != nil {
 		t.Fatalf("run: %v", runErr)
@@ -237,7 +238,7 @@ func TestCliRunEnvAndJunit(t *testing.T) {
 		cmd := exec.Command(bin, args...)
 		out, err := cmd.Output()
 		code := 0
-		if ee, ok := err.(*exec.ExitError); ok {
+		if ee := (*exec.ExitError)(nil); errors.As(err, &ee) {
 			code = ee.ExitCode()
 		} else if err != nil {
 			t.Fatalf("run %v: %v", args, err)

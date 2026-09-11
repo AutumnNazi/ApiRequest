@@ -102,7 +102,7 @@ func (s *Sandbox) injectPM(vm *goja.Runtime, phase string) error {
 		_, err := fn(goja.Undefined())
 		tr := model.TestResult{Name: name, Pass: err == nil}
 		if err != nil {
-			if ex, ok := err.(*goja.Exception); ok {
+			if ex, ok := err.(*goja.Exception); ok { //nolint:errorlint // goja 直出的具体类型不经包装
 				tr.Error = ex.Value().String()
 			} else {
 				tr.Error = err.Error()

@@ -58,7 +58,7 @@ func Download(cfg DownloadConfig) (string, error) {
 	closeErr := tmp.Close()
 	if err != nil || closeErr != nil {
 		_ = os.Remove(tmpPath)
-		return "", model.WrapError(model.KindNetwork, fmt.Errorf("download write: %v", err))
+		return "", model.WrapError(model.KindNetwork, fmt.Errorf("download write: %w", err))
 	}
 	if size > downloadLimit {
 		_ = os.Remove(tmpPath)

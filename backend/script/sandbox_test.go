@@ -1,6 +1,7 @@
 package script
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -138,8 +139,8 @@ func TestTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("want timeout error")
 	}
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Kind != model.KindScript || ae.Detail != "script timeout" {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Kind != model.KindScript || ae.Detail != "script timeout" {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -156,8 +157,8 @@ func TestProxyRecursionIsBounded(t *testing.T) {
 		if err == nil {
 			t.Fatal("recursive Proxy completed without an error")
 		}
-		ae, ok := err.(*model.AppError)
-		if !ok || ae.Kind != model.KindScript {
+		ae := (*model.AppError)(nil)
+		if !errors.As(err, &ae) || ae.Kind != model.KindScript {
 			t.Fatalf("recursive Proxy error = %T %v", err, err)
 		}
 	case <-time.After(2 * time.Second):
@@ -181,8 +182,8 @@ func TestCallStackAllowsReasonableRecursion(t *testing.T) {
 func TestScriptErrorHasPhase(t *testing.T) {
 	s := newTestSandbox()
 	err := s.Run(`throw new Error('boom')`, "test")
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Phase != "test" || !strings.Contains(ae.Detail, "boom") {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Phase != "test" || !strings.Contains(ae.Detail, "boom") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -280,8 +281,8 @@ func TestPmCallbacksMissingArgsDontPanic(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected script error for pm.test without callback")
 	}
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Kind != model.KindScript {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Kind != model.KindScript {
 		t.Fatalf("err = %#v, want KindScript AppError", err)
 	}
 	// 必须断言 TypeError：只判 Kind 测不到本缺陷——调用 nil Callable 会触发
@@ -301,8 +302,8 @@ func TestPmSendRequestMissingCallback(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected script error for pm.sendRequest without callback")
 	}
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Kind != model.KindScript {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Kind != model.KindScript {
 		t.Fatalf("err = %#v, want KindScript AppError", err)
 	}
 	// 同上：Kind 相同无法区分 TypeError 与内部 nil pointer panic
@@ -324,8 +325,8 @@ func TestRunRecoversGoPanicFromInjectedCallback(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run swallowed a Go panic and reported success")
 	}
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Kind != model.KindScript {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Kind != model.KindScript {
 		t.Fatalf("err = %#v, want KindScript AppError", err)
 	}
 	if !strings.Contains(ae.Detail, "script runtime panic") {

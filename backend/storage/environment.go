@@ -187,7 +187,7 @@ func (s *Store) ActiveEnvironment(workspaceId string) (model.Environment, bool, 
 func (s *Store) GetGlobalVariables(workspaceId string) ([]model.Variable, error) {
 	var vars string
 	err := s.db.QueryRow("SELECT variables FROM global_var WHERE workspace_id = ?", workspaceId).Scan(&vars)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return []model.Variable{}, nil
 	}
 	if err != nil {

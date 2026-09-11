@@ -348,14 +348,14 @@ func (v *Vault) deleteValueWithUndo(ref string) (func() error, error) {
 		}
 		if err != nil {
 			v.keyringAvailable = false
-			return nil, fmt.Errorf("%w: system keychain unavailable: %v", ErrLocked, err)
+			return nil, fmt.Errorf("%w: system keychain unavailable: %w", ErrLocked, err)
 		}
 		if err := v.keyring.Delete(serviceName, id); err != nil {
 			if isSecretNotFound(err) {
 				return nil, nil
 			}
 			v.keyringAvailable = false
-			return nil, fmt.Errorf("%w: system keychain unavailable: %v", ErrLocked, err)
+			return nil, fmt.Errorf("%w: system keychain unavailable: %w", ErrLocked, err)
 		}
 		return func() error {
 			v.mu.Lock()
@@ -428,7 +428,7 @@ func (v *Vault) Resolve(value string) (string, error) {
 			v.mu.Lock()
 			v.keyringAvailable = false
 			v.mu.Unlock()
-			return "", fmt.Errorf("%w: system keychain unavailable: %v", ErrLocked, err)
+			return "", fmt.Errorf("%w: system keychain unavailable: %w", ErrLocked, err)
 		}
 	case "file":
 		// get 是纯内存 map 读取（无 IO），须在锁内完成：
@@ -471,7 +471,7 @@ func (v *Vault) Delete(ref string) error {
 		}
 		if err != nil {
 			v.keyringAvailable = false
-			return fmt.Errorf("%w: system keychain unavailable: %v", ErrLocked, err)
+			return fmt.Errorf("%w: system keychain unavailable: %w", ErrLocked, err)
 		}
 		return err
 	case "file":

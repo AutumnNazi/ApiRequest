@@ -1,6 +1,7 @@
 package script
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestFinishHooksRunExactlyOnceOnPanic(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected panic to surface as a script error")
 	}
-	if ae, ok := err.(*model.AppError); !ok || ae.Kind != model.KindScript {
+	if ae := (*model.AppError)(nil); !errors.As(err, &ae) || ae.Kind != model.KindScript {
 		t.Fatalf("err = %#v, want KindScript AppError", err)
 	}
 	if calls != 1 {

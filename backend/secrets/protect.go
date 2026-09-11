@@ -685,16 +685,6 @@ func (r *Redactor) Request(request model.HttpRequest) model.HttpRequest {
 	return request
 }
 
-func (r *Redactor) kvs(input []model.KV) []model.KV {
-	out := append([]model.KV(nil), input...)
-	for i := range out {
-		out[i].Key = r.String(out[i].Key)
-		out[i].Value = r.String(out[i].Value)
-		out[i].Description = r.String(out[i].Description)
-	}
-	return out
-}
-
 func (r *Redactor) requestHeaders(input []model.KV) []model.KV {
 	out := append([]model.KV(nil), input...)
 	for i := range out {

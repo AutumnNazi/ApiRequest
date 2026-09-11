@@ -2,6 +2,7 @@ package binding
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,11 +86,11 @@ func TestExportDiagnosticsRejectsBadPath(t *testing.T) {
 }
 
 func asAppErr(err error, target **model.AppError) bool {
-	ae, ok := err.(*model.AppError)
-	if ok {
+	ae := (*model.AppError)(nil)
+	if errors.As(err, &ae) {
 		*target = ae
 	}
-	return ok
+	return ae != nil
 }
 
 // 生成时间戳文件名助手（前端默认文件名）

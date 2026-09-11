@@ -2,6 +2,7 @@ package binding
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -215,8 +216,8 @@ func TestPreScriptFailureAborts(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error")
 	}
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Kind != model.KindScript || ae.Phase != "pre" {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Kind != model.KindScript || ae.Phase != "pre" {
 		t.Errorf("err = %v", err)
 	}
 	if hit {

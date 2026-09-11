@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,7 +39,7 @@ func TestCliExportHeadless(t *testing.T) {
 		WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: "hit",
 		Request: &model.HttpRequest{
 			Method: "GET", Url: "https://api.test/hit",
-			Headers: []model.KV{{Key: "X-Trace", Value: "t1", Enabled: true}},
+			Headers:  []model.KV{{Key: "X-Trace", Value: "t1", Enabled: true}},
 			Settings: model.DefaultSettings(),
 		},
 	}); err != nil {
@@ -89,7 +90,7 @@ func TestCliExportHeadless(t *testing.T) {
 	// 未知格式报 2
 	if err := exec.Command(bin, "export", "--collection", "exp", "--db", dataDir, "--format", "nope").Run(); err == nil {
 		t.Fatal("unknown format must fail")
-	} else if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 2 {
+	} else if ee := (*exec.ExitError)(nil); errors.As(err, &ee) && ee.ExitCode() != 2 {
 		t.Fatalf("unknown format exit = %v, want 2", err)
 	}
 }

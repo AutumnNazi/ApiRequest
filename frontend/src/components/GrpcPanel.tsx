@@ -277,7 +277,7 @@ export default function GrpcPanel({ onClose }: Props) {
             }}
           >
             {protoFile.trim()
-              ? `proto: ${protoFile.trim().split(/[\/]/).pop()}`
+              ? `proto: ${protoFile.trim().split('/').pop()}`
               : formatMessage('proto…')}
           </button>
           {protoFile.trim() && (

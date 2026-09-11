@@ -229,7 +229,7 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 		res.ScriptLogs = append(res.ScriptLogs, "[error] persist cookies: "+cookiePersistErr.Error())
 	}
 	if scriptErr != nil {
-		if ae, ok := scriptErr.(*model.AppError); ok {
+		if ae, ok := scriptErr.(*model.AppError); ok { //nolint:errorlint // scriptError 直传 AppError，不经包装
 			res.ScriptLogs = append(res.ScriptLogs, "[error] "+ae.Detail)
 		}
 	}

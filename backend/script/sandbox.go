@@ -213,10 +213,11 @@ func (s *Sandbox) Result() Result {
 
 func scriptError(err error, phase string) *model.AppError {
 	ae := &model.AppError{Kind: model.KindScript, Phase: phase, Detail: err.Error()}
-	if ex, ok := err.(*goja.Exception); ok {
+	// goja 直出的具体类型不经包装（nolint:errorlint）
+	if ex, ok := err.(*goja.Exception); ok { //nolint:errorlint
 		ae.Detail = ex.Value().String()
 	}
-	if _, ok := err.(*goja.InterruptedError); ok {
+	if _, ok := err.(*goja.InterruptedError); ok { //nolint:errorlint
 		ae.Detail = "script timeout"
 	}
 	return ae

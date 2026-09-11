@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"errors"
+
 	"database/sql"
 	"time"
 
@@ -30,7 +32,7 @@ func (s *Store) EnsureDefaultWorkspace() (model.Workspace, error) {
 	if err == nil {
 		return w, nil
 	}
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return w, err
 	}
 	w = model.Workspace{

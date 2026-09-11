@@ -40,7 +40,6 @@ async function loadBlobText(blobRef: string): Promise<{ text: string; truncated:
   const decoder = new TextDecoder('utf-8');
   let loaded = 0;
   let eof = false;
-  let truncated = false;
   const parts: string[] = [];
   while (!eof && loaded < BLOB_LOAD_LIMIT) {
     const chunk = await readResponseBlobRange(blobRef, loaded, Math.min(1 << 20, BLOB_LOAD_LIMIT - loaded));
@@ -48,8 +47,7 @@ async function loadBlobText(blobRef: string): Promise<{ text: string; truncated:
     loaded += decodeBase64(chunk.dataBase64).byteLength;
     eof = chunk.eof;
   }
-  truncated = !eof;
-  return { text: parts.join(''), truncated };
+  return { text: parts.join(''), truncated: !eof };
 }
 
 export default function ResponseDiffDialog({

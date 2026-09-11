@@ -1,0 +1,26 @@
+# golangci-lint v2 配置：保守集——只开当前信号面干净的 linter。
+# 原则：CI 零告警成为门槛；新 linter 在本地清零存量后才进这个列表。
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - unused
+    - errorlint   # 错误断言应 errors.As / %w 包装检查
+    - copyloopvar # Go 1.22+ 循环变量语义
+    - misspell
+    - unconvert
+  # 未开（按需逐个清零存量后转正）：
+  #   errcheck —— 存量 420 处，大头是 goja Object.Set（接收方均为 NewObject 产物，
+  #     构造性不可能出错）与 defer Close/Rollback 惯例；需一轮专门清扫后开启
+  #   staticcheck —— 一批 QF/SA 建议与既有惯例冲突，需逐条裁决
+  #   errchkjson / wrapcheck 等 —— 同上策略
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

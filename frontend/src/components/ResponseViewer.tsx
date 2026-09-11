@@ -289,7 +289,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   const matchCount = useMemo(() => {
     if (!search) return 0;
     let n = 0;
-    let i = 0;
+    let i: number;
     const lower = renderedBody.visibleText.toLowerCase();
     const q = search.toLowerCase();
     let hit = lower.indexOf(q);
@@ -635,7 +635,7 @@ function HighlightedBody({
     const q = query.toLowerCase();
     const lower = visibleText.toLowerCase();
     const out: [number, number][] = [];
-    let i = 0;
+    let i: number;
     let hit = lower.indexOf(q);
     let count = 0;
     while (hit !== -1 && count < 2000) {

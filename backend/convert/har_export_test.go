@@ -89,7 +89,7 @@ func TestHarExporter(t *testing.T) {
 	if first.Response.Status != 0 {
 		t.Fatalf("response stub = %+v", first.Response)
 	}
-	if !strings.Contains(string(out), `"httpVersion"`) {
+	if !strings.Contains(out, `"httpVersion"`) {
 		t.Fatal("httpVersion field missing")
 	}
 }
@@ -107,7 +107,7 @@ func TestHarExporterSkipsNonRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "https://x.test") || strings.Contains(string(out), "no-request-obj") {
+	if !strings.Contains(out, "https://x.test") || strings.Contains(out, "no-request-obj") {
 		t.Fatalf("unexpected output:\n%s", out)
 	}
 }

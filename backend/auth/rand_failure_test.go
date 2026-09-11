@@ -30,8 +30,8 @@ func TestDigestRandomSourceFailureReturnsError(t *testing.T) {
 		t.Fatal("OnChallenge must fail when the random source fails")
 	}
 	// KindNetwork 而非 panic：panic 会击穿 engine.send（无 recover）打崩桌面进程
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Kind != model.KindNetwork {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Kind != model.KindNetwork {
 		t.Fatalf("err = %#v, want KindNetwork AppError", err)
 	}
 }
@@ -45,8 +45,8 @@ func TestOAuth1RandomSourceFailureReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Apply must fail when the random source fails")
 	}
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Kind != model.KindNetwork {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Kind != model.KindNetwork {
 		t.Fatalf("err = %#v, want KindNetwork AppError", err)
 	}
 	// 失败时不得留下半套好的 Authorization 头
@@ -68,8 +68,8 @@ func TestOAuth2RandomSourceFailureReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("GetToken must fail when the random source fails")
 	}
-	ae, ok := err.(*model.AppError)
-	if !ok || ae.Kind != model.KindNetwork {
+	ae := (*model.AppError)(nil)
+	if !errors.As(err, &ae) || ae.Kind != model.KindNetwork {
 		t.Fatalf("err = %#v, want KindNetwork AppError", err)
 	}
 	if !strings.Contains(ae.Detail, "random") && !strings.Contains(ae.Detail, "entropy") {
