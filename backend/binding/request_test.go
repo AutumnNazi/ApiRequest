@@ -371,7 +371,9 @@ func TestShutdownCancelsAndWaitsForInFlightRequest(t *testing.T) {
 		if sendErr == nil || !strings.Contains(sendErr.Error(), "canceled") {
 			t.Fatalf("request error after shutdown = %v", sendErr)
 		}
-	default:
+	// Shutdown 等 op.done（SendRequest 返回时触发）；从返回到测试 goroutine
+	// 执行 done <- 之间是纯调度间隙，值必然到达，超时仅兜底假死
+	case <-time.After(time.Second):
 		t.Fatal("shutdown returned before the in-flight request completed")
 	}
 }
