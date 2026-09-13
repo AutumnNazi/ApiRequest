@@ -33,6 +33,11 @@ linters:
         - (*github.com/dop251/goja.Array).Set
         - (github.com/dop251/goja.Value).Set
   exclusions:
+    paths:
+      # 前端依赖树里的 Go 参考实现（flatted 等）不属于本模块。
+      # go.mod 的 ignore 指令本可整目录排除，但 wails CLI 内嵌的旧 modfile
+      # 解析器不认识该指令导致 wails build 报错，故退回 lint 层排除
+      - frontend/node_modules
     rules:
       # 测试文件的 defer Close / fixture 写入按测试语义忽略
       - path: _test\.go
