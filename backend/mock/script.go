@@ -5,6 +5,7 @@
 //   - respond({ status?, headers?, body?, delayMs? }) 生成响应；未调用则回退静态示例
 //
 // 每次请求新建 Runtime（无全局泄漏），2s 看门狗中断死循环。
+
 package mock
 
 import (

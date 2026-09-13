@@ -1,6 +1,7 @@
 // Insomnia v4 导出（docs/interop.md）：与导入器对称反转。
 // 结构：workspace（= 集合）+ base environment（= 集合变量）+
 // request_group（= 文件夹）+ request（= 请求），parentId 串树、metaSortKey 保序。
+
 package convert
 
 import (

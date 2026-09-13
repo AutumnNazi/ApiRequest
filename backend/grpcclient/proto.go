@@ -1,6 +1,7 @@
 // proto 文件直载：服务器未开启 server reflection 时，用户可直接指定 .proto 文件
 // （protoparse 解析源文件，import 目录解析依赖）。proto 模式下 Discover 完全
 // 离线——不拨号、不反射；Call 仍按需建立连接。
+
 package grpcclient
 
 import (
@@ -8,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jhump/protoreflect/desc/protoparse"
+	"github.com/jhump/protoreflect/desc/protoparse" //nolint:staticcheck // SA1019 已知弃用；迁移 bufbuild/protocompile 涉 ImportPaths 解析行为验证，单列任务
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 

@@ -22,7 +22,7 @@ const (
 type plaintextSecretWriter struct{ secrets.SecretWriter }
 
 func (w plaintextSecretWriter) Put(logicalKey, value string) (string, error) {
-	return w.SecretWriter.PutPlaintext(logicalKey, value)
+	return w.PutPlaintext(logicalKey, value)
 }
 
 // migrationSecretWriter preserves references owned by the expected logical
@@ -45,7 +45,7 @@ func (w migrationSecretWriter) Put(logicalKey, value string) (string, error) {
 			// A keyring may become available after an encrypted-file fallback was
 			// created. Copy confirmed file-backed credentials to the preferred
 			// Adapter so they remain readable after the old file is locked again.
-			ref, putErr := w.SecretWriter.PutPlaintext(logicalKey, resolved)
+			ref, putErr := w.PutPlaintext(logicalKey, resolved)
 			if putErr != nil {
 				return "", putErr
 			}
@@ -73,7 +73,7 @@ func (w migrationSecretWriter) Put(logicalKey, value string) (string, error) {
 		}
 		return value, nil
 	}
-	return w.SecretWriter.PutPlaintext(logicalKey, value)
+	return w.PutPlaintext(logicalKey, value)
 }
 
 func newMigrationSecretWriter(writer secrets.SecretWriter, vault *secrets.Vault, pending ...*bool) migrationSecretWriter {

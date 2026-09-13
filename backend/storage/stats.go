@@ -1,6 +1,7 @@
 // 存储体检：行数统计 + 数据目录体积 + VACUUM（docs/ops.md 运维可见性）。
 // 保留策略（history/runner_run）删除行后库文件不会自动收缩，
 // VACUUM 由用户在设置页显式触发。
+
 package storage
 
 import (

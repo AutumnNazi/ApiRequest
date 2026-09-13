@@ -2,6 +2,7 @@
 // 一个会话 = 一个订阅操作：打开即完成 connection_init/ack 握手，Send 收
 // {query, variables?, operationName?}（其余字段忽略）并发起 subscribe，
 // 入站 next/error/complete 解包后推前端；complete 后会话自动关闭。
+
 package protocol
 
 import (

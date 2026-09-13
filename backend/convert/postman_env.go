@@ -2,6 +2,7 @@
 // 环境文件没有集合语义：产出 = 空占位集合 + SuggestedEnvironments[0]，
 // ImportCommit 会把建议环境落库（不激活）。检测标记 `_postman_variable_scope`，
 // 与集合文件（schema.getpostman.com）互不冲突。
+
 package convert
 
 import (

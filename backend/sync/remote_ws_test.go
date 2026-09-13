@@ -23,8 +23,8 @@ func startRemoteWsDav(t *testing.T, snapshots map[string]string) *httptest.Serve
 			body.WriteString(`<?xml version="1.0"?><D:multistatus xmlns:D="DAV:">`)
 			body.WriteString(`<D:response><D:href>/ApiRequest/</D:href></D:response>`)
 			for id := range snapshots {
-				body.WriteString(fmt.Sprintf(
-					`<D:response><D:href>/ApiRequest/workspace-%s.json</D:href></D:response>`, id))
+				fmt.Fprintf(&body,
+					`<D:response><D:href>/ApiRequest/workspace-%s.json</D:href></D:response>`, id)
 			}
 			body.WriteString(`</D:multistatus>`)
 			io_WriteString(w, body.String())

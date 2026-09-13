@@ -2,6 +2,10 @@ module apirequest
 
 go 1.26.6
 
+// 前端依赖树里的 Go 参考实现（flatted 等）不属于本模块，
+// 显式排除避免 go list/test 把 node_modules 当作模块包扫描
+ignore frontend/node_modules
+
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347

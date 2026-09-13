@@ -36,13 +36,13 @@ func systemProxyConfig() (ProxyConfig, bool, error) {
 	}
 	server, _, err := key.GetStringValue("ProxyServer")
 	if err != nil || strings.TrimSpace(server) == "" {
-		return ProxyConfig{}, false, fmt.Errorf("Windows system proxy is enabled without a proxy server")
+		return ProxyConfig{}, false, fmt.Errorf("windows system proxy is enabled without a proxy server")
 	}
 	bypass, _, _ := key.GetStringValue("ProxyOverride")
 	parsed := parseWindowsProxy(server, bypass)
 	parsed.Warning = config.Warning
 	if parsed.HTTPProxy == "" && parsed.HTTPSProxy == "" {
-		return ProxyConfig{}, false, fmt.Errorf("Windows system proxy contains no supported HTTP, HTTPS, or SOCKS endpoint")
+		return ProxyConfig{}, false, fmt.Errorf("windows system proxy contains no supported HTTP, HTTPS, or SOCKS endpoint")
 	}
 	return parsed, true, nil
 }

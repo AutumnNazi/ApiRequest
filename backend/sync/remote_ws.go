@@ -1,5 +1,6 @@
 // 远端工作区发现与导入（docs/sync.md）：新设备以远端快照为源头建立本地工作区，
 // 工作区 id 与远端快照文件保持一致（远端路径由 workspaceId 决定），导入后即可常规双向同步。
+
 package sync
 
 import (

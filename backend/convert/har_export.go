@@ -1,6 +1,7 @@
 // HAR 1.2 导出（docs/interop.md）：与 harImporter 对称的导出方向。
 // 集合树按序展开为 entries；HAR 规范要求 response 字段存在，导出为 0 占位
 // （导出的是请求定义而非已捕获的会话）。
+
 package convert
 
 import (

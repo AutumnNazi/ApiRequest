@@ -1,6 +1,7 @@
 // 替换与回滚（ADR-018）：下载（sha256 校验）→ 两阶段替换。
 // Windows 上运行中的 exe 被锁定，替换采用 pending-update 标记 + 启动时应用；
 // Unix 直接同卷 rename 原子换入，失败恢复备份。标记在本层处理：完成或回滚后清除。
+
 package updater
 
 import (

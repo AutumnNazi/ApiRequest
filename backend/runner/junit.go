@@ -1,6 +1,7 @@
 // JUnit XML 导出：供 CI 测试报告（GitHub Actions test-report 等）消费。
 // 每个 Results 条目对应一个 testcase；被 StopOnError/取消跳过的执行不产生
 // testcase，只体现在 skipped 属性上（与 Report.Skipped 的"未执行"语义一致）。
+
 package runner
 
 import (

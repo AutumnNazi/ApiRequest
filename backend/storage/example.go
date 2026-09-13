@@ -104,8 +104,8 @@ func (s *Store) UpsertExample(e model.Example) (model.Example, error) {
 		e.CreatedAt = now
 	}
 	e.UpdatedAt = now
-	redactor := secrets.NewRedactor(s.vault)
 	values := secrets.HeaderValues(e.Headers)
+	var redactor *secrets.Redactor
 	if e.RequestSnap != nil {
 		values = append(values, secrets.RequestCredentialValues(*e.RequestSnap)...)
 		redactor = secrets.NewRedactor(s.vault, values...)

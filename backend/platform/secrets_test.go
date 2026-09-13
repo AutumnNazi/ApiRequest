@@ -9,7 +9,7 @@ import (
 )
 
 func TestSecretStoreContractAndMissingError(t *testing.T) {
-	var _ SecretStore = SystemSecretStore()
+	var _ = SystemSecretStore()
 	if !IsSecretNotFound(keyring.ErrNotFound) {
 		t.Fatal("native missing-secret error was not recognized")
 	}

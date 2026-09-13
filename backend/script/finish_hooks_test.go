@@ -18,7 +18,7 @@ func TestFinishHooksRunExactlyOnceOnPanic(t *testing.T) {
 	// SendFunc 里制造真实 Go panic（nil map 写入），触发 Run 的 recover 兜底
 	s.SendFunc = func(model.HttpRequest) (model.ResponseResult, error) {
 		var broken map[string]string
-		broken["boom"] = "panic"
+		broken["boom"] = "panic" //nolint:staticcheck // 故意制造真实 Go panic，验证 Run 的 recover 兜底
 		return model.ResponseResult{}, nil
 	}
 

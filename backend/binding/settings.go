@@ -57,8 +57,7 @@ func NewSettingsApi(store *storage.Store, engine *httpengine.Engine) *SettingsAp
 	return a
 }
 
-// GetVaultStatus reports which Secret Vault Adapter is available.
-// StorageStats 存储体检（设置页"存储"分区）
+// StorageStats 返回存储体检统计（设置页"存储"分区）。
 func (a *SettingsApi) StorageStats() (model.StorageStats, error) {
 	return a.store.StorageStats()
 }
@@ -103,6 +102,7 @@ func (a *SettingsApi) SetRawSetting(key, value string) error {
 	return a.store.SetSetting(key, value)
 }
 
+// GetVaultStatus reports which Secret Vault Adapter is available.
 func (a *SettingsApi) GetVaultStatus() secrets.Status {
 	return a.store.Vault().Status()
 }

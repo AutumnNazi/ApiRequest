@@ -158,14 +158,15 @@ func buildCurlCommand(r model.HttpRequest) string {
 	}
 
 	// auth：常用类型直接对应 curl flag
-	if r.Auth.Type == "basic" {
+	switch r.Auth.Type {
+	case "basic":
 		u := r.Auth.Params["username"]
 		p := r.Auth.Params["password"]
 		b.WriteString(" \\\n  -u '" + shellEscape(u+":"+p) + "'")
-	} else if r.Auth.Type == "bearer" {
+	case "bearer":
 		tok := r.Auth.Params["token"]
 		b.WriteString(" \\\n  -H 'Authorization: Bearer " + shellEscape(tok) + "'")
-	} else if r.Auth.Type == "apikey" {
+	case "apikey":
 		// 默认放 header；query/cookie 分别落到 URL/Cookie 头，避免把 API key 放错位置。
 		k := r.Auth.Params["key"]
 		v := r.Auth.Params["value"]

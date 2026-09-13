@@ -318,7 +318,7 @@ func TestRunRecoversGoPanicFromInjectedCallback(t *testing.T) {
 	s := newTestSandbox()
 	s.SendFunc = func(req model.HttpRequest) (model.ResponseResult, error) {
 		var broken map[string]string
-		broken["boom"] = "x" // 真实 Go panic：assignment to entry in nil map
+		broken["boom"] = "x" //nolint:staticcheck // 故意 nil map 写入触发真实 Go panic（回归注释见上）
 		return model.ResponseResult{}, nil
 	}
 	err := s.Run(`pm.sendRequest('https://x.io', function () {})`, "pre")

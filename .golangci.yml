@@ -11,12 +11,19 @@ linters:
     - govet
     - ineffassign
     - unused
-    - errcheck   # 错误必须显式处理或显式忽略（_ =）；2026-09-11 清扫 176 处后转正
-    - errorlint  # 错误断言应 errors.As / %w 包装检查
+    - errcheck    # 错误必须显式处理或显式忽略（_ =）；2026-09-11 清扫 176 处后转正
+    - errorlint   # 错误断言应 errors.As / %w 包装检查
     - copyloopvar # Go 1.22+ 循环变量语义
     - misspell
     - unconvert
+    - staticcheck # SA bug 类 + 简化建议；2026-09-13 清扫存量后转正
   settings:
+    staticcheck:
+      checks:
+        # all 减 ST1003：初始缩略词大写命名（redirectURI 等）与全库既有
+        # uri/url 惯例冲突，改名属纯 churn 无 bug 价值
+        - all
+        - -ST1003
     errcheck:
       exclude-functions:
         # goja 新建对象的 Set 只在接收方为 nil/非对象时出错；
@@ -32,7 +39,6 @@ linters:
         linters:
           - errcheck
   # 未开（按需逐个清零存量后转正）：
-  #   staticcheck —— 一批 QF/SA 建议与既有惯例冲突，需逐条裁决
   #   errchkjson / wrapcheck 等 —— 同上策略
 
 issues:

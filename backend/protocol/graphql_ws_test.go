@@ -97,7 +97,7 @@ func TestGraphqlWsSessionRoundTrip(t *testing.T) {
 	// 依次收到：open（握手前）、in/data（next 解包）、system/close（complete）
 	var gotNext, gotComplete bool
 	deadline := time.After(5 * time.Second)
-	for !(gotNext && gotComplete) {
+	for !gotNext || !gotComplete {
 		select {
 		case msg := <-events:
 			switch {

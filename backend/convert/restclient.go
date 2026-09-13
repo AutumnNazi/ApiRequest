@@ -1,5 +1,6 @@
 // REST Client (.http) 格式：VS Code REST Client / JetBrains HTTP client 通用的
 // 纯文本请求集（docs/interop.md）。导入按 "###" 或方法行分块；导出按树序展开。
+
 package convert
 
 import (

@@ -190,7 +190,7 @@ func jsonQuote(s string) string {
 		default:
 			if r < 0x20 {
 				// 其余控制字符（HTTP 头值可含）按 \uXXXX 转义，否则生成非法 JS/JSON
-				b.WriteString(fmt.Sprintf(`\u%04x`, r))
+				fmt.Fprintf(&b, `\u%04x`, r)
 			} else {
 				b.WriteRune(r)
 			}
