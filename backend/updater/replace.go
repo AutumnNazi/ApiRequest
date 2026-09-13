@@ -40,7 +40,7 @@ func Download(cfg DownloadConfig) (string, error) {
 	if err != nil {
 		return "", model.WrapError(model.KindNetwork, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return "", model.NewError(model.KindNetwork,
 			fmt.Sprintf("download: GET %s → %s", cfg.URL, resp.Status))
@@ -124,7 +124,7 @@ func verifyFile(path, wantHex string) error {
 	if err != nil {
 		return model.WrapError(model.KindStorage, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	hasher := sha256.New()
 	if _, err := io.Copy(hasher, f); err != nil {
 		return model.WrapError(model.KindStorage, err)

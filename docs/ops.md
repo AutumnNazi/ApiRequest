@@ -64,7 +64,7 @@ func (e *AppError) Error() string { return string(e.Kind) + ": " + e.Detail }
 | Go 集成测试 | SendRequest 全流程（对 mock HTTP server） | `go test` + `net/http/httptest` |
 | 脚本引擎测试 | `pm.*` API 行为、断言、超时、隔离 | `go test` |
 | 前端单元测试 | store 逻辑、IPC wrapper、纯组件 | Vitest + Testing Library |
-| 静态检查 | Go：golangci-lint 保守集（vet 级 + errorlint/copyloopvar 等，见 `.golangci.yml`，未开 linter 与理由写在配置注释）；前端：ESLint recommended + react-hooks（见 `frontend/eslint.config.mjs`） | CI（dev 与 release 双流水线，零告警门槛） |
+| 静态检查 | Go：golangci-lint 保守集（vet 级 + errcheck/errorlint/copyloopvar 等，见 `.golangci.yml`，未开 linter 与理由写在配置注释）；前端：ESLint recommended + react-hooks（见 `frontend/eslint.config.mjs`） | CI（dev 与 release 双流水线，零告警门槛） |
 | E2E | 关键用户路径（建请求→发送→看响应→存集合） | Wails + Playwright/WebDriver |
 | 跨平台冒烟 | Windows / macOS 构建产物可启动、可发一次请求、可读写应用数据目录 | CI matrix |
 | 依赖漏洞扫描 | Go 模块按调用路径（govulncheck）；前端依赖 high 及以上（npm audit） | CI（dev 与 release 双流水线，失败阻断） |

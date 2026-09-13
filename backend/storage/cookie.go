@@ -55,7 +55,7 @@ func (s *Store) queryCookies(query string, args ...any) ([]model.Cookie, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []model.Cookie{}
 	for rows.Next() {
@@ -100,7 +100,7 @@ func (s *Store) UpsertCookies(workspaceId string, cookies []model.Cookie) error 
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		for _, cookie := range cookies {
 			if err := upsertCookie(tx, writer, workspaceId, cookie); err != nil {
 				return err
@@ -212,7 +212,7 @@ func (s *Store) ClearCookies(workspaceId, domain string) error {
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		query := "SELECT value FROM cookie WHERE workspace_id = ?"
 		args := []any{workspaceId}
 		if domain != "" {
@@ -228,7 +228,7 @@ func (s *Store) ClearCookies(workspaceId, domain string) error {
 		for rows.Next() {
 			var value string
 			if err := rows.Scan(&value); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			if secrets.IsRef(value) {
@@ -236,10 +236,10 @@ func (s *Store) ClearCookies(workspaceId, domain string) error {
 			}
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
-		rows.Close()
+		_ = rows.Close()
 		for _, ref := range refs {
 			if err := writer.Delete(ref); err != nil {
 				return err

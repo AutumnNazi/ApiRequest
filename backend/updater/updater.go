@@ -205,7 +205,7 @@ func fetch(ctx context.Context, client *http.Client, url string) ([]byte, error)
 	if err != nil {
 		return nil, model.WrapError(model.KindNetwork, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return nil, model.NewError(model.KindNetwork,
 			fmt.Sprintf("update check: GET %s → %s", url, resp.Status))

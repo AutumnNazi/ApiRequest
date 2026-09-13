@@ -101,7 +101,7 @@ func (s *Store) ImportNodeTree(workspaceId string, collection model.Node, childr
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		var workspaceExists bool
 		if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = ?)", workspaceId).Scan(&workspaceExists); err != nil {
 			return err
@@ -174,7 +174,7 @@ func (s *Store) ListNodes(workspaceId string) ([]model.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []model.Node{}
 	for rows.Next() {
@@ -207,7 +207,7 @@ func (s *Store) ListNodeSummaries(workspaceId string) ([]model.NodeSummary, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []model.NodeSummary{}
 	for rows.Next() {
@@ -496,7 +496,7 @@ func (s *Store) MoveNodes(workspaceId string, moves []model.NodeMove) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	seen := make(map[string]struct{}, len(moves))
 	for _, move := range moves {
 		if move.Id == "" {

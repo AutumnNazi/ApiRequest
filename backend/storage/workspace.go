@@ -52,7 +52,7 @@ func (s *Store) ListWorkspaces() ([]model.Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []model.Workspace{}
 	for rows.Next() {
 		var w model.Workspace
@@ -94,7 +94,7 @@ func (s *Store) DeleteWorkspace(id string) error {
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 
 		// Collect blob references before deleting their database rows.
 		rows, err := tx.Query(
@@ -105,7 +105,7 @@ func (s *Store) DeleteWorkspace(id string) error {
 		for rows.Next() {
 			var ref sql.NullString
 			if err := rows.Scan(&ref); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			if ref.Valid && ref.String != "" {
@@ -113,10 +113,10 @@ func (s *Store) DeleteWorkspace(id string) error {
 			}
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
-		rows.Close()
+		_ = rows.Close()
 
 		if err := deleteRemovedSecretReferences(writer, workspaceRefs, nil); err != nil {
 			return err

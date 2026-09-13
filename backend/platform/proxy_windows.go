@@ -18,7 +18,7 @@ func systemProxyConfig() (ProxyConfig, bool, error) {
 	if err != nil {
 		return ProxyConfig{}, false, fmt.Errorf("read Windows system proxy: %w", err)
 	}
-	defer key.Close()
+	defer func() { _ = key.Close() }()
 
 	enabled, _, err := key.GetIntegerValue("ProxyEnable")
 	if err != nil {

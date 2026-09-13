@@ -37,7 +37,7 @@ func (s *Store) ApplyWorkspaceVariableMutations(workspaceId string, changes Work
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		now := nowMs()
 
 		if !changes.Environment.empty() {

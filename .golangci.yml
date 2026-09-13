@@ -11,13 +11,27 @@ linters:
     - govet
     - ineffassign
     - unused
-    - errorlint   # 错误断言应 errors.As / %w 包装检查
+    - errcheck   # 错误必须显式处理或显式忽略（_ =）；2026-09-11 清扫 176 处后转正
+    - errorlint  # 错误断言应 errors.As / %w 包装检查
     - copyloopvar # Go 1.22+ 循环变量语义
     - misspell
     - unconvert
+  settings:
+    errcheck:
+      exclude-functions:
+        # goja 新建对象的 Set 只在接收方为 nil/非对象时出错；
+        # 本库调用点全部以 NewObject() 起始，属构造性不可能
+        - (*github.com/dop251/goja.Object).Set
+        - (*github.com/dop251/goja.Runtime).Set
+        - (*github.com/dop251/goja.Array).Set
+        - (github.com/dop251/goja.Value).Set
+  exclusions:
+    rules:
+      # 测试文件的 defer Close / fixture 写入按测试语义忽略
+      - path: _test\.go
+        linters:
+          - errcheck
   # 未开（按需逐个清零存量后转正）：
-  #   errcheck —— 存量 420 处，大头是 goja Object.Set（接收方均为 NewObject 产物，
-  #     构造性不可能出错）与 defer Close/Rollback 惯例；需一轮专门清扫后开启
   #   staticcheck —— 一批 QF/SA 建议与既有惯例冲突，需逐条裁决
   #   errchkjson / wrapcheck 等 —— 同上策略
 

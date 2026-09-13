@@ -268,29 +268,29 @@ func OpenWithVault(dataDir string, vault *secrets.Vault) (*Store, error) {
 
 	s := &Store{db: db, dbPath: dbPath, blobsDir: filepath.Join(dataDir, "blobs"), vault: vault}
 	if err := os.MkdirAll(s.blobsDir, 0o700); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("create blobs directory: %w", err)
 	}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	if vault.Status().CanStore {
 		if err := s.MigrateSecrets(); err != nil {
-			db.Close()
+			_ = db.Close()
 			return nil, fmt.Errorf("migrate legacy secrets: %w", err)
 		}
 	}
 	if err := s.MigrateAuditSecrets(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	if err := s.migrateHistoryResponseBlobs(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate history response blobs: %w", err)
 	}
 	if err := s.cleanupOrphanedBlobs(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("clean orphaned response blobs: %w", err)
 	}
 	return s, nil
@@ -323,11 +323,11 @@ func (s *Store) migrate() error {
 			return err
 		}
 		if _, err := tx.Exec(migrations[i]); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migration %d failed: %w", i+1, err)
 		}
 		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return err
 		}
 		if err := tx.Commit(); err != nil {
@@ -386,7 +386,7 @@ func (s *Store) ReadBlobRange(ref string, offset, limit int64) ([]byte, bool, er
 	if err != nil {
 		return nil, false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
 		return nil, false, err
@@ -430,7 +430,7 @@ func (s *Store) CopyBlob(ref, destination string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	temp, err := os.CreateTemp(filepath.Dir(destinationAbs), ".apirequest-save-*.tmp")
 	if err != nil {
 		return 0, err
@@ -521,7 +521,7 @@ func (s *Store) ReadBlob(ref string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
 		return nil, err
@@ -550,7 +550,7 @@ func (s *Store) removeBlobFile(ref string) {
 	if err != nil {
 		return
 	}
-	os.Remove(path)
+	_ = os.Remove(path)
 }
 
 func (s *Store) removeUnreferencedBlobFiles(refs []string) {
@@ -593,16 +593,16 @@ func (s *Store) removeUnreferencedBlobFiles(refs []string) {
 		for rows.Next() {
 			var ref string
 			if err := rows.Scan(&ref); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return
 			}
 			referenced[ref] = struct{}{}
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 	for _, ref := range unique {
 		if _, ok := referenced[ref]; !ok {
@@ -624,16 +624,16 @@ func (s *Store) cleanupOrphanedBlobs() error {
 	for rows.Next() {
 		var ref string
 		if err := rows.Scan(&ref); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		referenced[ref] = struct{}{}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	entries, err := os.ReadDir(s.blobsDir)
 	if err != nil {

@@ -285,12 +285,12 @@ func (m *TokenManager) authorizationCode(ctx context.Context, p map[string]strin
 
 	state, err := randomToken(24)
 	if err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return nil, err
 	}
 	verifier, err := randomToken(48)
 	if err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return nil, err
 	}
 	challenge := pkceS256(verifier)
@@ -298,7 +298,7 @@ func (m *TokenManager) authorizationCode(ctx context.Context, p map[string]strin
 	// 2. 拼授权 URL 并拉起浏览器
 	authUrl, err := url.Parse(p["authUrl"])
 	if err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return nil, model.WrapError(model.KindValidation, err)
 	}
 	q := authUrl.Query()
@@ -335,21 +335,21 @@ func (m *TokenManager) authorizationCode(ctx context.Context, p map[string]strin
 		q := r.URL.Query()
 		if q.Get("state") != state {
 			deliver(callbackResult{err: model.NewError(model.KindValidation, "OAuth state mismatch")})
-			w.Write([]byte("State mismatch. You can close this window."))
+			_, _ = w.Write([]byte("State mismatch. You can close this window."))
 			return
 		}
 		if e := q.Get("error"); e != "" {
 			deliver(callbackResult{err: model.NewError(model.KindNetwork, "authorization denied: "+e)})
-			w.Write([]byte("Authorization failed. You can close this window."))
+			_, _ = w.Write([]byte("Authorization failed. You can close this window."))
 			return
 		}
 		deliver(callbackResult{code: q.Get("code")})
-		w.Write([]byte("Authorization complete. You can close this window and return to ApiRequest."))
+		_, _ = w.Write([]byte("Authorization complete. You can close this window and return to ApiRequest."))
 	})}
-	go srv.Serve(ln)
+	go func() { _ = srv.Serve(ln) }()
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		srv.Shutdown(shutdownCtx)
+		_ = srv.Shutdown(shutdownCtx)
 		cancel()
 	}()
 
@@ -413,7 +413,7 @@ func (m *TokenManager) tokenRequest(ctx context.Context, p map[string]string, fo
 	if err != nil {
 		return nil, model.WrapError(model.KindNetwork, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var payload struct {
 		AccessToken  string      `json:"access_token"`

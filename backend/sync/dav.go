@@ -143,7 +143,7 @@ func (c *davClient) Get(ctx context.Context, rel string) ([]byte, bool, string, 
 	if err != nil {
 		return nil, false, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	etag := resp.Header.Get("ETag")
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, false, "", nil
@@ -177,7 +177,7 @@ func (c *davClient) Put(ctx context.Context, rel string, data []byte, ifMatch st
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusNotFound {
 		// 父目录不存在：逐级 MKCOL 后重试一次
 		c.mkcolParents(ctx, rel)
@@ -185,7 +185,7 @@ func (c *davClient) Put(ctx context.Context, rel string, data []byte, ifMatch st
 		if err != nil {
 			return err
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if resp.StatusCode == http.StatusPreconditionFailed {
 		return fmt.Errorf("WebDAV PUT %s → %s: %w", rel, resp.Status, ErrRemoteConcurrent)
@@ -202,7 +202,7 @@ func (c *davClient) mkcolParents(ctx context.Context, rel string) {
 		dir := strings.Join(parts[:i], "/") + "/"
 		resp, err := c.do(ctx, "MKCOL", dir, nil, davTransferTimeout(0))
 		if err == nil {
-			resp.Body.Close() // 201 已建 / 405 已存在，都继续
+			_ = resp.Body.Close() // 201 已建 / 405 已存在，都继续
 		}
 	}
 }

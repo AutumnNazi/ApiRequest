@@ -17,7 +17,7 @@ func (s *Store) ListEnvironments(workspaceId string) ([]model.Environment, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []model.Environment{}
 	for rows.Next() {
@@ -152,7 +152,7 @@ func (s *Store) SetActiveEnvironment(workspaceId, envId string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.Exec("UPDATE environment SET is_active = 0 WHERE workspace_id = ?", workspaceId); err != nil {
 		return err
 	}
@@ -276,7 +276,7 @@ func (s *Store) NodeAncestors(nodeId string) ([]model.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []model.Node{}
 	for rows.Next() {

@@ -64,7 +64,7 @@ func (e *AppError) Error() string { return string(e.Kind) + ": " + e.Detail }
 | Go integration tests | Complete `SendRequest` flow against a mock HTTP server | `go test` + `net/http/httptest` |
 | Script engine tests | `pm.*` behavior, assertions, timeouts, and isolation | `go test` |
 | Frontend unit tests | Store logic, IPC wrappers, and pure components | Vitest + Testing Library |
-| Static analysis | Go: a conservative golangci-lint set (vet-level plus errorlint/copyloopvar etc., see `.golangci.yml` — disabled linters and reasons live in its comments); frontend: ESLint recommended + react-hooks (see `frontend/eslint.config.mjs`) | CI (dev and release pipelines, zero-warning gate) |
+| Static analysis | Go: a conservative golangci-lint set (vet-level plus errcheck/errorlint/copyloopvar etc., see `.golangci.yml` — disabled linters and reasons live in its comments); frontend: ESLint recommended + react-hooks (see `frontend/eslint.config.mjs`) | CI (dev and release pipelines, zero-warning gate) |
 | E2E | Critical flow: create request -> send -> inspect response -> save to collection | Wails + Playwright/WebDriver |
 | Cross-platform smoke | Windows/macOS builds launch, send one request, and read/write the application-data directory | CI matrix (the desktop job includes a CLI core-path smoke: platform data-dir resolution, keychain fallback, engine, and Runner) |
 | Dependency scanning | Go modules by call path (govulncheck); frontend deps at high severity and above (npm audit) | CI (dev and release pipelines, blocking gate) |

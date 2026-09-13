@@ -111,14 +111,14 @@ func openStore(dataDir string) (*storage.Store, error) {
 func cmdList(args []string) int {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	dbDir := fs.String("db", "", "")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	store, err := openStore(*dbDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "open store:", err)
 		return 2
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	workspaces, err := store.ListWorkspaces()
 	if err != nil {
@@ -188,7 +188,7 @@ func cmdImport(args []string) int {
 	format := fs.String("format", "", "")
 	workspace := fs.String("workspace", "", "")
 	dbDir := fs.String("db", "", "")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	if *file == "" {
 		fmt.Fprintln(os.Stderr, "--file is required")
@@ -205,7 +205,7 @@ func cmdImport(args []string) int {
 		fmt.Fprintln(os.Stderr, "open store:", err)
 		return 2
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	wsId, _, err := resolveTargetWorkspace(store, *workspace)
 	if err != nil {
@@ -261,7 +261,7 @@ func cmdExport(args []string) int {
 	outPath := fs.String("out", "", "")
 	workspace := fs.String("workspace", "", "")
 	dbDir := fs.String("db", "", "")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	if *collection == "" {
 		fmt.Fprintln(os.Stderr, "--collection is required")
@@ -273,7 +273,7 @@ func cmdExport(args []string) int {
 		fmt.Fprintln(os.Stderr, "open store:", err)
 		return 2
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	_, colId, err := resolveTarget(store, *workspace, *collection)
 	if err != nil {
@@ -314,7 +314,7 @@ func cmdRun(args []string) int {
 	htmlPath := fs.String("html", "", "")
 	dbDir := fs.String("db", "", "")
 	delayMs := fs.Int("delay", 0, "")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	if *collection == "" {
 		fmt.Fprintln(os.Stderr, "--collection is required")
@@ -326,7 +326,7 @@ func cmdRun(args []string) int {
 		fmt.Fprintln(os.Stderr, "open store:", err)
 		return 2
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	wsId, colId, err := resolveTarget(store, *workspace, *collection)
 	if err != nil {

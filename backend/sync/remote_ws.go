@@ -146,7 +146,7 @@ func (c *davClient) propfind(ctx context.Context, rel string) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil // 目录未建立 = 远端还没有任何工作区
 	}

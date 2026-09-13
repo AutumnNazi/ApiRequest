@@ -85,7 +85,7 @@ func (s *Store) ListRunnerRuns(workspaceId string, query model.RunnerRunQuery) (
 	if err != nil {
 		return model.RunnerRunPage{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	page := model.RunnerRunPage{Items: []model.RunnerRunSummary{}}
 	for rows.Next() {
 		var (

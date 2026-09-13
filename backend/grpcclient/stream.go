@@ -260,26 +260,26 @@ func OpenStream(cfg ConnectConfig, fullMethod, sessionId string, headers map[str
 	files, _, err := fetchDescriptors(reflectionCtx, conn)
 	reflectionCancel()
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	desc, err := files.FindDescriptorByName(protoreflect.FullName(svcName))
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, model.NewError(model.KindValidation, "service not found: "+svcName)
 	}
 	svc, ok := desc.(protoreflect.ServiceDescriptor)
 	if !ok {
-		conn.Close()
+		_ = conn.Close()
 		return nil, model.NewError(model.KindValidation, "not a service: "+svcName)
 	}
 	m := svc.Methods().ByName(protoreflect.Name(methodName))
 	if m == nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, model.NewError(model.KindValidation, "method not found: "+methodName)
 	}
 	if !m.IsStreamingClient() && !m.IsStreamingServer() {
-		conn.Close()
+		_ = conn.Close()
 		return nil, model.NewError(model.KindValidation, "method is not a streaming rpc; use unary call")
 	}
 
@@ -300,7 +300,7 @@ func OpenStream(cfg ConnectConfig, fullMethod, sessionId string, headers map[str
 	// 创建 ClientStream（conn.NewStream 是 *grpc.ClientConn 提供的公开方法）
 	stream, err := conn.NewStream(ctx, streamDesc, fullMethod)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, model.WrapError(model.KindNetwork, err)
 	}
 
@@ -315,7 +315,7 @@ func OpenStream(cfg ConnectConfig, fullMethod, sessionId string, headers map[str
 
 	if !defaultStreamMgr.activate(sessionId, opening, sess) {
 		_ = stream.CloseSend()
-		conn.Close()
+		_ = conn.Close()
 		return nil, model.NewError(model.KindValidation, "stream opening canceled: "+sessionId)
 	}
 	activated = true
@@ -326,7 +326,7 @@ func OpenStream(cfg ConnectConfig, fullMethod, sessionId string, headers map[str
 			sess.markClosed()
 			defaultStreamMgr.finish(sessionId, sess)
 			cancel()
-			conn.Close()
+			_ = conn.Close()
 		}()
 		marshaler := protojson.MarshalOptions{Multiline: true, Indent: "  "}
 		// 即使 client-only stream 没有 server 响应，单次 Recv 也能拿到 trailer

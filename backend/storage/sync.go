@@ -75,23 +75,23 @@ func validateSyncOwnership(queryer syncQueryer, workspaceId string, nodes []Sync
 		for rows.Next() {
 			var id, existingWorkspace, existingKind string
 			if err := rows.Scan(&id, &existingWorkspace, &existingKind); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			if existingWorkspace != workspaceId {
-				rows.Close()
+				_ = rows.Close()
 				return fmt.Errorf("sync node %q belongs to a different workspace", id)
 			}
 			if existingKind != nodeKinds[id] {
-				rows.Close()
+				_ = rows.Close()
 				return fmt.Errorf("sync node %q kind cannot be changed", id)
 			}
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 
 	environmentIds := make([]string, 0, len(environments))
@@ -122,19 +122,19 @@ func validateSyncOwnership(queryer syncQueryer, workspaceId string, nodes []Sync
 		for rows.Next() {
 			var id, existingWorkspace string
 			if err := rows.Scan(&id, &existingWorkspace); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			if existingWorkspace != workspaceId {
-				rows.Close()
+				_ = rows.Close()
 				return fmt.Errorf("sync environment %q belongs to a different workspace", id)
 			}
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 	return nil
 }
@@ -166,7 +166,7 @@ func (s *Store) ApplySyncSnapshot(snapshot SyncSnapshotWrite) error {
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		name := snapshot.WorkspaceName
 		if name == "" {
 			name = "Synced Workspace"
@@ -263,7 +263,7 @@ func loadSyncNodeReferences(queryer syncQueryer, workspaceId string) (map[string
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	references := make(map[string][]string)
 	for rows.Next() {
 		var id string
@@ -288,7 +288,7 @@ func loadSyncEnvironmentReferences(queryer syncQueryer, workspaceId string) (map
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	references := make(map[string][]string)
 	for rows.Next() {
 		var id, raw string
@@ -444,7 +444,7 @@ func (s *Store) ListNodesForSync(workspaceId string) ([]SyncNodeRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []SyncNodeRow{}
 	for rows.Next() {

@@ -99,7 +99,7 @@ func Discover(cfg ConnectConfig) ([]MethodInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		files, serviceNames, err = fetchDescriptors(ctx, conn)
 		if err != nil {
 			return nil, err
@@ -153,7 +153,7 @@ func Call(cfg ConnectConfig, fullMethod, requestJSON string, headers map[string]
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	var files *protoregistry.Files
 	if cfg.ProtoFile != "" {
@@ -236,7 +236,7 @@ func fetchDescriptors(ctx context.Context, conn *grpc.ClientConn) (*protoregistr
 	if err != nil {
 		return nil, nil, model.WrapError(model.KindNetwork, err)
 	}
-	defer stream.CloseSend()
+	defer func() { _ = stream.CloseSend() }()
 
 	// 1. 列服务
 	if err := stream.Send(&grpc_reflection_v1.ServerReflectionRequest{

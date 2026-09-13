@@ -101,7 +101,7 @@ func (m *Manager) Open(sessionId string, cfg SessionConfig, emit EmitFunc) error
 	if _, closePending := m.closing[sessionId]; closePending {
 		delete(m.closing, sessionId)
 		m.mu.Unlock()
-		s.Close()
+		_ = s.Close()
 		return model.NewError(model.KindNetwork, "session closed while opening")
 	}
 	m.sessions[sessionId] = s
@@ -154,6 +154,6 @@ func (m *Manager) CloseAll() {
 	}
 	m.mu.Unlock()
 	for _, id := range ids {
-		m.Close(id)
+		_ = m.Close(id)
 	}
 }

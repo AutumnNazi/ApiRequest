@@ -133,7 +133,7 @@ func (a *App) shutdown(ctx context.Context) {
 	a.mocks.StopAll()
 	a.protocols.CloseAll()
 	grpcclient.CloseAllStreams()
-	a.store.Close()
+	_ = a.store.Close()
 }
 
 // updaterExePath 当前可执行文件路径（pending 更新的替换目标）

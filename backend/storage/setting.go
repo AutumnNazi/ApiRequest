@@ -91,7 +91,7 @@ func (s *Store) GetSettings(keys []string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	values, err := getSettings(tx, keys)
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func (s *Store) SetSettings(values map[string]string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := setSettings(tx, values); err != nil {
 		return err
 	}

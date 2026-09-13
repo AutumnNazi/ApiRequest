@@ -245,7 +245,7 @@ func (e *Engine) send(ctx context.Context, req model.HttpRequest, progress Progr
 			// 先缓存首个 401 响应体再 drain：挑战不可处理时直接返回它，
 			// 避免对非幂等请求（POST 等）盲目重发导致服务端副作用执行两次
 			firstBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxChallengeBodyBytes))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			retryReq, rerr := e.buildRequest(ctx, req)
 			if rerr != nil {
@@ -299,7 +299,7 @@ func (e *Engine) send(ctx context.Context, req model.HttpRequest, progress Progr
 			}
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	totalBytes := resp.ContentLength
 	if totalBytes < 0 {
 		totalBytes = 0

@@ -20,7 +20,7 @@ func (s *Store) ListExamples(nodeId string) ([]model.Example, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanExamples(rows)
 }
 
@@ -39,7 +39,7 @@ func (s *Store) ListExamplesForCollection(collectionId string) ([]model.Example,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []model.Example{}
 	for rows.Next() {
 		var e model.Example
@@ -165,7 +165,7 @@ func (s *Store) migrateExampleSecrets() error {
 	for rows.Next() {
 		var item update
 		if err := rows.Scan(&item.id, &item.request, &item.headers, &item.body); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		redactor := secrets.NewRedactor(s.vault)
@@ -188,7 +188,7 @@ func (s *Store) migrateExampleSecrets() error {
 					continue
 				}
 				if err != nil {
-					rows.Close()
+					_ = rows.Close()
 					return err
 				}
 				values = append(values, secrets.HeaderValues(headers)...)
@@ -196,7 +196,7 @@ func (s *Store) migrateExampleSecrets() error {
 				request = redactor.Request(request)
 				data, err := json.Marshal(request)
 				if err != nil {
-					rows.Close()
+					_ = rows.Close()
 					return err
 				}
 				item.request = string(data)
@@ -206,7 +206,7 @@ func (s *Store) migrateExampleSecrets() error {
 		if json.Unmarshal([]byte(item.headers), &headers) == nil {
 			data, err := json.Marshal(redactor.ResponseHeaders(headers))
 			if err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			item.headers = string(data)
@@ -214,15 +214,15 @@ func (s *Store) migrateExampleSecrets() error {
 		updates = append(updates, item)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	for _, item := range updates {
 		if _, err := tx.Exec(`UPDATE example SET request_snap = NULLIF(?, ''), headers = ?, body = NULLIF(?, '') WHERE id = ?`, item.request, item.headers, item.body, item.id); err != nil {
 			return err

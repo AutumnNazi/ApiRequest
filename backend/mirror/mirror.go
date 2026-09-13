@@ -307,7 +307,7 @@ func readDirBounded(path string) ([]os.DirEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	entries, err := dir.ReadDir(maxMirrorEntriesPerDir + 1)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
@@ -480,12 +480,12 @@ func writeJSON(path string, v any) error {
 		}
 	}()
 	if _, err := tmpFile.Write(b); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return err
 	}
 	// Sync 后再 rename：仅 rename 不保证数据已落盘，断电可能留下长度正确但内容为零的文件
 	if err := tmpFile.Sync(); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return err
 	}
 	if err := tmpFile.Close(); err != nil {
@@ -513,7 +513,7 @@ func readJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
 		return err

@@ -172,7 +172,7 @@ func IntrospectWithClient(ctx context.Context, cfg IntrospectConfig, client *htt
 	if err != nil {
 		return nil, model.WrapError(model.KindNetwork, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxIntrospectionResponseBytes+1))
 	if err != nil {
 		return nil, model.WrapError(model.KindNetwork, err)

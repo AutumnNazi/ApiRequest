@@ -45,7 +45,7 @@ func (s *Store) migrateHistoryResponseSecrets() error {
 	for rows.Next() {
 		var id, raw string
 		if err := rows.Scan(&id, &raw); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		var meta responseMeta
@@ -69,22 +69,22 @@ func (s *Store) migrateHistoryResponseSecrets() error {
 		meta.Headers = redactedHeaders
 		data, err := json.Marshal(meta)
 		if err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		updates = append(updates, update{id: id, meta: string(data)})
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	for _, item := range updates {
 		if _, err := tx.Exec("UPDATE history SET response_meta = ? WHERE id = ?", item.meta, item.id); err != nil {
 			return err
@@ -116,7 +116,7 @@ func (s *Store) migrateHistoryRequestSecrets() error {
 	for rows.Next() {
 		var item update
 		if err := rows.Scan(&item.id, &item.request, &item.meta, &item.body, &item.tests); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		var request model.HttpRequest
@@ -131,7 +131,7 @@ func (s *Store) migrateHistoryRequestSecrets() error {
 			continue
 		}
 		if err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		var meta responseMeta
@@ -146,7 +146,7 @@ func (s *Store) migrateHistoryRequestSecrets() error {
 		request = redactor.Request(request)
 		requestData, err := json.Marshal(request)
 		if err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		item.request = string(requestData)
@@ -155,7 +155,7 @@ func (s *Store) migrateHistoryRequestSecrets() error {
 			meta.Headers = redactor.ResponseHeaders(meta.Headers)
 			data, err := json.Marshal(meta)
 			if err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			item.meta = string(data)
@@ -165,7 +165,7 @@ func (s *Store) migrateHistoryRequestSecrets() error {
 			if json.Unmarshal([]byte(item.tests), &tests) == nil {
 				data, err := json.Marshal(redactor.TestResults(tests))
 				if err != nil {
-					rows.Close()
+					_ = rows.Close()
 					return err
 				}
 				item.tests = string(data)
@@ -174,15 +174,15 @@ func (s *Store) migrateHistoryRequestSecrets() error {
 		updates = append(updates, item)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	for _, item := range updates {
 		if _, err := tx.Exec(`UPDATE history SET request_snap = ?, response_meta = NULLIF(?, ''),
 			body_inline = NULLIF(?, ''), test_results = NULLIF(?, '') WHERE id = ?`,
@@ -225,22 +225,22 @@ func (s *Store) migrateHistoryResponseBlobs() error {
 	for rows.Next() {
 		var ref string
 		if err := rows.Scan(&ref); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		refs = append(refs, ref)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.Exec("UPDATE history SET body_ref = NULL WHERE body_ref IS NOT NULL AND body_ref != ''"); err != nil {
 		return err
 	}
@@ -294,7 +294,7 @@ func (s *Store) InsertHistory(item model.HistoryRecord) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	_, err = tx.Exec(`
 		INSERT INTO history (id, workspace_id, request_snap, method, url, status, duration_ms,
 		                     size_bytes, response_meta, body_ref, body_inline, test_results, created_at)
@@ -337,7 +337,7 @@ func pruneHistoryTx(tx *sql.Tx, workspaceId string, limit int) ([]string, error)
 	for rows.Next() {
 		var ref string
 		if err := rows.Scan(&ref); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		if ref != "" {
@@ -345,10 +345,10 @@ func pruneHistoryTx(tx *sql.Tx, workspaceId string, limit int) ([]string, error)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return nil, err
 	}
-	rows.Close()
+	_ = rows.Close()
 	if _, err := tx.Exec(`
 		DELETE FROM history
 		WHERE workspace_id = ? AND id IN (`+staleIds+`)`, workspaceId, workspaceId, limit); err != nil {
@@ -395,7 +395,7 @@ func (s *Store) ListHistory(workspaceId string, query model.HistoryQuery) (model
 	if err != nil {
 		return model.HistoryPage{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]model.HistorySummary, 0, limit+1)
 	for rows.Next() {
 		var item model.HistorySummary
@@ -491,7 +491,7 @@ func (s *Store) ClearHistory(workspaceId string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	rows, err := tx.Query("SELECT body_ref FROM history WHERE workspace_id = ? AND body_ref != ''", workspaceId)
 	if err != nil {
 		return err
@@ -500,7 +500,7 @@ func (s *Store) ClearHistory(workspaceId string) error {
 	for rows.Next() {
 		var ref sql.NullString
 		if err := rows.Scan(&ref); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		if ref.Valid && ref.String != "" {
@@ -508,10 +508,10 @@ func (s *Store) ClearHistory(workspaceId string) error {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 	if _, err := tx.Exec("DELETE FROM history WHERE workspace_id = ?", workspaceId); err != nil {
 		return err
 	}

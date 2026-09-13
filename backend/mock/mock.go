@@ -89,7 +89,7 @@ func shutdownServer(srv *Server) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	srv.httpSrv.Shutdown(ctx)
+	_ = srv.httpSrv.Shutdown(ctx)
 }
 
 // Start 启动集合的 mock（已运行则先停）。
@@ -158,7 +158,7 @@ func (m *Manager) Start(collectionId string, nodes []model.Node, examples []mode
 		onLog:        onLog,
 	}
 	srv.httpSrv = &http.Server{Handler: srv}
-	go srv.httpSrv.Serve(ln)
+	go func() { _ = srv.httpSrv.Serve(ln) }()
 
 	m.mu.Lock()
 	m.servers[collectionId] = srv
@@ -219,7 +219,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.log(r, "", 404)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error":      "no mock matched",
 			"method":     r.Method,
 			"path":       r.URL.Path,
@@ -253,7 +253,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.log(r, rt.name, 500)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(500)
-			json.NewEncoder(w).Encode(map[string]any{"error": scriptErr.Error()})
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": scriptErr.Error()})
 			return
 		}
 		if called {
@@ -267,7 +267,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			s.log(r, rt.name, resp.Status)
 			w.WriteHeader(resp.Status)
-			w.Write([]byte(resp.Body))
+			_, _ = w.Write([]byte(resp.Body))
 			return
 		}
 	}
@@ -284,7 +284,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.log(r, rt.name, status)
 	w.WriteHeader(status)
 	// body 中的 {{$...}} 动态变量渲染；普通 {{var}} 无环境上下文不解析
-	w.Write([]byte(template.Resolve(ex.Body, template.NewScope())))
+	_, _ = w.Write([]byte(template.Resolve(ex.Body, template.NewScope())))
 }
 
 func (s *Server) log(r *http.Request, matched string, status int) {

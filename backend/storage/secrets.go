@@ -171,7 +171,7 @@ func (s *Store) UpdateSecretSettings(
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		current, err := getSettings(tx, keys)
 		if err != nil {
 			return err
@@ -299,19 +299,19 @@ func (s *Store) storedWorkspaceSecretReferences(workspaceID string) ([]string, e
 	for rows.Next() {
 		var requestData, authData, variablesData sql.NullString
 		if err := rows.Scan(&requestData, &authData, &variablesData); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		if err := appendStoredNodeReferences(counts, requestData, authData, variablesData); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return nil, err
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	rows, err = s.db.Query("SELECT variables FROM environment WHERE workspace_id = ?", workspaceID)
 	if err != nil {
@@ -320,21 +320,21 @@ func (s *Store) storedWorkspaceSecretReferences(workspaceID string) ([]string, e
 	for rows.Next() {
 		var raw string
 		if err := rows.Scan(&raw); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		var variables []model.Variable
 		if err := json.Unmarshal([]byte(raw), &variables); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, fmt.Errorf("decode stored environment credentials: %w", err)
 		}
 		addSecretReferenceCounts(counts, secrets.VariableReferences(variables)...)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return nil, err
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	var raw string
 	err = s.db.QueryRow("SELECT variables FROM global_var WHERE workspace_id = ?", workspaceID).Scan(&raw)
@@ -535,7 +535,7 @@ func (s *Store) migrateSecretSettings(pending ...*bool) error {
 	for rows.Next() {
 		var row secretSetting
 		if err := rows.Scan(&row.key, &row.value); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		if row.value != "" {
@@ -543,7 +543,7 @@ func (s *Store) migrateSecretSettings(pending ...*bool) error {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
 	if err := rows.Close(); err != nil {
@@ -559,7 +559,7 @@ func (s *Store) migrateSecretSettings(pending ...*bool) error {
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		for _, row := range stored {
 			ref, err := writer.Put("setting/"+row.key, row.value)
 			if err != nil {
@@ -583,7 +583,7 @@ func (s *Store) migrateRequestValueSecrets() error {
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		rows, err := tx.Query("SELECT id, COALESCE(request_data, '') FROM node")
 		if err != nil {
 			return err
@@ -593,7 +593,7 @@ func (s *Store) migrateRequestValueSecrets() error {
 		for rows.Next() {
 			var row storedRequest
 			if err := rows.Scan(&row.id, &row.raw); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			if row.raw != "" {
@@ -601,10 +601,10 @@ func (s *Store) migrateRequestValueSecrets() error {
 			}
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
-		rows.Close()
+		_ = rows.Close()
 		for _, row := range stored {
 			var request model.HttpRequest
 			if err := json.Unmarshal([]byte(row.raw), &request); err != nil {
@@ -638,7 +638,7 @@ func (s *Store) migrateHeaderSecrets() error {
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		rows, err := tx.Query("SELECT id, COALESCE(request_data, '') FROM node")
 		if err != nil {
 			return err
@@ -648,7 +648,7 @@ func (s *Store) migrateHeaderSecrets() error {
 		for rows.Next() {
 			var row storedRequest
 			if err := rows.Scan(&row.id, &row.raw); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			if row.raw != "" {
@@ -656,10 +656,10 @@ func (s *Store) migrateHeaderSecrets() error {
 			}
 		}
 		if err := rows.Err(); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
-		rows.Close()
+		_ = rows.Close()
 		for _, row := range stored {
 			var request model.HttpRequest
 			if err := json.Unmarshal([]byte(row.raw), &request); err != nil {
@@ -697,7 +697,7 @@ func (s *Store) migrateCookieSecrets(pending ...*bool) error {
 	for rows.Next() {
 		var cookie storedCookie
 		if err := rows.Scan(&cookie.id, &cookie.value); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		if cookie.value != "" {
@@ -705,10 +705,10 @@ func (s *Store) migrateCookieSecrets(pending ...*bool) error {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 	if len(stored) == 0 {
 		return nil
 	}
@@ -718,7 +718,7 @@ func (s *Store) migrateCookieSecrets(pending ...*bool) error {
 		if err != nil {
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		for _, cookie := range stored {
 			ref, err := writer.Put(cookieSecretPrefix+cookie.id+"/value", cookie.value)
 			if err != nil {
@@ -745,16 +745,16 @@ func (s *Store) migrateNodeSecrets(pending ...*bool) error {
 	for rows.Next() {
 		var row storedNodeSecrets
 		if err := rows.Scan(&row.id, &row.requestData, &row.auth, &row.variables); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		stored = append(stored, row)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	for _, row := range stored {
 		if err := s.withSecretWrite(func(writer secrets.SecretWriter) error {
@@ -838,16 +838,16 @@ func (s *Store) migrateVariableSecrets(table, _ string, _ string, prefix string,
 	for rows.Next() {
 		var row variableRow
 		if err := rows.Scan(&row.id, &row.raw); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		stored = append(stored, row)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return err
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, row := range stored {
 		if err := s.withSecretWrite(func(writer secrets.SecretWriter) error {
 			writer = newMigrationSecretWriter(writer, s.vault, pending...)

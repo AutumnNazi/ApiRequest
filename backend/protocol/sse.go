@@ -62,7 +62,7 @@ func connectSSE(ctx context.Context, cfg SessionConfig, lastEventID string, clie
 		return nil, model.WrapError(model.KindNetwork, err)
 	}
 	if response.StatusCode != http.StatusOK {
-		response.Body.Close()
+		_ = response.Body.Close()
 		return nil, model.NewError(model.KindNetwork, "SSE endpoint returned "+response.Status)
 	}
 	return response, nil
@@ -82,7 +82,7 @@ func (s *sseSession) run(
 
 	for {
 		err := consumeSSE(ctx, response, id, emit, &lastEventID, &retry)
-		response.Body.Close()
+		_ = response.Body.Close()
 		if ctx.Err() != nil {
 			emit(systemSSEMessage(id, "close", "closed by user"))
 			return
