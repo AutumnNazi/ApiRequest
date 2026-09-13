@@ -87,6 +87,43 @@ func TestLoadProtoFiles(t *testing.T) {
 	}
 }
 
+// TestLoadProtoFilesWellKnownImport 锁行为：google/protobuf 标准库 import
+// 无需用户配置即可解析（protoparse 与 protocompile 迁移前后的共同语义）
+func TestLoadProtoFilesWellKnownImport(t *testing.T) {
+	dir := t.TempDir()
+	writeProto(t, dir, "stamped.proto", `syntax = "proto3";
+package stamped;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "example.com/stamped";
+
+message Event { google.protobuf.Timestamp at = 1; }
+
+service EventLog {
+  rpc Emit (Event) returns (Event);
+}
+`)
+
+	files, services, err := loadProtoFiles(filepath.Join(dir, "stamped.proto"), nil)
+	if err != nil {
+		t.Fatalf("loadProtoFiles: %v", err)
+	}
+	found := false
+	for _, s := range services {
+		if s == "stamped.EventLog" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("services = %v, want stamped.EventLog", services)
+	}
+	// well-known 消息类型解析完整（timestamp 跨标准 import 可用）
+	if _, err := files.FindDescriptorByName("google.protobuf.Timestamp"); err != nil {
+		t.Fatalf("find google.protobuf.Timestamp: %v", err)
+	}
+}
+
 func TestLoadProtoFilesExplicitImportDirs(t *testing.T) {
 	dir := t.TempDir()
 	writeProto(t, dir, "demo.proto", protoMain)
