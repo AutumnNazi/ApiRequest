@@ -10,6 +10,7 @@ import QueryErrorState from './components/QueryErrorState';
 import EnvSwitcher from './components/EnvSwitcher';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import { useDialog } from './components/DialogProvider';
+import { DialogErrorBoundary } from './components/ErrorBoundary';
 import { usePersistentState } from './hooks/usePersistentState';
 import { dragRegion, noDragRegion } from './titlebar';
 import { WindowMaximise, WindowUnmaximise, WindowIsMaximised } from '../wailsjs/runtime/runtime';
@@ -685,31 +686,54 @@ export default function App() {
         </div>
           <WindowControls onClose={() => void requestClose()} />
       </header>
+      {/* 每个浮层独立错误边界：面板抛错只关掉该面板，标签页与未保存草稿不受影响 */}
       <Suspense fallback={null}>
         {workspace && showPalette && (
-          <CommandPalette
-            workspaceId={workspace.id}
-            onSwitchWorkspace={(id) => {
-              setWorkspaceOverride({ id, name: '' });
-              qc.invalidateQueries({ queryKey: ['nodes', id] });
-              qc.invalidateQueries({ queryKey: ['envs', id] });
-            }}
-            onClose={() => setShowPalette(false)}
-          />
+          <DialogErrorBoundary onClose={() => setShowPalette(false)}>
+            <CommandPalette
+              workspaceId={workspace.id}
+              onSwitchWorkspace={(id) => {
+                setWorkspaceOverride({ id, name: '' });
+                qc.invalidateQueries({ queryKey: ['nodes', id] });
+                qc.invalidateQueries({ queryKey: ['envs', id] });
+              }}
+              onClose={() => setShowPalette(false)}
+            />
+          </DialogErrorBoundary>
         )}
         {showCookies && workspace && (
-          <CookieManager workspaceId={workspace.id} onClose={() => setShowCookies(false)} />
+          <DialogErrorBoundary onClose={() => setShowCookies(false)}>
+            <CookieManager workspaceId={workspace.id} onClose={() => setShowCookies(false)} />
+          </DialogErrorBoundary>
         )}
-        {showWs && <WsPanel onClose={() => setShowWs(false)} />}
-        {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
-        {showGrpc && <GrpcPanel onClose={() => setShowGrpc(false)} />}
+        {showWs && (
+          <DialogErrorBoundary onClose={() => setShowWs(false)}>
+            <WsPanel onClose={() => setShowWs(false)} />
+          </DialogErrorBoundary>
+        )}
+        {showSettings && (
+          <DialogErrorBoundary onClose={() => setShowSettings(false)}>
+            <SettingsDialog onClose={() => setShowSettings(false)} />
+          </DialogErrorBoundary>
+        )}
+        {showGrpc && (
+          <DialogErrorBoundary onClose={() => setShowGrpc(false)}>
+            <GrpcPanel onClose={() => setShowGrpc(false)} />
+          </DialogErrorBoundary>
+        )}
         {showGraphql && (
-          <GraphqlPanel
-            onClose={() => setShowGraphql(false)}
-            onOpenRequest={handleOpenGraphqlRequest}
-          />
+          <DialogErrorBoundary onClose={() => setShowGraphql(false)}>
+            <GraphqlPanel
+              onClose={() => setShowGraphql(false)}
+              onOpenRequest={handleOpenGraphqlRequest}
+            />
+          </DialogErrorBoundary>
         )}
-        {showTheme && <ThemeDialog onClose={() => setShowTheme(false)} />}
+        {showTheme && (
+          <DialogErrorBoundary onClose={() => setShowTheme(false)}>
+            <ThemeDialog onClose={() => setShowTheme(false)} />
+          </DialogErrorBoundary>
+        )}
       </Suspense>
 
       {/* Tab 右键菜单：固定定位浮层，点击菜单项后关闭 */}

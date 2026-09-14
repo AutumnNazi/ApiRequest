@@ -48,6 +48,7 @@ All invocations of Wails-generated binding functions go through domain-specific 
 - **Assertion assistant** (implemented): the Tests pane of the scripts view offers an "insert assertion" dropdown when a response exists — status code / Content-Type / top-level JSON fields (capped at 5) / duration budget are appended to the script for further tuning.
 - **Response area**: Pretty/Raw/Preview modes and search highlighting. Render at most 500,000 body characters, inspect blobs through bounded chunks, and stream full content to a native save destination. Never render an HTML blob's preview fragment as a complete document.
 - **Response diff**: the "Diff" button in the response area opens a dialog that line-diffs the current response against a picked history entry (search prefilled with the request URL). "Normalize formatting" is on by default (JSON re-serialized with sorted keys and two-space indent so formatting/key-order noise disappears; non-JSON sides fall back to raw text). Bodies beyond the limits (400k chars or the diff line cap) ask the user to use the Body view instead. The diff is display-only and never affects request sending.
+- **Error isolation**: the whole tree sits under a root `ErrorBoundary` (full-screen fallback with retry/reload), and each lazy overlay (Settings/gRPC/GraphQL/Cookies/WS-SSE/theme/command palette) is additionally wrapped in a `DialogErrorBoundary`. A render error inside a panel is contained to that overlay and dismissible, so open tabs and unsaved drafts survive instead of the whole app tearing down.
 
 ### Default Shortcuts
 

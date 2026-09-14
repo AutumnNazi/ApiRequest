@@ -403,6 +403,7 @@ export const en: Record<string, string> = {
   '重命名工作区：': 'Rename workspace:',
   '删除工作区': 'Delete workspace',
   '界面渲染出现未捕获错误': 'An uncaught rendering error occurred',
+  '该面板加载失败': 'This panel failed to load',
   'WebDAV not configured; set it in Settings first': 'WebDAV is not configured. Configure it in Settings first.',
   '⇅ 同步': 'Sync',
   ' 项）': ' items)',
