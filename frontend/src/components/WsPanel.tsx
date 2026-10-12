@@ -25,6 +25,7 @@ export default function WsPanel({ onClose }: Props) {
   const [outgoing, setOutgoing] = useState('');
   const [error, setError] = useState('');
   const sessionIdRef = useRef('');
+  const outgoingRevision = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const { recents, recall } = useRecentTargets('protocol:recent:ws');
 
@@ -62,6 +63,7 @@ export default function WsPanel({ onClose }: Props) {
     if (!resolvedUrl || connecting) return;
     setUrl(resolvedUrl);
     setConnecting(true);
+    outgoingRevision.current += 1;
     const id = `ws-${Date.now()}`;
     sessionIdRef.current = id;
     try {
@@ -97,10 +99,16 @@ export default function WsPanel({ onClose }: Props) {
   };
 
   const send = async () => {
-    if (!outgoing.trim()) return;
+    const sessionId = sessionIdRef.current;
+    const revision = outgoingRevision.current;
+    if (!sessionId || !outgoing.trim()) return;
     try {
-      await sendSessionMessage(sessionIdRef.current, outgoing);
-      setOutgoing('');
+      await sendSessionMessage(sessionId, outgoing);
+      // 发送期间即使把内容改回原文，也属于新的编辑，不能被旧发送清空。
+      if (sessionIdRef.current === sessionId && outgoingRevision.current === revision) {
+        outgoingRevision.current += 1;
+        setOutgoing('');
+      }
     } catch (e) {
       setError(toAppError(e).detail);
     }
@@ -194,7 +202,10 @@ export default function WsPanel({ onClose }: Props) {
               className="flex-1 border rounded px-2 py-1.5 text-sm font-mono resize-none h-16"
               placeholder={formatMessage('输入消息，Ctrl+Enter 发送')}
               value={outgoing}
-              onChange={(e) => setOutgoing(e.target.value)}
+              onChange={(e) => {
+                outgoingRevision.current += 1;
+                setOutgoing(e.target.value);
+              }}
               disabled={!connected}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send();

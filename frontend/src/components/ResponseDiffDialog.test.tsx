@@ -1,4 +1,4 @@
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ResponseDiffDialog, { type DiffSide } from './ResponseDiffDialog';
@@ -34,6 +34,7 @@ beforeEach(() => {
   ipc.listHistory.mockReset();
   ipc.getHistory.mockReset();
   ipc.readResponseBlobRange.mockReset();
+  ipc.listExamples.mockReset();
   ipc.listHistory.mockResolvedValue({
     items: [
       { id: 'h1', method: 'GET', url: 'https://x.test/api', status: 201, durationMs: 50, sizeBytes: 8, hasBody: true, createdAt: 2, workspaceId: 'ws-1' },
@@ -45,6 +46,15 @@ beforeEach(() => {
 });
 
 describe('ResponseDiffDialog', () => {
+  it('shows history query failures and retries them', async () => {
+    ipc.listHistory.mockRejectedValueOnce(new Error('history unavailable'));
+    renderDialog();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('history unavailable');
+    fireEvent.click(within(alert).getByRole('button', { name: '重试' }));
+    expect(await screen.findByText('https://x.test/api')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
   it('keeps detail loading errors visible and allows reselection', async () => {
     ipc.getHistory.mockRejectedValueOnce(new Error('detail unavailable'));
     renderDialog();
@@ -143,6 +153,39 @@ describe('ResponseDiffDialog 示例对照', () => {
     id: 'ex1', nodeId: 'node-1', name: '预期 200', status: 201, headers: [], body: '{"a":1,"b":2}',
     createdAt: 1, updatedAt: 1,
   };
+
+  it('distinguishes pending, failed and empty example lists', async () => {
+    let reject!: (cause: Error) => void;
+    ipc.listExamples.mockReturnValueOnce(new Promise((_, rejectPromise) => { reject = rejectPromise; }));
+    ipc.listExamples.mockResolvedValueOnce([]);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ResponseDiffDialog workspaceId="ws-1" nodeId="node-1" base={base} onClose={vi.fn()} />
+    </QueryClientProvider>);
+    fireEvent.click(screen.getByRole('button', { name: '示例' }));
+    expect(screen.getByText('加载中…')).toBeInTheDocument();
+    expect(screen.queryByText('此请求还没有保存的示例')).not.toBeInTheDocument();
+    await act(async () => reject(new Error('examples unavailable')));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('examples unavailable');
+    expect(screen.queryByText('此请求还没有保存的示例')).not.toBeInTheDocument();
+    fireEvent.click(within(alert).getByRole('button', { name: '重试' }));
+    expect(await screen.findByText('此请求还没有保存的示例')).toBeInTheDocument();
+  });
+
+  it('returns to history when the request no longer has a saved node', async () => {
+    ipc.listExamples.mockResolvedValue([]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}>
+      <ResponseDiffDialog workspaceId="ws-1" nodeId="node-1" base={base} onClose={vi.fn()} />
+    </QueryClientProvider>);
+    fireEvent.click(screen.getByRole('button', { name: '示例' }));
+    await screen.findByText('此请求还没有保存的示例');
+    view.rerender(<QueryClientProvider client={client}>
+      <ResponseDiffDialog workspaceId="ws-1" base={base} onClose={vi.fn()} />
+    </QueryClientProvider>);
+    expect(await screen.findByText('https://x.test/api')).toBeInTheDocument();
+    expect(screen.queryByText('此请求还没有保存的示例')).not.toBeInTheDocument();
+  });
 
   it('switches to the examples source and diffs against a saved example', async () => {
     ipc.listExamples.mockResolvedValue([exampleSide]);

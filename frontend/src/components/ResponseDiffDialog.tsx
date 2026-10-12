@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import ModalFrame from './ModalFrame';
+import QueryErrorState from './QueryErrorState';
 import {
   listHistory,
   getHistory,
@@ -74,6 +75,7 @@ export default function ResponseDiffDialog({
 
   useEffect(() => {
     selectionRevision.current += 1;
+    if (!nodeId) setSource('history');
     setPicked(null);
     setPickedExample(null);
     setOther(null);
@@ -196,13 +198,22 @@ export default function ResponseDiffDialog({
               )}
             </div>
             <div className="flex-1 overflow-auto text-xs">
+              {source === 'history' && history.isError && (
+                <div className="p-4"><QueryErrorState message={formatMessage('加载历史失败')} detail={toAppError(history.error).detail} onRetry={() => void history.refetch()} /></div>
+              )}
+              {source === 'example' && examples.isError && (
+                <div className="p-4"><QueryErrorState message={formatMessage('加载示例失败')} detail={toAppError(examples.error).detail} onRetry={() => void examples.refetch()} /></div>
+              )}
               {source === 'history' && history.isPending && (
                 <p className="text-gray-400 text-center py-6">{formatMessage('加载中…')}</p>
               )}
-              {source === 'history' && history.data && history.data.items.length === 0 && (
+              {source === 'history' && history.isSuccess && history.data.items.length === 0 && (
                 <p className="text-gray-400 text-center py-6">{formatMessage('没有匹配的历史记录')}</p>
               )}
-              {source === 'example' && (examples.data ?? []).length === 0 && (
+              {source === 'example' && examples.isPending && (
+                <p className="text-gray-400 text-center py-6">{formatMessage('加载中…')}</p>
+              )}
+              {source === 'example' && examples.isSuccess && (examples.data ?? []).length === 0 && (
                 <p className="text-gray-400 text-center py-6">{formatMessage('此请求还没有保存的示例')}</p>
               )}
               {source === 'example' && (examples.data ?? []).map((example) => (

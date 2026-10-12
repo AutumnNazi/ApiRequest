@@ -68,6 +68,8 @@ run_collection(target, options):
 - **Cancellation**: every run owns a unique `runId`. Cancellation propagates to the active HTTP request and prevents later iterations. Closing an active Runner requires confirmation and cancellation so no background run is orphaned.
 - **Reports (implemented)**: export structured results as JSON/HTML for CI. The HTML report is a self-contained single file (inline styles, no external dependencies) rendered through `html/template` contextual escaping, so HTML inside request names or error messages is safely escaped and cannot inject. The CLI mode's exit code reflects the failure count (see the next section).
 
+- **Run history**: browse stored reports per collection and load further cursor pages by scrolling or clicking Load more. Failed loads retain existing records and offer retry. When selecting reports rapidly, only the latest selection is displayed.
+
 ### 2.2 Headless CLI (apirequest-cli)
 
 `cmd/cli` shares the same core and local database as the desktop app (see [decisions.md](./decisions.md), OPEN-001):

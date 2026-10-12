@@ -23,6 +23,7 @@ import { formatMessage, Verbatim } from '../i18n/locale';
 import { aggregateAssertions } from '../utils/runnerAggregate';
 import { useDialog } from './DialogProvider';
 import ModalFrame from './ModalFrame';
+import LoadMoreTrigger from './LoadMoreTrigger';
 
 interface Props {
   workspaceId: string;
@@ -49,47 +50,119 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
   // 历史运行视图：null = 常规（配置/进度/报告），list = 历史列表
   const [historyRuns, setHistoryRuns] = useState<RunnerRunSummary[] | null>(null);
   const [historyError, setHistoryError] = useState('');
+  const [historyCursor, setHistoryCursor] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyRevision = useRef(0);
+  const historyViewRevision = useRef(0);
+  const historyPending = useRef(false);
+  const detailRevision = useRef(0);
 
-  const openHistory = async () => {
+  useEffect(() => {
+    setHistoryRuns(null);
+    setHistoryCursor('');
+    setHistoryError('');
+    setHistoryLoading(false);
+    setReport(null);
+    setError('');
+    historyPending.current = false;
+    return () => {
+      detailRevision.current += 1;
+      historyRevision.current += 1;
+      historyViewRevision.current += 1;
+      historyPending.current = false;
+    };
+  }, [workspaceId, collectionId]);
+
+  const invalidateHistory = (newView = true) => {
+    historyRevision.current += 1;
+    if (newView) historyViewRevision.current += 1;
+    historyPending.current = false;
+    setHistoryLoading(false);
+  };
+
+  const openHistory = async (append = false) => {
+    if (append && (historyPending.current || !historyCursor || historyRuns === null)) return;
+    if (!append) {
+      invalidateHistory();
+      detailRevision.current += 1;
+      setHistoryRuns([]);
+      setHistoryCursor('');
+    }
+    const revision = historyRevision.current;
+    historyPending.current = true;
+    setHistoryLoading(true);
     setError('');
     setHistoryError('');
     try {
-      const page = await listRunnerRuns(workspaceId, { collectionId });
-      setHistoryRuns(page.items ?? []);
+      const page = await listRunnerRuns(workspaceId, {
+        collectionId,
+        ...(append ? { cursor: historyCursor } : {}),
+      });
+      if (revision !== historyRevision.current) return;
+      const nextCursor = page.nextCursor ?? '';
+      if (page.hasMore && (!nextCursor || (append && nextCursor === historyCursor))) {
+        throw new Error(formatMessage('历史分页游标无效，请重试'));
+      }
+      setHistoryRuns((previous) => append
+        ? [...new Map([...(previous ?? []), ...(page.items ?? [])].map((run) => [run.runId, run])).values()]
+        : page.items ?? []);
+      setHistoryCursor(page.hasMore ? nextCursor : '');
     } catch (cause) {
-      // 面板必须打开，错误才有地方显示
-      setHistoryRuns([]);
+      if (revision !== historyRevision.current) return;
       setHistoryError(toAppError(cause).detail);
+    } finally {
+      if (revision === historyRevision.current) {
+        historyPending.current = false;
+        setHistoryLoading(false);
+      }
     }
   };
 
   const showHistoricalReport = async (runId: string) => {
+    const revision = ++detailRevision.current;
     setError('');
     try {
       const detail = await getRunnerRun(workspaceId, runId);
+      if (revision !== detailRevision.current) return;
+      invalidateHistory();
       setHistoryRuns(null);
       setReport(detail);
     } catch (cause) {
+      if (revision !== detailRevision.current) return;
       setError(toAppError(cause).detail);
     }
   };
 
   const removeHistoricalRun = async (runId: string) => {
+    detailRevision.current += 1;
+    // 删除使旧分页失效，但同一视图内的多个删除应分别更新列表。
+    invalidateHistory(false);
+    const revision = historyViewRevision.current;
     setHistoryError('');
     try {
       await deleteRunnerRun(workspaceId, runId);
+      if (revision !== historyViewRevision.current) return;
+      invalidateHistory(false);
       setHistoryRuns((prev) => (prev ? prev.filter((r) => r.runId !== runId) : prev));
     } catch (cause) {
+      if (revision !== historyViewRevision.current) return;
       setHistoryError(toAppError(cause).detail);
     }
   };
 
   const clearAllRuns = async () => {
+    detailRevision.current += 1;
+    invalidateHistory();
+    const revision = historyViewRevision.current;
     setHistoryError('');
     try {
       await clearRunnerRuns(workspaceId);
+      if (revision !== historyViewRevision.current) return;
+      invalidateHistory(false);
       setHistoryRuns([]);
+      setHistoryCursor('');
     } catch (cause) {
+      if (revision !== historyViewRevision.current) return;
       setHistoryError(toAppError(cause).detail);
     }
   };
@@ -106,6 +179,8 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
   }, []);
 
   const start = async () => {
+    detailRevision.current += 1;
+    invalidateHistory();
     setError('');
     setReport(null);
     setProgress(null);
@@ -144,6 +219,8 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
         return;
       }
     }
+    detailRevision.current += 1;
+    invalidateHistory();
     onClose();
   };
 
@@ -206,7 +283,11 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
               className="ml-auto mr-2 text-xs text-blue-600 hover:underline"
               title={formatMessage('查看历史运行')}
               onClick={() => {
-                if (historyRuns !== null) setHistoryRuns(null);
+                if (historyRuns !== null) {
+                  detailRevision.current += 1;
+                  invalidateHistory();
+                  setHistoryRuns(null);
+                }
                 else void openHistory();
               }}
             >
@@ -234,8 +315,14 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                 </button>
               )}
             </div>
-            {historyError && <p className="text-xs text-red-600"><Verbatim value={historyError} /></p>}
-            {historyRuns.length === 0 && !historyError && (
+            {historyError && (
+              <div role="alert" className="flex items-center gap-2 text-xs text-red-600">
+                <Verbatim value={historyError} />
+                <button className="border rounded px-2 py-1" onClick={() => void openHistory(Boolean(historyCursor))}>{formatMessage('重试')}</button>
+              </div>
+            )}
+            {historyRuns.length === 0 && historyLoading && <p className="text-xs text-gray-400">{formatMessage('加载中…')}</p>}
+            {historyRuns.length === 0 && !historyError && !historyLoading && (
               <p className="text-xs text-gray-400 py-2 text-center">{formatMessage('暂无历史运行')}</p>
             )}
             {historyRuns.map((r) => (
@@ -258,6 +345,14 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                 </button>
               </div>
             ))}
+            {historyCursor && !historyError && (
+              <>
+                <LoadMoreTrigger isFetching={historyLoading} onLoadMore={() => void openHistory(true)} />
+                <button className="w-full rounded border px-2 py-1 text-xs disabled:opacity-50" disabled={historyLoading} onClick={() => void openHistory(true)}>
+                  {historyLoading ? formatMessage('加载中…') : formatMessage('加载更多')}
+                </button>
+              </>
+            )}
           </div>
         )}
 

@@ -45,6 +45,22 @@ function emitProto(m: { sessionId: string; kind: string; data: string; direction
 }
 
 describe('WsPanel connect lifecycle', () => {
+  it.each(['next message', 'first message'])('preserves edited draft %s when an earlier send finishes', async (nextDraft) => {
+    let finish!: () => void;
+    ipc.sendSessionMessage.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
+    renderPanel();
+    fireEvent.change(screen.getByPlaceholderText('wss://echo.websocket.org'), { target: { value: 'wss://x.test' } });
+    fireEvent.click(screen.getByRole('button', { name: '连接' }));
+    await screen.findByRole('button', { name: '断开' });
+    const input = screen.getByPlaceholderText('输入消息，Ctrl+Enter 发送');
+    fireEvent.change(input, { target: { value: 'first message' } });
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
+    expect(ipc.sendSessionMessage).toHaveBeenCalledWith(expect.any(String), 'first message');
+    fireEvent.change(input, { target: { value: 'editing' } });
+    fireEvent.change(input, { target: { value: nextDraft } });
+    await act(async () => finish());
+    expect(input).toHaveValue(nextDraft);
+  });
   it('connects and reflects connected state, then sends messages', async () => {
     renderPanel();
     const input = screen.getByPlaceholderText('wss://echo.websocket.org');

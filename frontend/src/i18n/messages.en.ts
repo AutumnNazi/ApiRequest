@@ -1,4 +1,7 @@
 export const en: Record<string, string> = {
+  '历史分页游标无效，请重试': 'Invalid history page cursor. Please retry.',
+  '加载历史失败': 'Failed to load history',
+  '加载示例失败': 'Failed to load examples',
   '上一页': 'Previous page',
   '下一页': 'Next page',
   '复制当前页': 'Copy current page',
