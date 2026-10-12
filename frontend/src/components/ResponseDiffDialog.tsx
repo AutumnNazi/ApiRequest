@@ -168,7 +168,7 @@ export default function ResponseDiffDialog({
               )}
               {source === 'history' && (
                 <input
-                  className="flex-1 border rounded px-2 py-1 text-xs outline-none focus:border-blue-400"
+                  className="flex-1 border rounded px-2 py-1 text-xs outline-hidden focus:border-blue-400"
                   placeholder={formatMessage('搜索 URL / 方法…')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}

@@ -219,7 +219,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                 </p>
                 {active.kind === 'prompt' && (
                   <input
-                    className="w-full rounded border px-2.5 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    className="w-full rounded border px-2.5 py-2 text-sm outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                     value={promptValue}
                     placeholder={active.placeholder ? translate(active.placeholder) : undefined}
                     onChange={(event) => setPromptValue(event.target.value)}

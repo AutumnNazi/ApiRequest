@@ -432,7 +432,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
         {pane === 'body' && (
           <>
             <input
-              className="ml-auto mb-1 border rounded px-2 py-0.5 text-xs w-40 outline-none focus:border-blue-400"
+              className="ml-auto mb-1 border rounded px-2 py-0.5 text-xs w-40 outline-hidden focus:border-blue-400"
               placeholder={formatMessage('搜索 body…')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}

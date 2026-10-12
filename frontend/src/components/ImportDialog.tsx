@@ -95,7 +95,7 @@ export default function ImportDialog({ workspaceId, onClose }: Props) {
             {sourcePath && <span className="min-w-0 truncate text-xs text-gray-400" title={sourcePath} data-i18n-verbatim><Verbatim value={sourcePath} /></span>}
           </div>
           <textarea
-            className="w-full h-40 border rounded p-2 text-xs font-mono outline-none focus:border-blue-400"
+            className="w-full h-40 border rounded p-2 text-xs font-mono outline-hidden focus:border-blue-400"
             placeholder={formatMessage('粘贴 Postman 集合 JSON，或 curl 命令…')}
             value={payload}
             onChange={(e) => {

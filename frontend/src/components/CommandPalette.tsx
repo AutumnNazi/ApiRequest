@@ -143,7 +143,7 @@ export default function CommandPalette({
           <h2 id="command-palette-title" className="sr-only">{formatMessage('命令面板')}</h2>
           <input
             ref={inputRef}
-            className="w-full border rounded px-3 py-2 text-sm outline-none focus:border-blue-400"
+            className="w-full border rounded px-3 py-2 text-sm outline-hidden focus:border-blue-400"
             placeholder={formatMessage('输入以筛选：请求 / 工作区 / 环境 / 动作…')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}

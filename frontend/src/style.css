@@ -1,6 +1,29 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* 保留现有控件在 Tailwind 3 下的圆角、阴影和焦点环尺寸。 */
+@theme {
+  --radius-sm: 0.125rem;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --default-ring-width: 3px;
+  --default-ring-color: #3b82f6;
+  --color-gray-200: #e5e7eb;
+}
+
+@utility rounded {
+  border-radius: 0.25rem;
+}
+
+@utility shadow {
+  --tw-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@layer base {
+  *, ::before, ::after {
+    border-color: #e5e7eb;
+  }
+}
 
 html,
 body,

@@ -245,20 +245,20 @@ export default function MockPanel({ collectionId, collectionName, onClose }: Pro
                       />
                     </div>
                     <textarea
-                      className="w-full h-16 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400"
+                      className="w-full h-16 border rounded p-2 font-mono text-xs outline-hidden focus:border-blue-400"
                       aria-label={formatMessage('响应头')}
                       placeholder="Content-Type:application/json"
                       value={formatBatchLines(draft.headers ?? [])}
                       onChange={(ev) => setDraft({ ...draft, headers: parseBatchLines(ev.target.value) })}
                     />
                     <textarea
-                      className="w-full h-24 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400"
+                      className="w-full h-24 border rounded p-2 font-mono text-xs outline-hidden focus:border-blue-400"
                       aria-label={formatMessage('响应体')}
                       value={draft.body ?? ''}
                       onChange={(ev) => setDraft({ ...draft, body: ev.target.value })}
                     />
                     <textarea
-                      className="w-full h-32 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400"
+                      className="w-full h-32 border rounded p-2 font-mono text-xs outline-hidden focus:border-blue-400"
                       aria-label={formatMessage('Mock 脚本')}
                       placeholder={formatMessage(
                         'respond({ status: 200, headers: {...}, body: "..." , delayMs: 0 })；不调用则回退静态响应',

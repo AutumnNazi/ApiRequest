@@ -291,7 +291,7 @@ function EnvEditor({
                   </td>
                   <td className="p-1">
                     <input
-                      className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded font-mono"
+                      className="w-full px-1 py-0.5 outline-hidden focus:bg-blue-50 rounded font-mono"
                       placeholder={formatMessage('变量名')}
                       value={r.key}
                       onChange={(e) => update(i, { key: e.target.value })}
@@ -299,7 +299,7 @@ function EnvEditor({
                   </td>
                   <td className="p-1">
                     <input
-                      className="w-full px-1 py-0.5 outline-none focus:bg-blue-50 rounded font-mono"
+                      className="w-full px-1 py-0.5 outline-hidden focus:bg-blue-50 rounded font-mono"
                       placeholder={formatMessage('值')}
                       type={r.type === 'secret' ? 'password' : 'text'}
                       value={r.value}

@@ -89,7 +89,7 @@ export class DialogErrorBoundary extends React.Component<
             <div className="mt-4 flex justify-end">
               <button
                 onClick={this.close}
-                className="px-3 py-1.5 rounded border text-xs hover:bg-gray-50 dark:hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="px-3 py-1.5 rounded border text-xs hover:bg-gray-50 dark:hover:bg-slate-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 {formatMessage('关闭')}
               </button>

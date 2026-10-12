@@ -918,7 +918,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         </button>
       </div>
       <input
-        className="w-full border rounded px-2 py-1 mb-2 text-xs outline-none focus:border-blue-400"
+        className="w-full border rounded px-2 py-1 mb-2 text-xs outline-hidden focus:border-blue-400"
         placeholder={formatMessage('搜索 名称 / 方法…')}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -970,7 +970,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         tabIndex={0}
         onKeyDown={onTreeKeyDown}
         onMouseDown={() => treeRef.current?.focus()}
-        className="outline-none"
+        className="outline-hidden"
       >
       {visibleRoots.length === 0 && (
         <p className="text-gray-400 text-center py-6 text-xs">
@@ -1344,7 +1344,7 @@ function HistoryList({ workspaceId }: { workspaceId: string }) {
     <div className="flex flex-col h-full">
       <div className="flex gap-1 p-2 border-b">
         <input
-          className="flex-1 border rounded px-2 py-1 text-xs outline-none focus:border-blue-400"
+          className="flex-1 border rounded px-2 py-1 text-xs outline-hidden focus:border-blue-400"
           placeholder="搜索 URL / 方法…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
