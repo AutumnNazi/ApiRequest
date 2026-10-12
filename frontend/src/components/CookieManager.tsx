@@ -28,7 +28,7 @@ interface CookieEditor {
 }
 
 const inputClass =
-  'w-full rounded border border-gray-200 bg-white px-2.5 py-1.5 text-xs outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100 disabled:text-gray-500';
+  'w-full rounded border border-gray-200 bg-white px-2.5 py-1.5 text-xs outline-hidden transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100 disabled:text-gray-500';
 
 export default function CookieManager({ workspaceId, onClose }: Props) {
   const dialog = useDialog();
@@ -157,23 +157,23 @@ export default function CookieManager({ workspaceId, onClose }: Props) {
           </h2>
           <span className="ml-2 text-xs tabular-nums text-gray-400">{cookies.length}</span>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            <button className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" onClick={openCreate}>
+            <button className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500" onClick={openCreate}>
               {formatMessage('新建')}
             </button>
-            <button className="rounded border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" onClick={() => void chooseImportFile()}>
+            <button className="rounded border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500" onClick={() => void chooseImportFile()}>
               {formatMessage('导入')}
             </button>
-            <button className="rounded border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" onClick={exportCookies} disabled={cookies.length === 0}>
+            <button className="rounded border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500" onClick={exportCookies} disabled={cookies.length === 0}>
               {formatMessage('导出')}
             </button>
             <button
-              className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+              className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-red-400"
               disabled={cookies.length === 0 || clearAll.isPending}
               onClick={() => void dialog.confirm(formatMessage('清空全部 Cookie？')).then((ok) => ok && clearAll.mutate())}
             >
               {formatMessage('全部清空')}
             </button>
-            <button className="flex h-8 w-8 items-center justify-center text-lg text-gray-400 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" onClick={onClose} aria-label={formatMessage('关闭')} title={formatMessage('关闭')}>
+            <button className="flex h-8 w-8 items-center justify-center text-lg text-gray-400 hover:text-gray-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500" onClick={onClose} aria-label={formatMessage('关闭')} title={formatMessage('关闭')}>
               ×
             </button>
           </div>
@@ -268,7 +268,7 @@ function CookieEditorBand({
         </label>
         <label className="flex items-center gap-1.5 text-xs text-gray-600">
           SameSite
-          <select className="rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none" value={editor.cookie.sameSite ?? ''} onChange={(event) => update({ sameSite: event.target.value })}>
+          <select className="rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-hidden" value={editor.cookie.sameSite ?? ''} onChange={(event) => update({ sameSite: event.target.value })}>
             <option value="">Default</option>
             <option value="lax">Lax</option>
             <option value="strict">Strict</option>
@@ -280,12 +280,12 @@ function CookieEditorBand({
           {formatMessage('会话 Cookie')}
         </label>
         {!editor.session && (
-          <input aria-label={formatMessage('过期时间')} type="datetime-local" className="rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none" value={editor.expiresLocal} onChange={(event) => onChange({ ...editor, expiresLocal: event.target.value })} />
+          <input aria-label={formatMessage('过期时间')} type="datetime-local" className="rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-hidden" value={editor.expiresLocal} onChange={(event) => onChange({ ...editor, expiresLocal: event.target.value })} />
         )}
         <div className="ml-auto flex items-center gap-2">
           {error && <span className="max-w-64 truncate text-xs text-red-600" role="alert" title={error}><Verbatim value={error} /></span>}
-          <button type="button" className="rounded border px-3 py-1.5 text-xs text-gray-600 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" onClick={onCancel}>{formatMessage('取消')}</button>
-          <button type="submit" className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" disabled={pending}>{pending ? formatMessage('保存中…') : formatMessage('保存')}</button>
+          <button type="button" className="rounded border px-3 py-1.5 text-xs text-gray-600 hover:bg-white focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500" onClick={onCancel}>{formatMessage('取消')}</button>
+          <button type="submit" className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700 disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500" disabled={pending}>{pending ? formatMessage('保存中…') : formatMessage('保存')}</button>
         </div>
       </div>
     </form>
@@ -317,7 +317,7 @@ function CookieTable({ cookies, onEdit, onDelete }: {
     <div className="text-xs">
       {groups.map(([domain, items]) => (
         <section key={domain}>
-          <button className="sticky top-0 z-10 flex w-full items-center gap-1 border-b border-gray-200 bg-gray-100 px-3 py-1.5 text-left hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500" onClick={() => toggle(domain)} aria-expanded={!collapsed.has(domain)}>
+          <button className="sticky top-0 z-10 flex w-full items-center gap-1 border-b border-gray-200 bg-gray-100 px-3 py-1.5 text-left hover:bg-gray-200 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500" onClick={() => toggle(domain)} aria-expanded={!collapsed.has(domain)}>
             <span className="w-3 text-gray-500">{collapsed.has(domain) ? '›' : '⌄'}</span>
             <span className="font-mono font-medium text-gray-700"><Verbatim value={domain} /></span>
             <span className="text-gray-400">({items.length})</span>
@@ -338,8 +338,8 @@ function CookieTable({ cookies, onEdit, onDelete }: {
                       <td className="w-[18%] truncate p-2 text-[11px] text-gray-400"><Verbatim value={flags || '—'} /></td>
                       <td className={`w-[20%] truncate p-2 ${expired ? 'text-red-600' : 'text-gray-400'}`}><Verbatim value={formatExpiry(expires, expired)} /></td>
                       <td className="w-[8%] p-1.5 text-right">
-                        <button className="px-1.5 py-1 text-gray-500 hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" onClick={() => onEdit(cookie)} aria-label={formatMessage('编辑 Cookie')} title={formatMessage('编辑')}>{formatMessage('编辑')}</button>
-                        <button className="px-1.5 py-1 text-base leading-none text-gray-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400" onClick={() => onDelete({ domain: cookie.domain ?? '', path: cookie.path || '/', name: cookie.name })} aria-label={formatMessage('删除 Cookie')} title={formatMessage('删除')}>×</button>
+                        <button className="px-1.5 py-1 text-gray-500 hover:text-blue-600 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500" onClick={() => onEdit(cookie)} aria-label={formatMessage('编辑 Cookie')} title={formatMessage('编辑')}>{formatMessage('编辑')}</button>
+                        <button className="px-1.5 py-1 text-base leading-none text-gray-400 hover:text-red-600 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-red-400" onClick={() => onDelete({ domain: cookie.domain ?? '', path: cookie.path || '/', name: cookie.name })} aria-label={formatMessage('删除 Cookie')} title={formatMessage('删除')}>×</button>
                       </td>
                     </tr>
                   );

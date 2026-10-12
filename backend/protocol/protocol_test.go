@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -272,7 +273,7 @@ func TestManagerRejectsDuplicateSessionIDBeforeOpening(t *testing.T) {
 	const protocolName = "duplicate-test"
 	opened := 0
 	first := &duplicateTestSession{}
-	openers[protocolName] = func(string, SessionConfig, EmitFunc, *http.Client) (Session, error) {
+	openers[protocolName] = func(context.Context, string, SessionConfig, EmitFunc, *http.Client) (Session, error) {
 		opened++
 		if opened == 1 {
 			return first, nil

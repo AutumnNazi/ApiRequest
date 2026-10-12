@@ -40,7 +40,7 @@ func TestCliSmoke(t *testing.T) {
 		WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: "ok",
 		Request: &model.HttpRequest{
 			Method: "GET", Url: srv.URL,
-			Settings: model.DefaultSettings(),
+			Settings:   model.DefaultSettings(),
 			TestScript: `pm.test('200', function(){ pm.expect(pm.response.code).to.equal(200); });`,
 		},
 	}); err != nil {
@@ -63,5 +63,40 @@ func TestCliSmoke(t *testing.T) {
 	}
 	if report.Total != 1 || report.Passed != 1 || report.Failed != 0 {
 		t.Fatalf("report = %+v, want 1 passed", report)
+	}
+}
+
+func TestCliRunsHaveDistinctPersistentIdentities(t *testing.T) {
+	dir := t.TempDir()
+	store, err := openStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ws, err := store.EnsureDefaultWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := store.UpsertNode(model.Node{WorkspaceId: ws.Id, Kind: "collection", Name: "unique-runs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	defer srv.Close()
+	_, err = store.UpsertNode(model.Node{WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: "ok", Request: &model.HttpRequest{Method: "GET", Url: srv.URL, Settings: model.DefaultSettings()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if code := cmdRun([]string{"--db", dir, "--workspace", ws.Id, "--collection", col.Id}); code != 0 {
+			t.Fatalf("exit=%d", code)
+		}
+	}
+	page, err := store.ListRunnerRuns(ws.Id, model.RunnerRunQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("history has %d runs, want 2", len(page.Items))
 	}
 }

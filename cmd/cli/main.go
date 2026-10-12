@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"apirequest/backend/binding"
 	"apirequest/backend/convert"
 	"apirequest/backend/httpengine"
@@ -393,14 +395,15 @@ func cmdRun(args []string) int {
 	requestApi := binding.NewRequestApi(engine, store)
 	runnerApi := binding.NewRunnerApi(requestApi, store)
 
-	report, err := runnerApi.RunCollection("cli", wsId, colId, opts)
+	runId := "cli-" + uuid.NewString()
+	report, err := runnerApi.RunCollection(runId, wsId, colId, opts)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "run:", err)
 		return 2
 	}
 	if *htmlPath != "" {
 		// HTML 与 JSON/JUnit 同源：rememberReport 已缓存，ExportReportHTML 直接取
-		hout, herr := runnerApi.ExportReportHTML("cli")
+		hout, herr := runnerApi.ExportReportHTML(wsId, runId)
 		if herr != nil {
 			fmt.Fprintln(os.Stderr, "render html:", herr)
 		} else if werr := os.WriteFile(*htmlPath, []byte(hout), 0o644); werr != nil {

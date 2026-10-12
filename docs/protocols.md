@@ -10,16 +10,17 @@
 
 ## 1. 统一抽象
 
-每种协议实现 `ProtocolSession`，生命周期由 Wails 绑定方法打开、Wails 事件推送数据、Wails 绑定方法关闭。
+WebSocket、SSE 和 GraphQL 订阅实现 `Session`，由 `protocol.Manager` 管理连接中任务和活动会话；gRPC 使用独立流管理器。Wails 绑定负责调用管理器并推送事件。
 
 ```go
-type ProtocolSession interface {
-    Open(cfg SessionConfig) (SessionId, error)
-    Send(id SessionId, msg OutboundMsg) error
-    Close(id SessionId) error
+type Session interface {
+    Send(data string) error
+    Close() error
     // 入站数据经 Wails 事件 `proto:message` 推前端
 }
 ```
+
+`Close` 会取消拨号或握手中的任务。`CloseAll` 用于应用退出：停止接受新任务、取消连接中任务并关闭活动会话；迟到的连接不能重新注册。终态事件按任务身份清理，复用同一 ID 的新连接不会被旧事件删除。
 
 ---
 

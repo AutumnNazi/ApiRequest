@@ -236,7 +236,7 @@ export default function SettingsDialog({ onClose }: Props) {
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-gray-500">{formatMessage('语言')}</label>
                   <select
-                    className="rounded border border-gray-200 px-3 py-2 text-sm hover:border-gray-300 focus:border-blue-400 focus:outline-none"
+                    className="rounded border border-gray-200 px-3 py-2 text-sm hover:border-gray-300 focus:border-blue-400 focus:outline-hidden"
                     value={locale}
                     onChange={(event) => setLocale(event.target.value as Locale)}
                   >
@@ -289,7 +289,7 @@ export default function SettingsDialog({ onClose }: Props) {
                     <div className="flex gap-2">
                       <input
                         type="password"
-                        className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+                        className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-hidden"
                         placeholder={vault.fileExists ? formatMessage('主密码') : formatMessage('设置主密码')}
                         value={vaultPassword}
                         onChange={(event) => setVaultPassword(event.target.value)}
@@ -360,21 +360,21 @@ export default function SettingsDialog({ onClose }: Props) {
                   {proxy.mode === 'manual' && (
                     <div className="mt-2 space-y-2">
                       <input
-                        className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-none"
+                        className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-hidden"
                         placeholder={formatMessage('http://127.0.0.1:7890 或 socks5://127.0.0.1:1080')}
                         value={proxy.url ?? ''}
                         onChange={(event) => setProxy({ ...proxy, url: event.target.value })}
                       />
                       <div className="flex gap-2">
                         <input
-                          className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+                          className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-hidden"
                           placeholder={formatMessage('代理用户名（可选）')}
                           value={proxy.username ?? ''}
                           onChange={(event) => setProxy({ ...proxy, username: event.target.value })}
                         />
                         <input
                           type="password"
-                          className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+                          className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-hidden"
                           placeholder={proxy.passwordSet ? formatMessage('密码已保存；留空则保持不变') : formatMessage('代理密码（可选）')}
                           value={proxy.password ?? ''}
                           onChange={(event) => setProxy({ ...proxy, password: event.target.value, clearPassword: false })}
@@ -413,7 +413,7 @@ export default function SettingsDialog({ onClose }: Props) {
                         <label className="mb-1 block text-xs text-gray-500">{formatMessage(label)}</label>
                         <div className="flex gap-2">
                           <input
-                            className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-1.5 font-mono text-xs focus:border-blue-400 focus:outline-none"
+                            className="min-w-0 flex-1 rounded border border-gray-200 px-3 py-1.5 font-mono text-xs focus:border-blue-400 focus:outline-hidden"
                             placeholder={formatMessage('留空 = 不使用')}
                             value={tls[key] ?? ''}
                             onChange={(event) => setTls({ ...tls, [key]: event.target.value })}
@@ -666,7 +666,7 @@ export default function SettingsDialog({ onClose }: Props) {
                 <div>
                   <label className="mb-1 block text-xs text-gray-500">{formatMessage('服务器地址')}</label>
                   <input
-                    className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-none"
+                    className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-hidden"
                     placeholder="https://dav.example.com/remote.php/dav/files/USER/"
                     value={dav.url ?? ''}
                     onChange={(event) => setDav({ ...dav, url: event.target.value })}
@@ -675,13 +675,13 @@ export default function SettingsDialog({ onClose }: Props) {
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <label className="mb-1 block text-xs text-gray-500">{formatMessage('用户名')}</label>
-                    <input className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-none" value={dav.username ?? ''} onChange={(event) => setDav({ ...dav, username: event.target.value })} />
+                    <input className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-hidden" value={dav.username ?? ''} onChange={(event) => setDav({ ...dav, username: event.target.value })} />
                   </div>
                   <div className="flex-1">
                     <label className="mb-1 block text-xs text-gray-500">{formatMessage('密码 / 应用授权码')}</label>
                     <input
                       type="password"
-                      className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-none"
+                      className="w-full rounded border border-gray-200 px-3 py-2 font-mono text-xs focus:border-blue-400 focus:outline-hidden"
                       placeholder={dav.passwordSet ? formatMessage('已保存；留空则保持不变') : formatMessage('未设置')}
                       value={dav.password ?? ''}
                       onChange={(event) => setDav({ ...dav, password: event.target.value, clearPassword: false })}

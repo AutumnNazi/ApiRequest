@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ResponseDiffDialog, { type DiffSide } from './ResponseDiffDialog';
@@ -33,6 +33,7 @@ function renderDialog() {
 beforeEach(() => {
   ipc.listHistory.mockReset();
   ipc.getHistory.mockReset();
+  ipc.readResponseBlobRange.mockReset();
   ipc.listHistory.mockResolvedValue({
     items: [
       { id: 'h1', method: 'GET', url: 'https://x.test/api', status: 201, durationMs: 50, sizeBytes: 8, hasBody: true, createdAt: 2, workspaceId: 'ws-1' },
@@ -44,6 +45,44 @@ beforeEach(() => {
 });
 
 describe('ResponseDiffDialog', () => {
+  it('keeps detail loading errors visible and allows reselection', async () => {
+    ipc.getHistory.mockRejectedValueOnce(new Error('detail unavailable'));
+    renderDialog();
+    fireEvent.click(await screen.findByText('https://x.test/api'));
+    expect(await screen.findByText(/detail unavailable/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /重新选择/ }));
+    expect(await screen.findByText('https://x.test/other')).toBeInTheDocument();
+  });
+
+  it('ignores an older detail response after selecting another history item', async () => {
+    let resolveFirst!: (value: unknown) => void;
+    ipc.getHistory.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
+    ipc.getHistory.mockResolvedValueOnce({ status: 202, durationMs: 1, bodyInline: 'new-choice', createdAt: 3 });
+    const { container } = renderDialog();
+    fireEvent.click(await screen.findByText('https://x.test/api'));
+    fireEvent.click(screen.getByRole('button', { name: /重新选择/ }));
+    fireEvent.click(await screen.findByText('https://x.test/other'));
+    await waitFor(() => expect(container.querySelector('[data-side="other-status"]')).toHaveTextContent('202'));
+    await act(async () => resolveFirst({ status: 201, durationMs: 1, bodyInline: 'stale-choice', createdAt: 2 }));
+    expect(container.querySelector('[data-side="other-status"]')).toHaveTextContent('202');
+    expect(screen.queryByText(/stale-choice/)).not.toBeInTheDocument();
+  });
+
+  it('ignores an old failure while the replacement detail is still loading', async () => {
+    let rejectFirst!: (reason: Error) => void;
+    let resolveSecond!: (value: unknown) => void;
+    ipc.getHistory.mockReturnValueOnce(new Promise((_, reject) => { rejectFirst = reject; }));
+    ipc.getHistory.mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
+    renderDialog();
+    fireEvent.click(await screen.findByText('https://x.test/api'));
+    fireEvent.click(screen.getByRole('button', { name: /重新选择/ }));
+    fireEvent.click(await screen.findByText('https://x.test/other'));
+    await act(async () => rejectFirst(new Error('stale failure')));
+    expect(screen.queryByText(/stale failure/)).not.toBeInTheDocument();
+    expect(screen.getByText('加载中…')).toBeInTheDocument();
+    await act(async () => resolveSecond({ status: 202, durationMs: 1, bodyInline: 'current-choice', createdAt: 3 }));
+    expect(screen.queryByText('加载中…')).not.toBeInTheDocument();
+  });
   it('lists history entries and shows a normalized JSON diff after picking one', async () => {
     ipc.getHistory.mockResolvedValue({
       id: 'h1', workspaceId: 'ws-1', requestSnap: {}, status: 201, durationMs: 50,
@@ -90,6 +129,13 @@ describe('ResponseDiffDialog', () => {
     renderDialog();
     expect(await screen.findByText(/没有匹配的历史记录/)).toBeInTheDocument();
   });
+
+  it('checks the raw body limit before JSON normalization', async () => {
+    ipc.getHistory.mockResolvedValueOnce({ status: 200, durationMs: 1, bodyInline: ' '.repeat(400_001) + '{"a":1}', createdAt: 2 });
+    renderDialog();
+    fireEvent.click(await screen.findByText('https://x.test/api'));
+    expect(await screen.findByText(/响应正文过大/)).toBeInTheDocument();
+  });
 });
 
 describe('ResponseDiffDialog 示例对照', () => {
@@ -114,5 +160,6 @@ describe('ResponseDiffDialog 示例对照', () => {
     });
     const addRows = [...container.querySelectorAll('[data-diff="add"]')].map((el) => el.textContent ?? '');
     expect(addRows.some((t) => t.includes('"b": 2'))).toBe(true);
+    expect(container.querySelector('[data-side="other-status"]')).toHaveTextContent('201');
   });
 });

@@ -67,7 +67,7 @@ export default function Dropdown({
         type="button"
         className={
           buttonClassName ??
-          'tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:opacity-50'
+          'tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-hidden min-w-0 disabled:cursor-not-allowed disabled:opacity-50'
         }
         onClick={() => setOpen((v) => !v)}
         title={title}

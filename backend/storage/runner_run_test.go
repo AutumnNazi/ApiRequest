@@ -69,6 +69,26 @@ func TestGetRunnerRunRejectsForeignWorkspace(t *testing.T) {
 	}
 }
 
+func TestSaveRunnerRunRejectsReassignedIdentity(t *testing.T) {
+	s := newRunnerRunTestStore(t)
+	ws := firstWorkspaceId(t, s)
+	if err := s.SaveRunnerRun(ws, "col-1", sampleReport("same-run", runner.RequestResult{RequestName: "original"})); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range [][2]string{{"other-workspace", "col-2"}, {ws, "col-2"}} {
+		if err := s.SaveRunnerRun(target[0], target[1], sampleReport("same-run", runner.RequestResult{RequestName: "replacement"})); err == nil {
+			t.Fatal("run identity was reassigned")
+		}
+	}
+	report, err := s.GetRunnerRun(ws, "same-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].RequestName != "original" {
+		t.Fatalf("original report overwritten: %+v", report)
+	}
+}
+
 func TestListRunnerRunsPaginatesNewestFirstWithoutResults(t *testing.T) {
 	s := newRunnerRunTestStore(t)
 	ws := firstWorkspaceId(t, s)
@@ -104,6 +124,34 @@ func TestListRunnerRunsPaginatesNewestFirstWithoutResults(t *testing.T) {
 	}
 	if len(filtered.Items) != 0 {
 		t.Fatalf("expected 0 for other collection: %+v", filtered.Items)
+	}
+}
+
+func TestListRunnerRunsBoundsRequestedPageSize(t *testing.T) {
+	s := newRunnerRunTestStore(t)
+	ws := firstWorkspaceId(t, s)
+	for i := 0; i < 105; i++ {
+		report := sampleReport(fmt.Sprintf("bounded-%03d", i))
+		report.CreatedAt = int64(i + 1)
+		if err := s.SaveRunnerRun(ws, "bounded", report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, limit := range []int{101, 1000000, int(^uint(0) >> 1)} {
+		page, err := s.ListRunnerRuns(ws, model.RunnerRunQuery{Limit: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) != 100 || !page.HasMore || page.NextCursor == "" {
+			t.Fatalf("limit %d: items=%d hasMore=%t cursor=%q", limit, len(page.Items), page.HasMore, page.NextCursor)
+		}
+		next, err := s.ListRunnerRuns(ws, model.RunnerRunQuery{Limit: limit, Cursor: page.NextCursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(next.Items) != 5 || next.HasMore {
+			t.Fatalf("next page = %+v", next)
+		}
 	}
 }
 
@@ -175,18 +223,32 @@ func TestSaveRunnerRunRetention(t *testing.T) {
 		t.Fatalf("SaveRunnerRun col-B: %v", err)
 	}
 
-	page, err := s.ListRunnerRuns(ws, model.RunnerRunQuery{CollectionId: "col-A", Limit: 1000})
-	if err != nil {
-		t.Fatalf("ListRunnerRuns: %v", err)
-	}
-	if len(page.Items) != runnerRunRetentionLimit {
-		t.Fatalf("retained = %d, want %d", len(page.Items), runnerRunRetentionLimit)
-	}
-	// 最新 5 条存活、最旧的被清理
+	// 分页大小与保留数量相互独立，遍历所有游标页验证仍保留 200 条。
 	newest := map[string]bool{}
-	for _, item := range page.Items {
-		newest[item.RunId] = true
+	cursor := ""
+	for {
+		page, err := s.ListRunnerRuns(ws, model.RunnerRunQuery{CollectionId: "col-A", Limit: 1000, Cursor: cursor})
+		if err != nil {
+			t.Fatalf("ListRunnerRuns: %v", err)
+		}
+		for _, item := range page.Items {
+			if newest[item.RunId] {
+				t.Fatalf("duplicate row across pages: %s", item.RunId)
+			}
+			newest[item.RunId] = true
+		}
+		if !page.HasMore {
+			break
+		}
+		if page.NextCursor == "" || page.NextCursor == cursor {
+			t.Fatal("cursor did not advance")
+		}
+		cursor = page.NextCursor
 	}
+	if len(newest) != runnerRunRetentionLimit {
+		t.Fatalf("retained = %d, want %d", len(newest), runnerRunRetentionLimit)
+	}
+	// 最新 5 条存活、最旧的被清理。
 	for i := total - 5; i < total; i++ {
 		if !newest[fmt.Sprintf("run-%03d", i)] {
 			t.Fatalf("newest run-%03d was pruned", i)

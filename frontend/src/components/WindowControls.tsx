@@ -8,7 +8,7 @@ import {
 import { noDragRegion } from '../titlebar';
 
 const controlClass =
-  'inline-flex h-10 w-11 shrink-0 items-center justify-center p-0 text-gray-500 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400';
+  'inline-flex h-10 w-11 shrink-0 items-center justify-center p-0 text-gray-500 transition-colors duration-150 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400';
 
 export default function WindowControls({ onClose }: { onClose(): void }) {
   const [maximised, setMaximised] = useState(false);

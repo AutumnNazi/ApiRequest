@@ -26,8 +26,8 @@ type sseSession struct {
 	client *http.Client
 }
 
-func openSSE(id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func openSSE(parent context.Context, id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error) {
+	ctx, cancel := context.WithCancel(parent)
 	response, err := connectSSE(ctx, cfg, "", client)
 	if err != nil {
 		cancel()

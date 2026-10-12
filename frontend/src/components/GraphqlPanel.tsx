@@ -210,7 +210,7 @@ export default function GraphqlPanel({ onClose, onOpenRequest }: Props) {
           <div className="flex-1 flex flex-col min-h-0 text-sm">
             <div className="px-4 py-2 space-y-2 border-b">
               <textarea
-                className="w-full h-24 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400"
+                className="w-full h-24 border rounded p-2 font-mono text-xs outline-hidden focus:border-blue-400"
                 aria-label={formatMessage('订阅查询')}
                 placeholder="subscription { countUp }"
                 value={subQuery}
@@ -287,7 +287,7 @@ export default function GraphqlPanel({ onClose, onOpenRequest }: Props) {
             <div className="border-b px-3 py-2 space-y-1.5">
               <div className="text-xs text-gray-500">{formatMessage('Query 校验（对照刚内省的 schema）')}</div>
               <textarea
-                className="w-full h-20 border rounded p-1.5 font-mono text-xs resize-y outline-none focus:border-blue-400"
+                className="w-full h-20 border rounded p-1.5 font-mono text-xs resize-y outline-hidden focus:border-blue-400"
                 spellCheck={false}
                 placeholder="query { user(id: 1) { name } }"
                 value={checkQuery}

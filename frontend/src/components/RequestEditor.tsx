@@ -124,12 +124,12 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
           value={d.method}
           options={METHODS.map((m) => ({ value: m, label: m }))}
           onChange={(m) => patchDraft(tab.id, { method: m })}
-          buttonClassName={`tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1.5 font-semibold text-sm bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-none min-w-0 ${methodColor[d.method] ?? 'text-gray-700'}`}
+          buttonClassName={`tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1.5 font-semibold text-sm bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-hidden min-w-0 ${methodColor[d.method] ?? 'text-gray-700'}`}
         />
         <div className="relative flex-1">
           <input
             ref={urlInputRef}
-            className="w-full border rounded px-3 py-1.5 pr-24 text-sm font-mono outline-none focus:border-blue-400"
+            className="w-full border rounded px-3 py-1.5 pr-24 text-sm font-mono outline-hidden focus:border-blue-400"
             placeholder="https://api.example.com/path"
             value={d.url}
             onFocus={() => setUrlSuggestOpen(true)}
@@ -689,7 +689,7 @@ function FormDataTable({
               </td>
               <td className="p-1">
                 <input
-                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50"
+                  className="w-full px-1 py-0.5 outline-hidden focus:bg-blue-50"
                   placeholder="Key"
                   value={r.key}
                   onChange={(e) => update(i, { key: e.target.value })}
@@ -698,7 +698,7 @@ function FormDataTable({
               <td className="p-1">
                 <div className="flex gap-1">
                   <input
-                    className="min-w-0 flex-1 px-1 py-0.5 outline-none focus:bg-blue-50 font-mono text-xs"
+                    className="min-w-0 flex-1 px-1 py-0.5 outline-hidden focus:bg-blue-50 font-mono text-xs"
                     placeholder={isFile ? 'C:\\path\\to\\file' : 'Value'}
                     value={isFile ? (r.path ?? '') : (r.value ?? '')}
                     onChange={(e) =>

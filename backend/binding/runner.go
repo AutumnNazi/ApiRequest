@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	wailsrt "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -21,6 +20,11 @@ const maxCachedRunnerReports = 20
 // runnerMaxNextRequestHops 单迭代行内 pm.setNextRequest 跳转的步数上限（防自环死循环）
 const runnerMaxNextRequestHops = 200
 
+type runnerReportKey struct {
+	workspaceId string
+	runId       string
+}
+
 // RunnerApi Collection Runner 域（docs/api-contract.md §4）
 type RunnerApi struct {
 	ctx     context.Context
@@ -29,11 +33,8 @@ type RunnerApi struct {
 
 	operations  *operationRegistry
 	mu          sync.Mutex
-	reports     map[string]*runner.Report // runId → 最新报告（内存）
-	reportOrder []string
-	// lastNextRequest 最近一次 sendRequest 返回的 pm.setNextRequest 值
-	//（execute 写、串行调度读；并发模式下多 worker 都会写，但流转控制只对串行有意义）
-	lastNextRequest atomic.Value // string
+	reports     map[runnerReportKey]*runner.Report
+	reportOrder []runnerReportKey
 }
 
 // NewRunnerApi 构造
@@ -46,8 +47,9 @@ func NewRunnerApi(request *RequestApi, store *storage.Store) *RunnerApi {
 		request:    request,
 		store:      store,
 		operations: operations,
-		reports:    map[string]*runner.Report{},
-	}}
+		reports:    map[runnerReportKey]*runner.Report{},
+	}
+}
 
 // startupRunner 注入 Wails context（包级 Startup 统一调）
 func (a *RunnerApi) startup(ctx context.Context) { a.ctx = ctx }
@@ -80,7 +82,7 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 	}
 	defer finish()
 
-	nodes, err := a.store.ListNodes(workspaceId)
+	nodes, err := a.store.ListNodeSubtree(workspaceId, collectionId)
 	if err != nil {
 		return nil, model.WrapError(model.KindStorage, err)
 	}
@@ -119,36 +121,36 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 	report := &runner.Report{RunId: runId, Results: []runner.RequestResult{}}
 	// total 含禁用请求：它们计入 skipped（过滤前口径），报告才如实呈现"跳过了几个"
 	total := len(rows) * (len(requests) + disabled)
-	// 并发模式下 emit 会被多个 worker 同时调用：done 必须原子
-	var done atomic.Int64
 	start := time.Now()
 
-	emit := func(iter int, name, status string) {
-		current := done.Add(1)
+	emit := func(iter int, name, status string, completed int) {
 		if a.ctx != nil {
 			wailsrt.EventsEmit(a.ctx, "runner:progress", runnerProgress{
 				RunId: runId, Iteration: iter, RequestName: name,
-				Status: status, Done: int(current), Total: total,
+				Status: status, Done: completed, Total: total,
 			})
 		}
 	}
 
 	// 任务列表：(迭代行, 请求) 对。串行按顺序执行；并发模式由工作协程池消费
 	type task struct {
-		iter int
-		row  map[string]string
-		node model.Node
+		index int
+		iter  int
+		row   map[string]string
+		node  model.Node
 	}
 	tasks := make([]task, 0, total)
 	for iter, row := range rows {
 		for _, node := range requests {
-			tasks = append(tasks, task{iter: iter, row: row, node: node})
+			tasks = append(tasks, task{index: len(tasks), iter: iter, row: row, node: node})
 		}
 	}
 
 	// nameIndex 按名称解析集合内请求（pm.setNextRequest 跳转用；重名取第一个）
 	nameIndex := make(map[string]int, len(requests))
+	nodeOrder := make(map[string]int, len(requests))
 	for i, node := range requests {
+		nodeOrder[node.Id] = i
 		if _, exists := nameIndex[node.Name]; !exists {
 			nameIndex[node.Name] = i
 		}
@@ -156,12 +158,14 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 
 	var mu sync.Mutex
 	canceled := false
+	visited := make([]bool, len(tasks))
+	completed := 0
 
 	// execute 单个任务：发送、聚合结果（mu 保护）、StopOnError 触发取消
-	execute := func(ctx context.Context, tk task) bool {
+	execute := func(ctx context.Context, tk task) (string, bool) {
 		select {
 		case <-ctx.Done():
-			return false
+			return "", false
 		default:
 		}
 		// think-time：任务开始前等待（串行=请求之间；并发=各 worker 的任务之间）。
@@ -170,7 +174,7 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 			select {
 			case <-time.After(time.Duration(opts.DelayMs) * time.Millisecond):
 			case <-ctx.Done():
-				return false
+				return "", false
 			}
 		}
 		node := tk.node
@@ -199,8 +203,9 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 			mu.Lock()
 			canceled = true
 			mu.Unlock()
-			return false
+			return "", false
 		}
+		next := ""
 		if serr != nil {
 			rr.Failed = true
 			rr.Error = serr.Error()
@@ -209,7 +214,7 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 			rr.DurationMs = int64(res.Timing.TotalMs)
 			rr.TestResults = res.TestResults
 			// 记录 pm.setNextRequest 的流转意图（串行调度读取；并发模式忽略）
-			a.lastNextRequest.Store(res.NextRequest)
+			next = res.NextRequest
 			for _, t := range res.TestResults {
 				if !t.Pass {
 					rr.Failed = true
@@ -219,6 +224,12 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 			_ = a.request.releaseResponseBlob(res.Body.BlobRef)
 		}
 		mu.Lock()
+		// 重复跳转增加执行明细，但一个计划任务只计一次完成，避免负数 skipped。
+		if !visited[tk.index] {
+			visited[tk.index] = true
+			completed++
+		}
+		current := completed
 		report.Results = append(report.Results, rr)
 		report.Total++
 		status := "pass"
@@ -229,11 +240,11 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 			report.Passed++
 		}
 		mu.Unlock()
-		emit(rr.Iteration, node.Name, status)
+		emit(rr.Iteration, node.Name, status, current)
 		if rr.Failed && opts.StopOnError {
-			return false // 通知调度方停止派发后续任务
+			return next, false // 通知调度方停止派发后续任务
 		}
-		return true
+		return next, true
 	}
 
 	concurrency := opts.Concurrency
@@ -245,6 +256,7 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 		taskCh := make(chan task)
 		var wg sync.WaitGroup
 		stopCh := make(chan struct{})
+		var stopOnce sync.Once
 		for w := 0; w < concurrency; w++ {
 			wg.Add(1)
 			go func() {
@@ -257,12 +269,8 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 						if !ok {
 							return
 						}
-						if !execute(ctx, tk) {
-							select {
-							case <-stopCh:
-							default:
-								close(stopCh)
-							}
+						if _, keepGoing := execute(ctx, tk); !keepGoing {
+							stopOnce.Do(func() { close(stopCh) })
 							return
 						}
 					}
@@ -292,10 +300,10 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 		hops := 0
 		for i := 0; i < len(tasks); {
 			tk := tasks[i]
-			if !execute(ctx, tk) {
+			next, keepGoing := execute(ctx, tk)
+			if !keepGoing {
 				break
 			}
-			next, _ := a.lastNextRequest.Load().(string)
 			i++ // 自然顺序默认前进一步
 			if next == "" {
 				continue
@@ -313,20 +321,22 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 			// 未命中名称：保持自然顺序
 		}
 	}
-	if canceled {
+	if canceled || ctx.Err() != nil {
 		report.Canceled = true
 	}
-	// 结果按（迭代，树序）稳定排序：并发完成顺序不定，报告须可复现
-	sort.SliceStable(report.Results, func(i, j int) bool {
-		if report.Results[i].Iteration != report.Results[j].Iteration {
-			return report.Results[i].Iteration < report.Results[j].Iteration
-		}
-		return report.Results[i].NodeId < report.Results[j].NodeId
-	})
-	report.Skipped = total - report.Total
+	// 串行保留实际跳转轨迹；并发结果按（迭代，树序）排列，避免随机 ID 改变顺序。
+	if concurrency > 1 {
+		sort.SliceStable(report.Results, func(i, j int) bool {
+			if report.Results[i].Iteration != report.Results[j].Iteration {
+				return report.Results[i].Iteration < report.Results[j].Iteration
+			}
+			return nodeOrder[report.Results[i].NodeId] < nodeOrder[report.Results[j].NodeId]
+		})
+	}
+	report.Skipped = total - completed
 	report.DurationMs = time.Since(start).Milliseconds()
 
-	a.rememberReport(report)
+	a.rememberReport(workspaceId, report)
 	// 运行历史落库（docs/decisions.md ADR-015：翻转原"仅内存"决策；失败不阻断返回报告）
 	if err := a.store.SaveRunnerRun(workspaceId, collectionId, report); err != nil {
 		if a.ctx != nil {
@@ -336,22 +346,23 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 	return report, nil
 }
 
-func (a *RunnerApi) rememberReport(report *runner.Report) {
+func (a *RunnerApi) rememberReport(workspaceId string, report *runner.Report) {
 	if report == nil || report.RunId == "" {
 		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if _, exists := a.reports[report.RunId]; exists {
+	key := runnerReportKey{workspaceId, report.RunId}
+	if _, exists := a.reports[key]; exists {
 		for index, id := range a.reportOrder {
-			if id == report.RunId {
+			if id == key {
 				a.reportOrder = append(a.reportOrder[:index], a.reportOrder[index+1:]...)
 				break
 			}
 		}
 	}
-	a.reports[report.RunId] = report
-	a.reportOrder = append(a.reportOrder, report.RunId)
+	a.reports[key] = report
+	a.reportOrder = append(a.reportOrder, key)
 	for len(a.reportOrder) > maxCachedRunnerReports {
 		oldest := a.reportOrder[0]
 		a.reportOrder = a.reportOrder[1:]
@@ -365,13 +376,26 @@ func (a *RunnerApi) CancelRun(runId string) error {
 	return nil
 }
 
-// ExportReport 导出报告 JSON（供 CI/存档）
-func (a *RunnerApi) ExportReport(runId string) (string, error) {
+// reportForExport 同时支持当前内存报告与重启、缓存淘汰后的持久化报告。
+// 两条读取路径都携带工作区归属；落库失败的当前报告仍可从内存导出。
+func (a *RunnerApi) reportForExport(workspaceId, runId string) (*runner.Report, error) {
 	a.mu.Lock()
-	report, ok := a.reports[runId]
+	report, ok := a.reports[runnerReportKey{workspaceId, runId}]
 	a.mu.Unlock()
-	if !ok {
-		return "", model.NewError(model.KindValidation, "no report for run: "+runId)
+	if ok {
+		return report, nil
+	}
+	if a.store != nil {
+		return a.store.GetRunnerRun(workspaceId, runId)
+	}
+	return nil, model.NewError(model.KindValidation, "no report for run: "+runId)
+}
+
+// ExportReport 导出工作区报告 JSON（供 CI/存档）。
+func (a *RunnerApi) ExportReport(workspaceId, runId string) (string, error) {
+	report, err := a.reportForExport(workspaceId, runId)
+	if err != nil {
+		return "", err
 	}
 	b, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -392,10 +416,32 @@ func (a *RunnerApi) GetRunnerRun(workspaceId, runId string) (*runner.Report, err
 
 // DeleteRunnerRun 删除单次运行历史
 func (a *RunnerApi) DeleteRunnerRun(workspaceId, runId string) error {
-	return a.store.DeleteRunnerRun(workspaceId, runId)
+	if err := a.store.DeleteRunnerRun(workspaceId, runId); err != nil {
+		return err
+	}
+	a.forgetReports(workspaceId, runId)
+	return nil
 }
 
 // ClearRunnerRuns 清空工作区全部运行历史
 func (a *RunnerApi) ClearRunnerRuns(workspaceId string) error {
-	return a.store.ClearRunnerRuns(workspaceId)
+	if err := a.store.ClearRunnerRuns(workspaceId); err != nil {
+		return err
+	}
+	a.forgetReports(workspaceId, "")
+	return nil
+}
+
+func (a *RunnerApi) forgetReports(workspaceId, runId string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	kept := a.reportOrder[:0]
+	for _, key := range a.reportOrder {
+		if key.workspaceId == workspaceId && (runId == "" || key.runId == runId) {
+			delete(a.reports, key)
+		} else {
+			kept = append(kept, key)
+		}
+	}
+	a.reportOrder = kept
 }

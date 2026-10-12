@@ -162,15 +162,36 @@ func insertImportedNode(tx *sql.Tx, writer secrets.SecretWriter, node model.Node
 	return err
 }
 
-// ListNodes 返回工作区下全部未删除节点（前端组树）
+// ListNodes 返回工作区下全部未删除节点的完整详情。
 func (s *Store) ListNodes(workspaceId string) ([]model.Node, error) {
-	rows, err := s.db.Query(`
+	return s.queryNodes(`
 		SELECT id, workspace_id, parent_id, kind, name, sort_order,
 		       request_data, auth, variables, pre_script, test_script,
 		       created_at, updated_at, disabled
 		FROM node
 		WHERE workspace_id = ? AND deleted_at IS NULL
 		ORDER BY sort_order, created_at`, workspaceId)
+}
+
+// ListNodeSubtree 只读取指定工作区内根节点及其未删除后代，并只解析这些节点的凭据。
+// 递归每层限定 workspace_id，使用现有父子索引；UNION 对异常环做去重。
+func (s *Store) ListNodeSubtree(workspaceId, rootId string) ([]model.Node, error) {
+	return s.queryNodes(`
+		WITH RECURSIVE subtree(id) AS (
+			SELECT id FROM node WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+			UNION
+			SELECT n.id FROM node n JOIN subtree p ON n.parent_id = p.id
+			WHERE n.workspace_id = ? AND n.deleted_at IS NULL
+		)
+		SELECT n.id, n.workspace_id, n.parent_id, n.kind, n.name, n.sort_order,
+		       n.request_data, n.auth, n.variables, n.pre_script, n.test_script,
+		       n.created_at, n.updated_at, n.disabled
+		FROM node n JOIN subtree ON subtree.id = n.id
+		ORDER BY n.sort_order, n.created_at`, rootId, workspaceId, workspaceId)
+}
+
+func (s *Store) queryNodes(query string, args ...any) ([]model.Node, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -29,7 +29,7 @@ type graphqlWsSession struct {
 	id     string
 }
 
-func openGraphQLWs(id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error) {
+func openGraphQLWs(parent context.Context, id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error) {
 	header := http.Header{}
 	for _, h := range cfg.Headers {
 		if h.Enabled && h.Key != "" {
@@ -37,7 +37,7 @@ func openGraphQLWs(id string, cfg SessionConfig, emit EmitFunc, client *http.Cli
 		}
 	}
 	header.Set("Sec-WebSocket-Protocol", gqlSubprotocol)
-	dialCtx, dialCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	dialCtx, dialCancel := context.WithTimeout(parent, 15*time.Second)
 	conn, _, err := websocket.Dial(dialCtx, cfg.Url, &websocket.DialOptions{
 		HTTPHeader:   header,
 		HTTPClient:   client,
@@ -49,7 +49,7 @@ func openGraphQLWs(id string, cfg SessionConfig, emit EmitFunc, client *http.Cli
 	}
 	conn.SetReadLimit(maxWSMessage)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	s := &graphqlWsSession{conn: conn, cancel: cancel, emit: emit, id: id}
 
 	emit(InboundMsg{

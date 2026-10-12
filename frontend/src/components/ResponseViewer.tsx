@@ -29,6 +29,7 @@ interface Props {
 const BODY_RENDER_CHAR_LIMIT = 500_000;
 const JSON_SYNTAX_CHAR_LIMIT = 100_000;
 const BLOB_CHUNK_SIZE = 256 << 10;
+const BINARY_PAGE_BYTE_SIZE = 64 << 10;
 const BODY_INSPECT_BYTE_LIMIT = BODY_RENDER_CHAR_LIMIT * 4;
 const IMAGE_PREVIEW_BYTE_LIMIT = 16 << 20;
 
@@ -56,6 +57,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   const [savingExample, setSavingExample] = useState(false);
   const [exampleError, setExampleError] = useState('');
   const [blobBytes, setBlobBytes] = useState<Uint8Array>(() => new Uint8Array());
+  const [binaryPage, setBinaryPage] = useState(0);
   const [blobSize, setBlobSize] = useState(0);
   const [blobEof, setBlobEof] = useState(false);
   const [loadingChunk, setLoadingChunk] = useState(false);
@@ -67,6 +69,8 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   const activeBlobRef = useRef(responseBlobRef);
   const loadingBlobRef = useRef('');
   const exampleSaveRef = useRef(0);
+  // 切走再切回同一响应时 blobRef 相同，仍须使上一次查看的异步任务失效。
+  const responseRevision = useRef(0);
   activeBlobRef.current = responseBlobRef;
 
   useEffect(() => {
@@ -79,7 +83,9 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   // 新响应到来时丢弃旧 chunk，并只读取 metadata。
   useEffect(() => {
     let cancelled = false;
+    responseRevision.current += 1;
     setBlobBytes(new Uint8Array());
+    setBinaryPage(0);
     setBlobSize(response?.sizeBytes ?? 0);
     setBlobEof(false);
     setBlobError('');
@@ -99,11 +105,14 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
     }
     return () => {
       cancelled = true;
+      responseRevision.current += 1;
     };
   }, [response, responseBlobRef]);
 
   const loadNextChunk = async () => {
     const ref = response?.body?.blobRef;
+    const revision = responseRevision.current;
+    const isCurrent = () => activeBlobRef.current === ref && responseRevision.current === revision;
     if (!ref || loadingBlobRef.current || blobEof || blobBytes.byteLength >= BODY_INSPECT_BYTE_LIMIT) {
       return;
     }
@@ -116,14 +125,15 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
         blobBytes.byteLength,
         Math.min(BLOB_CHUNK_SIZE, BODY_INSPECT_BYTE_LIMIT - blobBytes.byteLength),
       );
-      if (activeBlobRef.current !== ref) return;
+      if (!isCurrent()) return;
       const next = concatBytes(blobBytes, decodeBase64(chunk.dataBase64));
       setBlobBytes(next);
       setBlobEof(chunk.eof);
+      if (binaryBody) setBinaryPage(Math.floor(blobBytes.byteLength / BINARY_PAGE_BYTE_SIZE));
     } catch (error) {
-      if (activeBlobRef.current === ref) setBlobError(toAppError(error).detail);
+      if (isCurrent()) setBlobError(toAppError(error).detail);
     } finally {
-      if (loadingBlobRef.current === ref) {
+      if (isCurrent() && loadingBlobRef.current === ref) {
         loadingBlobRef.current = '';
         setLoadingChunk(false);
       }
@@ -132,6 +142,8 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
 
   const loadImagePreview = async () => {
     const ref = response?.body?.blobRef;
+    const revision = responseRevision.current;
+    const isCurrent = () => activeBlobRef.current === ref && responseRevision.current === revision;
     if (!ref || loadingBlobRef.current || blobEof) return;
     if (blobSize > IMAGE_PREVIEW_BYTE_LIMIT) {
       setBlobError(
@@ -155,7 +167,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
           loaded,
           Math.min(1 << 20, blobSize - loaded),
         );
-        if (activeBlobRef.current !== ref) return;
+        if (!isCurrent()) return;
         const decoded = decodeBase64(chunk.dataBase64);
         chunks.push(decoded);
         loaded += decoded.byteLength;
@@ -164,9 +176,9 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
       setBlobBytes(concatByteChunks(chunks, loaded));
       setBlobEof(eof);
     } catch (error) {
-      if (activeBlobRef.current === ref) setBlobError(toAppError(error).detail);
+      if (isCurrent()) setBlobError(toAppError(error).detail);
     } finally {
-      if (loadingBlobRef.current === ref) {
+      if (isCurrent() && loadingBlobRef.current === ref) {
         loadingBlobRef.current = '';
         setLoadingChunk(false);
       }
@@ -175,6 +187,8 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
 
   const saveBlobAs = async () => {
     const ref = response?.body?.blobRef;
+    const revision = responseRevision.current;
+    const isCurrent = () => activeBlobRef.current === ref && responseRevision.current === revision;
     if (!ref || saving) return;
     setSaving(true);
     setSaveMessage('');
@@ -182,15 +196,15 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
       const destination = await saveNativeFile('保存响应', suggestedResponseFilename(response));
       if (!destination) return;
       const written = await saveResponseBlob(ref, destination);
-      if (activeBlobRef.current === ref) {
+      if (isCurrent()) {
         setSaveMessage(formatMessage('已保存 {size}', { size: formatSize(written) }));
       }
     } catch (error) {
-      if (activeBlobRef.current === ref) {
+      if (isCurrent()) {
         setSaveMessage(formatMessage('保存失败：{detail}', { detail: toAppError(error).detail }));
       }
     } finally {
-      if (activeBlobRef.current === ref) setSaving(false);
+      if (isCurrent()) setSaving(false);
     }
   };
 
@@ -238,14 +252,18 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
         : new Uint8Array(),
     [response],
   );
+  const binaryBytes = blobBytes.byteLength > 0 ? blobBytes : inlineBinaryBytes;
+  const binaryPageCount = Math.max(1, Math.ceil(binaryBytes.byteLength / BINARY_PAGE_BYTE_SIZE));
+  const visibleBinaryPage = Math.min(binaryPage, binaryPageCount - 1);
   const sourceText = useMemo(() => {
     if (binaryBody) {
-      const bytes = blobBytes.byteLength > 0 ? blobBytes : inlineBinaryBytes;
-      return bytes.byteLength > 0 ? hexPreview(bytes) : '[binary response]';
+      return binaryBytes.byteLength > 0
+        ? hexPreview(binaryBytes, visibleBinaryPage * BINARY_PAGE_BYTE_SIZE)
+        : '[binary response]';
     }
     if (blobBytes.byteLength > 0) return new TextDecoder().decode(blobBytes);
     return response?.body?.text ?? '';
-  }, [binaryBody, blobBytes, inlineBinaryBytes, locale, response]);
+  }, [binaryBody, binaryBytes, visibleBinaryPage, blobBytes, locale, response]);
 
   const completeImageBytes = contentType.startsWith('image/')
     ? response?.body?.encoding === 'base64'
@@ -432,7 +450,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
         {pane === 'body' && (
           <>
             <input
-              className="ml-auto mb-1 border rounded px-2 py-0.5 text-xs w-40 outline-none focus:border-blue-400"
+              className="ml-auto mb-1 border rounded px-2 py-0.5 text-xs w-40 outline-hidden focus:border-blue-400"
               placeholder={formatMessage('搜索 body…')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -455,7 +473,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
             </button>
             <button
               className="pb-2 text-xs text-gray-500 hover:text-gray-800"
-              title={formatMessage('复制响应体')}
+              title={binaryBody ? formatMessage('复制当前页') : formatMessage('复制响应体')}
               onClick={() => void navigator.clipboard.writeText(renderedBody.visibleText).catch(() => {})}
             >
               {formatMessage('复制')}
@@ -493,6 +511,17 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
                 </button>
                 {saveMessage && <span className="text-gray-600"><Verbatim value={saveMessage} /></span>}
                 {blobError && <span className="basis-full text-red-600"><Verbatim value={blobError} /></span>}
+              </div>
+            )}
+            {binaryBody && binaryPageCount > 1 && (
+              <div className="mx-3 mt-3 flex items-center gap-2 text-xs">
+                <button className="border rounded px-2 py-1 disabled:opacity-50" disabled={visibleBinaryPage === 0} onClick={() => setBinaryPage(visibleBinaryPage - 1)}>
+                  {formatMessage('上一页')}
+                </button>
+                <span>{visibleBinaryPage + 1} / {binaryPageCount}</span>
+                <button className="border rounded px-2 py-1 disabled:opacity-50" disabled={visibleBinaryPage + 1 >= binaryPageCount} onClick={() => setBinaryPage(visibleBinaryPage + 1)}>
+                  {formatMessage('下一页')}
+                </button>
               </div>
             )}
             <HighlightedBody
@@ -944,14 +973,14 @@ function concatByteChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array 
   return combined;
 }
 
-function hexPreview(bytes: Uint8Array): string {
-  const visible = bytes.subarray(0, Math.min(bytes.byteLength, 64 << 10));
+function hexPreview(bytes: Uint8Array, pageOffset = 0): string {
+  const visible = bytes.subarray(pageOffset, pageOffset + BINARY_PAGE_BYTE_SIZE);
   const lines: string[] = [];
   for (let offset = 0; offset < visible.byteLength; offset += 16) {
     const row = visible.subarray(offset, offset + 16);
     const hex = Array.from(row, (value) => value.toString(16).padStart(2, '0')).join(' ');
     const ascii = Array.from(row, (value) => (value >= 32 && value <= 126 ? String.fromCharCode(value) : '.')).join('');
-    lines.push(`${offset.toString(16).padStart(8, '0')}  ${hex.padEnd(47)}  ${ascii}`);
+    lines.push(`${(pageOffset + offset).toString(16).padStart(8, '0')}  ${hex.padEnd(47)}  ${ascii}`);
   }
   if (bytes.byteLength > visible.byteLength) {
     lines.push(formatMessage('\n… {size} 未显示', { size: formatSize(bytes.byteLength - visible.byteLength) }));

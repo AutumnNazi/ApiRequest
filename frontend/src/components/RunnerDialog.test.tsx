@@ -121,7 +121,7 @@ describe('RunnerDialog lifecycle', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始运行' }));
     fireEvent.click(await screen.findByRole('button', { name: '导出 HTML' }));
 
-    await waitFor(() => expect(ipc.exportReportHTML).toHaveBeenCalledWith('run-html'));
+    await waitFor(() => expect(ipc.exportReportHTML).toHaveBeenCalledWith('workspace-1', 'run-html'));
     expect(ipc.writeNativeTextFile).toHaveBeenCalledWith(
       'C:/reports/run.html',
       '<!DOCTYPE html><html>report</html>',

@@ -9,10 +9,88 @@ import (
 	"time"
 
 	"apirequest/backend/httpengine"
+	"apirequest/backend/mock"
 	"apirequest/backend/model"
+	"apirequest/backend/runner"
 	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 )
+
+func TestCollectionOperationsIgnoreUnrelatedLockedSecrets(t *testing.T) {
+	dir := t.TempDir()
+	vault := secrets.NewWithKeyring(dir, nil)
+	if err := vault.Unlock("subtree-test"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.OpenWithVault(dir, vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, err := store.EnsureDefaultWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection, err := store.UpsertNode(model.Node{WorkspaceId: workspace.Id, Kind: "collection", Name: "public"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
+	defer srv.Close()
+	folder, err := store.UpsertNode(model.Node{WorkspaceId: workspace.Id, ParentId: collection.Id, Kind: "folder", Name: "nested"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := store.UpsertNode(model.Node{WorkspaceId: workspace.Id, ParentId: folder.Id, Kind: "request", Name: "public-request", Request: &model.HttpRequest{Method: "GET", Url: srv.URL + "/public", Settings: model.DefaultSettings()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.UpsertExample(model.Example{NodeId: request.Id, Name: "ok", Status: 201, Body: "mock-body"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.UpsertNode(model.Node{WorkspaceId: workspace.Id, Kind: "collection", Name: "unrelated-private", Auth: &model.Auth{Type: "bearer", Params: map[string]string{"token": "private-secret"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vault.Lock()
+	t.Run("runner", func(t *testing.T) {
+		engine := httpengine.New()
+		engine.SetBlobsDir(store.BlobsDir())
+		report, err := NewRunnerApi(NewRequestApi(engine, store), store).RunCollection("public-run", workspace.Id, collection.Id, runner.Options{Iterations: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report.Total != 1 || report.Passed != 1 {
+			t.Fatalf("report = %+v", report)
+		}
+	})
+	t.Run("export", func(t *testing.T) {
+		data, err := NewConvertApi(store).ExportData(collection.Id, "postman")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(data, "public-request") || strings.Contains(data, "unrelated-private") {
+			t.Fatalf("unexpected export: %s", data)
+		}
+	})
+	t.Run("mock", func(t *testing.T) {
+		api := NewMockApi(store, mock.NewManager())
+		status, err := api.StartMockServer(collection.Id, mock.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer api.StopMockServer(collection.Id)
+		response, err := http.Get(status.Addr + "/public")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != 201 {
+			t.Fatalf("mock status = %d", response.StatusCode)
+		}
+	})
+}
 
 func TestListNodesReturnsSummariesWithoutUnlockingVault(t *testing.T) {
 	dir := t.TempDir()

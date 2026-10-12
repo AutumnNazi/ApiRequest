@@ -1,6 +1,6 @@
 // Workspace Session store：每个工作区独立保存标签、活动页与可恢复草稿。
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persist, type StorageValue } from 'zustand/middleware';
 import type { AppError, HttpRequest, ResponseResult } from '../ipc';
 import { newDefaultRequest } from '../ipc';
 import { formatMessage } from '../i18n/locale';
@@ -55,17 +55,20 @@ const emptySession = (): WorkspaceSession => ({ tabs: [], activeId: null });
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingPersistKey = '';
-let pendingPersistValue = '';
+let pendingPersistValue: StorageValue<Pick<TabsState, 'sessions'>> | null = null;
 
 export function flushWorkspaceSessions(): void {
-  if (!pendingPersistKey) return;
+  if (!pendingPersistKey || !pendingPersistValue) return;
   if (persistTimer !== null) clearTimeout(persistTimer);
   persistTimer = null;
   const key = pendingPersistKey;
   const value = pendingPersistValue;
-  localStorage.setItem(key, value);
+  localStorage.setItem(key, JSON.stringify({
+    state: { sessions: serializeWorkspaceSessions(value.state.sessions) },
+    version: value.version,
+  }));
   pendingPersistKey = '';
-  pendingPersistValue = '';
+  pendingPersistValue = null;
 }
 
 if (typeof window !== 'undefined') {
@@ -453,40 +456,35 @@ export const useTabs = create<TabsState>()(
     }),
     {
       name: 'apirequest.workspace-sessions.v1',
-      // 防抖写入：patchDraft 每次按键都触发 persist，同步 localStorage 写盘会卡顿。
-      // 用 400ms 防抖批量写入；beforeunload 时立即 flush 保证不丢数据。
-      storage: createJSONStorage(() => {
-        return {
-          getItem: (key: string) => localStorage.getItem(key),
-          setItem: (key: string, value: string) => {
-            pendingPersistKey = key;
-            pendingPersistValue = value;
-            if (persistTimer !== null) clearTimeout(persistTimer);
-            persistTimer = setTimeout(() => {
-              persistTimer = null;
-              try {
-                localStorage.setItem(key, value);
-                if (pendingPersistKey === key && pendingPersistValue === value) {
-                  pendingPersistKey = '';
-                  pendingPersistValue = '';
-                }
-              } catch {
-                // Explicit application close retries through flushWorkspaceSessions.
-              }
-            }, 400);
-          },
-          removeItem: (key: string) => {
-            if (persistTimer !== null) {
-              clearTimeout(persistTimer);
-              persistTimer = null;
-              pendingPersistKey = '';
-              pendingPersistValue = '';
+      // 连续编辑只保留最新会话引用，清洗凭据、序列化和写盘一起延后。
+      // 显式退出及 beforeunload 共用 flush，立即写入最新的脱敏草稿。
+      storage: {
+        getItem: (key: string) => {
+          const value = localStorage.getItem(key);
+          return value === null ? null : JSON.parse(value);
+        },
+        setItem: (key, value) => {
+          pendingPersistKey = key;
+          pendingPersistValue = value;
+          if (persistTimer !== null) clearTimeout(persistTimer);
+          persistTimer = setTimeout(() => {
+            persistTimer = null;
+            try {
+              flushWorkspaceSessions();
+            } catch {
+              // Explicit application close retries through flushWorkspaceSessions.
             }
-            localStorage.removeItem(key);
-          },
-        };
-      }),
-      partialize: (state) => ({ sessions: serializeWorkspaceSessions(state.sessions) }) as TabsState,
+          }, 400);
+        },
+        removeItem: (key: string) => {
+          if (persistTimer !== null) clearTimeout(persistTimer);
+          persistTimer = null;
+          pendingPersistKey = '';
+          pendingPersistValue = null;
+          localStorage.removeItem(key);
+        },
+      },
+      partialize: (state) => ({ sessions: state.sessions }) as TabsState,
       migrate: (persistedState) => migrateWorkspaceSessions(persistedState) as TabsState,
       onRehydrateStorage: () => () => {
         try {

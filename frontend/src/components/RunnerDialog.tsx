@@ -165,7 +165,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
     setError('');
     setExporting(true);
     try {
-      const text = await exportReport(report.runId);
+      const text = await exportReport(workspaceId, report.runId);
       await navigator.clipboard.writeText(text);
       void dialog.alert(formatMessage('报告 JSON 已复制到剪贴板'));
     } catch (cause) {
@@ -183,7 +183,7 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
     try {
       const path = await saveNativeFile('保存 HTML 报告', `apirequest-report-${report.runId}.html`);
       if (!path) return;
-      const html = await exportReportHTML(report.runId);
+      const html = await exportReportHTML(workspaceId, report.runId);
       await writeNativeTextFile(path, html);
       void dialog.alert(formatMessage('HTML 报告已保存'));
     } catch (cause) {

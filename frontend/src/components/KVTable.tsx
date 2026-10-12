@@ -131,7 +131,7 @@ export default function KVTable({ items, onChange, keySuggestions }: Props) {
     return (
       <div className="flex flex-col gap-2">
         <textarea
-          className="w-full h-64 border rounded p-2 font-mono text-xs outline-none focus:border-blue-400 resize-y"
+          className="w-full h-64 border rounded p-2 font-mono text-xs outline-hidden focus:border-blue-400 resize-y"
           spellCheck={false}
           placeholder={formatMessage('每行一条 key:value 或 key=value，行首 // 表示禁用')}
           value={batchText}
@@ -195,7 +195,7 @@ export default function KVTable({ items, onChange, keySuggestions }: Props) {
               <td className="p-1">
                 <div className="relative">
                   <input
-                    className={`w-full px-1 py-0.5 outline-none focus:bg-blue-50 ${
+                    className={`w-full px-1 py-0.5 outline-hidden focus:bg-blue-50 ${
                       isDup ? 'bg-red-50 text-red-700' : ''
                     }`}
                     placeholder="Key"
@@ -238,7 +238,7 @@ export default function KVTable({ items, onChange, keySuggestions }: Props) {
               </td>
               <td className="p-1">
                 <input
-                  className="w-full px-1 py-0.5 outline-none focus:bg-blue-50"
+                  className="w-full px-1 py-0.5 outline-hidden focus:bg-blue-50"
                   placeholder="Value"
                   value={r.value}
                   onChange={(e) => update(i, { value: e.target.value })}

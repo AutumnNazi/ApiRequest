@@ -45,6 +45,15 @@ describe('diffLines', () => {
 });
 
 describe('normalizeJsonText', () => {
+  it('preserves special property names and their differences', () => {
+    const a = '{"ok":true,"__proto__":{"role":"user"},"nested":[{"__proto__":1,"constructor":2}]}';
+    const b = '{"ok":true,"__proto__":{"role":"admin"},"nested":[{"__proto__":1,"constructor":2}]}';
+    const normalized = normalizeJsonText(a)!;
+    expect(JSON.parse(normalized)).toEqual(JSON.parse(a));
+    expect(normalized).not.toBe(normalizeJsonText(b));
+    expect(diffLines(normalized, normalizeJsonText(b)!)!.some((row) => row.type !== 'same')).toBe(true);
+    expect(Object.prototype).not.toHaveProperty('role');
+  });
   it('pretty-prints JSON so formatting differences disappear', () => {
     const a = normalizeJsonText('{"a":1,"b":[2,3]}');
     const b = normalizeJsonText('{\n  "b": [2, 3],\n "a": 1\n}');

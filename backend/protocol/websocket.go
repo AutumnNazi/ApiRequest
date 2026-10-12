@@ -21,14 +21,14 @@ type wsSession struct {
 // maxWSMessage 单条消息大小上限（保护，docs/protocols.md：消息大小有上限）
 const maxWSMessage = 4 << 20 // 4 MiB
 
-func openWebSocket(id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error) {
+func openWebSocket(parent context.Context, id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error) {
 	header := http.Header{}
 	for _, h := range cfg.Headers {
 		if h.Enabled && h.Key != "" {
 			header.Set(h.Key, h.Value)
 		}
 	}
-	dialCtx, dialCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	dialCtx, dialCancel := context.WithTimeout(parent, 15*time.Second)
 	conn, _, err := websocket.Dial(dialCtx, cfg.Url, &websocket.DialOptions{
 		HTTPHeader: header,
 		HTTPClient: client,
@@ -39,7 +39,7 @@ func openWebSocket(id string, cfg SessionConfig, emit EmitFunc, client *http.Cli
 	}
 	conn.SetReadLimit(maxWSMessage)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	s := &wsSession{conn: conn, cancel: cancel, emit: emit, id: id}
 
 	emit(InboundMsg{
