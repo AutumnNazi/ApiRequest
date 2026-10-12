@@ -14,12 +14,12 @@ export function DeleteRunnerRun(arg1, arg2) {
   return window['go']['binding']['RunnerApi']['DeleteRunnerRun'](arg1, arg2);
 }
 
-export function ExportReport(arg1) {
-  return window['go']['binding']['RunnerApi']['ExportReport'](arg1);
+export function ExportReport(arg1, arg2) {
+  return window['go']['binding']['RunnerApi']['ExportReport'](arg1, arg2);
 }
 
-export function ExportReportHTML(arg1) {
-  return window['go']['binding']['RunnerApi']['ExportReportHTML'](arg1);
+export function ExportReportHTML(arg1, arg2) {
+  return window['go']['binding']['RunnerApi']['ExportReportHTML'](arg1, arg2);
 }
 
 export function GetRunnerRun(arg1, arg2) {

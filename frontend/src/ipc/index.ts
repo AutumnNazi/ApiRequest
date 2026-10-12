@@ -177,8 +177,8 @@ export const runCollection = (
   opts: Partial<RunnerOptions>,
 ) => call(() => RunnerApi.RunCollection(runId, workspaceId, collectionId, runner.Options.createFrom(opts)));
 export const cancelRun = (runId: string) => call(() => RunnerApi.CancelRun(runId));
-export const exportReport = (runId: string) => call(() => RunnerApi.ExportReport(runId));
-export const exportReportHTML = (runId: string) => call(() => RunnerApi.ExportReportHTML(runId));
+export const exportReport = (workspaceId: string, runId: string) => call(() => RunnerApi.ExportReport(workspaceId, runId));
+export const exportReportHTML = (workspaceId: string, runId: string) => call(() => RunnerApi.ExportReportHTML(workspaceId, runId));
 
 // 运行历史（持久化报告；docs/decisions.md ADR-015）
 export const listRunnerRuns = (workspaceId: string, q: Partial<RunnerRunQuery> = {}) =>

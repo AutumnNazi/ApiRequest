@@ -76,14 +76,14 @@ func TestRunnerApiEvictsOldReports(t *testing.T) {
 	api := NewRunnerApi(nil, nil)
 	for index := 0; index <= maxCachedRunnerReports; index++ {
 		id := fmt.Sprintf("run-%d", index)
-		api.rememberReport(&runner.Report{RunId: id})
+		api.rememberReport("workspace", &runner.Report{RunId: id})
 	}
 
-	if _, err := api.ExportReport("run-0"); err == nil {
+	if _, err := api.ExportReport("workspace", "run-0"); err == nil {
 		t.Fatal("oldest runner report was not evicted")
 	}
 	latest := fmt.Sprintf("run-%d", maxCachedRunnerReports)
-	if _, err := api.ExportReport(latest); err != nil {
+	if _, err := api.ExportReport("workspace", latest); err != nil {
 		t.Fatalf("latest runner report was evicted: %v", err)
 	}
 	if len(api.reports) != maxCachedRunnerReports {

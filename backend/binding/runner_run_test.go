@@ -1,6 +1,8 @@
 package binding
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"apirequest/backend/model"
@@ -8,6 +10,53 @@ import (
 	"apirequest/backend/secrets"
 	"apirequest/backend/storage"
 )
+
+func TestHistoricalRunnerReportExportsWithoutCache(t *testing.T) {
+	api, store, ws := newRunnerApiWithStore(t)
+	report := &runner.Report{RunId: "saved-run", Total: 1, Passed: 1, Results: []runner.RequestResult{{RequestName: "persisted-request", Status: 200}}}
+	if err := store.SaveRunnerRun(ws, "collection", report); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.GetRunnerRun(ws, report.RunId); err != nil {
+		t.Fatal(err)
+	}
+	text, err := api.ExportReport(ws, report.RunId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "persisted-request") {
+		t.Fatal("missing JSON result")
+	}
+	html, err := api.ExportReportHTML(ws, report.RunId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "persisted-request") {
+		t.Fatal("missing HTML result")
+	}
+	for _, exporter := range []func(string, string) (string, error){api.ExportReport, api.ExportReportHTML} {
+		if _, err := exporter("foreign", report.RunId); err == nil {
+			t.Fatal("foreign workspace exported report")
+		}
+	}
+	api.rememberReport(ws, report)
+	if _, err := api.ExportReport("foreign", report.RunId); err == nil {
+		t.Fatal("cache bypassed workspace ownership")
+	}
+	for i := 0; i <= maxCachedRunnerReports; i++ {
+		api.rememberReport(ws, &runner.Report{RunId: fmt.Sprint("evict-", i)})
+	}
+	if _, err := api.ExportReport(ws, report.RunId); err != nil {
+		t.Fatalf("export after eviction: %v", err)
+	}
+	api.rememberReport(ws, report)
+	if err := api.DeleteRunnerRun(ws, report.RunId); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.ExportReport(ws, report.RunId); err == nil {
+		t.Fatal("deleted report remained in cache")
+	}
+}
 
 // newRunnerApiWithStore 用内存 keyring（binding 包惯例），避免依赖系统凭据管理器
 func newRunnerApiWithStore(t *testing.T) (*RunnerApi, *storage.Store, string) {

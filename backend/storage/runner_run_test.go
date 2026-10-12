@@ -69,6 +69,26 @@ func TestGetRunnerRunRejectsForeignWorkspace(t *testing.T) {
 	}
 }
 
+func TestSaveRunnerRunRejectsReassignedIdentity(t *testing.T) {
+	s := newRunnerRunTestStore(t)
+	ws := firstWorkspaceId(t, s)
+	if err := s.SaveRunnerRun(ws, "col-1", sampleReport("same-run", runner.RequestResult{RequestName: "original"})); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range [][2]string{{"other-workspace", "col-2"}, {ws, "col-2"}} {
+		if err := s.SaveRunnerRun(target[0], target[1], sampleReport("same-run", runner.RequestResult{RequestName: "replacement"})); err == nil {
+			t.Fatal("run identity was reassigned")
+		}
+	}
+	report, err := s.GetRunnerRun(ws, "same-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Results[0].RequestName != "original" {
+		t.Fatalf("original report overwritten: %+v", report)
+	}
+}
+
 func TestListRunnerRunsPaginatesNewestFirstWithoutResults(t *testing.T) {
 	s := newRunnerRunTestStore(t)
 	ws := firstWorkspaceId(t, s)

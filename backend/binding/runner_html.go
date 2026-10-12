@@ -70,12 +70,10 @@ var runnerReportHTMLTmpl = template.Must(template.New("runner-report").Parse(`<!
 `))
 
 // ExportReportHTML 导出报告 HTML（自包含单文件，浏览器直接打开）
-func (a *RunnerApi) ExportReportHTML(runId string) (string, error) {
-	a.mu.Lock()
-	report, ok := a.reports[runId]
-	a.mu.Unlock()
-	if !ok {
-		return "", model.NewError(model.KindValidation, "no report for run: "+runId)
+func (a *RunnerApi) ExportReportHTML(workspaceId, runId string) (string, error) {
+	report, err := a.reportForExport(workspaceId, runId)
+	if err != nil {
+		return "", err
 	}
 	var buf strings.Builder
 	if err := runnerReportHTMLTmpl.Execute(&buf, report); err != nil {

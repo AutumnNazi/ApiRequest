@@ -91,8 +91,10 @@ DeleteExample(exampleId string) error
 // MockApi / RunnerApi
 StartMockServer(collectionId string, opts model.MockOptions) (model.MockStatus, error)
 StopMockServer(collectionId string) error
-RunCollection(target model.RunTarget, opts model.RunOptions) (string, error) // 返回 runId
+RunCollection(runId, workspaceId, collectionId string, opts runner.Options) (*runner.Report, error)
 CancelRun(runId string) error
+ExportReport(workspaceId, runId string) (string, error) // 当前及历史报告 JSON；校验工作区归属
+ExportReportHTML(workspaceId, runId string) (string, error) // 支持重启后导出
 
 // ProtocolApi（WS/SSE 会话；gRPC 使用 GrpcApi）
 OpenSession(cfg model.SessionConfig) (string, error)          // 返回 sessionId

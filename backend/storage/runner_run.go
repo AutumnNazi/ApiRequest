@@ -31,7 +31,7 @@ func (s *Store) SaveRunnerRun(workspaceId, collectionId string, report *runner.R
 	if report.Canceled {
 		canceled = 1
 	}
-	_, err = s.db.Exec(`
+	result, err := s.db.Exec(`
 		INSERT INTO runner_run (id, workspace_id, collection_id, created_at, total, passed, failed,
 		                        skipped, duration_ms, canceled, results)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -40,11 +40,20 @@ func (s *Store) SaveRunnerRun(workspaceId, collectionId string, report *runner.R
 		  created_at = excluded.created_at,
 		  total = excluded.total, passed = excluded.passed, failed = excluded.failed,
 		  skipped = excluded.skipped, duration_ms = excluded.duration_ms,
-		  canceled = excluded.canceled, results = excluded.results`,
+		  canceled = excluded.canceled, results = excluded.results
+		WHERE runner_run.workspace_id = excluded.workspace_id
+		  AND runner_run.collection_id = excluded.collection_id`,
 		report.RunId, workspaceId, collectionId, createdAt, report.Total, report.Passed, report.Failed,
 		report.Skipped, report.DurationMs, canceled, string(results))
 	if err != nil {
 		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return model.NewError(model.KindValidation, "run id belongs to a different workspace or collection")
 	}
 	_, err = s.db.Exec(`
 		DELETE FROM runner_run

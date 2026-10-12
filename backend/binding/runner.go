@@ -20,6 +20,11 @@ const maxCachedRunnerReports = 20
 // runnerMaxNextRequestHops 单迭代行内 pm.setNextRequest 跳转的步数上限（防自环死循环）
 const runnerMaxNextRequestHops = 200
 
+type runnerReportKey struct {
+	workspaceId string
+	runId       string
+}
+
 // RunnerApi Collection Runner 域（docs/api-contract.md §4）
 type RunnerApi struct {
 	ctx     context.Context
@@ -28,8 +33,8 @@ type RunnerApi struct {
 
 	operations  *operationRegistry
 	mu          sync.Mutex
-	reports     map[string]*runner.Report // runId → 最新报告（内存）
-	reportOrder []string
+	reports     map[runnerReportKey]*runner.Report
+	reportOrder []runnerReportKey
 }
 
 // NewRunnerApi 构造
@@ -42,7 +47,7 @@ func NewRunnerApi(request *RequestApi, store *storage.Store) *RunnerApi {
 		request:    request,
 		store:      store,
 		operations: operations,
-		reports:    map[string]*runner.Report{},
+		reports:    map[runnerReportKey]*runner.Report{},
 	}
 }
 
@@ -331,7 +336,7 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 	report.Skipped = total - completed
 	report.DurationMs = time.Since(start).Milliseconds()
 
-	a.rememberReport(report)
+	a.rememberReport(workspaceId, report)
 	// 运行历史落库（docs/decisions.md ADR-015：翻转原"仅内存"决策；失败不阻断返回报告）
 	if err := a.store.SaveRunnerRun(workspaceId, collectionId, report); err != nil {
 		if a.ctx != nil {
@@ -341,22 +346,23 @@ func (a *RunnerApi) RunCollection(runId, workspaceId, collectionId string, opts 
 	return report, nil
 }
 
-func (a *RunnerApi) rememberReport(report *runner.Report) {
+func (a *RunnerApi) rememberReport(workspaceId string, report *runner.Report) {
 	if report == nil || report.RunId == "" {
 		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if _, exists := a.reports[report.RunId]; exists {
+	key := runnerReportKey{workspaceId, report.RunId}
+	if _, exists := a.reports[key]; exists {
 		for index, id := range a.reportOrder {
-			if id == report.RunId {
+			if id == key {
 				a.reportOrder = append(a.reportOrder[:index], a.reportOrder[index+1:]...)
 				break
 			}
 		}
 	}
-	a.reports[report.RunId] = report
-	a.reportOrder = append(a.reportOrder, report.RunId)
+	a.reports[key] = report
+	a.reportOrder = append(a.reportOrder, key)
 	for len(a.reportOrder) > maxCachedRunnerReports {
 		oldest := a.reportOrder[0]
 		a.reportOrder = a.reportOrder[1:]
@@ -370,13 +376,26 @@ func (a *RunnerApi) CancelRun(runId string) error {
 	return nil
 }
 
-// ExportReport 导出报告 JSON（供 CI/存档）
-func (a *RunnerApi) ExportReport(runId string) (string, error) {
+// reportForExport 同时支持当前内存报告与重启、缓存淘汰后的持久化报告。
+// 两条读取路径都携带工作区归属；落库失败的当前报告仍可从内存导出。
+func (a *RunnerApi) reportForExport(workspaceId, runId string) (*runner.Report, error) {
 	a.mu.Lock()
-	report, ok := a.reports[runId]
+	report, ok := a.reports[runnerReportKey{workspaceId, runId}]
 	a.mu.Unlock()
-	if !ok {
-		return "", model.NewError(model.KindValidation, "no report for run: "+runId)
+	if ok {
+		return report, nil
+	}
+	if a.store != nil {
+		return a.store.GetRunnerRun(workspaceId, runId)
+	}
+	return nil, model.NewError(model.KindValidation, "no report for run: "+runId)
+}
+
+// ExportReport 导出工作区报告 JSON（供 CI/存档）。
+func (a *RunnerApi) ExportReport(workspaceId, runId string) (string, error) {
+	report, err := a.reportForExport(workspaceId, runId)
+	if err != nil {
+		return "", err
 	}
 	b, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -397,10 +416,32 @@ func (a *RunnerApi) GetRunnerRun(workspaceId, runId string) (*runner.Report, err
 
 // DeleteRunnerRun 删除单次运行历史
 func (a *RunnerApi) DeleteRunnerRun(workspaceId, runId string) error {
-	return a.store.DeleteRunnerRun(workspaceId, runId)
+	if err := a.store.DeleteRunnerRun(workspaceId, runId); err != nil {
+		return err
+	}
+	a.forgetReports(workspaceId, runId)
+	return nil
 }
 
 // ClearRunnerRuns 清空工作区全部运行历史
 func (a *RunnerApi) ClearRunnerRuns(workspaceId string) error {
-	return a.store.ClearRunnerRuns(workspaceId)
+	if err := a.store.ClearRunnerRuns(workspaceId); err != nil {
+		return err
+	}
+	a.forgetReports(workspaceId, "")
+	return nil
+}
+
+func (a *RunnerApi) forgetReports(workspaceId, runId string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	kept := a.reportOrder[:0]
+	for _, key := range a.reportOrder {
+		if key.workspaceId == workspaceId && (runId == "" || key.runId == runId) {
+			delete(a.reports, key)
+		} else {
+			kept = append(kept, key)
+		}
+	}
+	a.reportOrder = kept
 }
