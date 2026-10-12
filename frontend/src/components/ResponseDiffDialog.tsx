@@ -1,6 +1,6 @@
 // 响应对比：当前响应与历史记录做统一行 diff（docs/frontend.md）。
-// JSON 侧默认"格式归一"（排序键 + pretty），消除缩进/键序噪声；超限回退并排原文。
-import { useMemo, useState } from 'react';
+// JSON 侧默认"格式归一"（排序键 + pretty），消除缩进/键序噪声；超限提示改用 Body 查看。
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import ModalFrame from './ModalFrame';
 import {
@@ -15,7 +15,7 @@ import {
 import { formatMessage, Verbatim } from '../i18n/locale';
 import { diffLines, normalizeJsonText, type DiffRow } from '../utils/lineDiff';
 
-// 对比任一侧的正文上限：超出后不做行 diff（LWS DP 代价与 UI 渲染都不可控）
+// 对比任一侧的正文上限：超出后不做行 diff（LCS DP 代价与 UI 渲染都不可控）
 const MAX_DIFF_BODY_CHARS = 400_000;
 const BLOB_LOAD_LIMIT = 2 << 20; // blob 侧最多读 2 MiB
 
@@ -70,6 +70,17 @@ export default function ResponseDiffDialog({
   const [normalize, setNormalize] = useState(true);
   const [loadingSide, setLoadingSide] = useState(false);
   const [sideError, setSideError] = useState('');
+  const selectionRevision = useRef(0);
+
+  useEffect(() => {
+    selectionRevision.current += 1;
+    setPicked(null);
+    setPickedExample(null);
+    setOther(null);
+    setSideError('');
+    setLoadingSide(false);
+    return () => { selectionRevision.current += 1; };
+  }, [workspaceId, nodeId]);
 
   const history = useQuery({
     queryKey: ['history-diff', workspaceId, search.trim()],
@@ -83,6 +94,9 @@ export default function ResponseDiffDialog({
   });
 
   const pickExample = (example: Example) => {
+    selectionRevision.current += 1;
+    setPicked(null);
+    setLoadingSide(false);
     setPickedExample(example);
     setSideError('');
     setOther({
@@ -94,22 +108,26 @@ export default function ResponseDiffDialog({
   };
 
   const pick = async (item: HistorySummary) => {
+    const revision = ++selectionRevision.current;
     setPicked(item);
+    setPickedExample(null);
+    setOther(null);
     setSideError('');
     setLoadingSide(true);
     try {
       const detail = await getHistory(workspaceId, item.id);
+      if (revision !== selectionRevision.current) return;
       let text = detail.bodyInline ?? '';
       if (!text && detail.bodyRef) {
         text = (await loadBlobText(detail.bodyRef)).text;
       }
+      if (revision !== selectionRevision.current) return;
       setOther({ status: detail.status, durationMs: detail.durationMs, bodyInline: text, createdAt: detail.createdAt });
     } catch (cause) {
+      if (revision !== selectionRevision.current) return;
       setSideError(toAppError(cause).detail);
-      setPicked(null);
-      setPickedExample(null);
     } finally {
-      setLoadingSide(false);
+      if (revision === selectionRevision.current) setLoadingSide(false);
     }
   };
 
@@ -117,6 +135,8 @@ export default function ResponseDiffDialog({
     if (!other) return null;
     let a = base.bodyText;
     let b = other.bodyInline ?? '';
+    // 原始正文先限流，避免超大 JSON 在决定跳过对比之前仍占用解析与排序时间。
+    if (a.length > MAX_DIFF_BODY_CHARS || b.length > MAX_DIFF_BODY_CHARS) return null;
     if (normalize) {
       const na = normalizeJsonText(a);
       const nb = normalizeJsonText(b);
@@ -140,7 +160,7 @@ export default function ResponseDiffDialog({
           </h2>
           <p className="text-xs text-gray-500 mt-1">
             {formatMessage('当前')}：<span data-side="base-status">{base.status}</span> · {base.durationMs}ms · <Verbatim value={base.label} />
-            {picked && other && (
+            {(picked || pickedExample) && other && (
               <>
                 {' ↔ '}
                 {pickedExample ? formatMessage('示例') : formatMessage('历史')}：<span data-side="other-status">{other.status}</span> · {other.durationMs}ms · {other.createdAt > 0 ? new Date(other.createdAt).toLocaleString() : ''}
@@ -216,9 +236,12 @@ export default function ResponseDiffDialog({
               <button
                 className="border rounded px-2 py-0.5 text-gray-600 hover:bg-gray-50"
                 onClick={() => {
+                  selectionRevision.current += 1;
                   setPicked(null);
                   setPickedExample(null);
                   setOther(null);
+                  setSideError('');
+                  setLoadingSide(false);
                 }}
               >
                 {formatMessage('← 重新选择')}
