@@ -82,7 +82,7 @@ export function normalizeJsonText(text: string): string | null {
 function sortValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortValue);
   if (value !== null && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
+    const out: Record<string, unknown> = Object.create(null);
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
       out[key] = sortValue((value as Record<string, unknown>)[key]);
     }
