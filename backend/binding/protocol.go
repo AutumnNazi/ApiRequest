@@ -28,10 +28,6 @@ func (a *ProtocolApi) OpenSession(sessionId string, cfg protocol.SessionConfig) 
 		if a.ctx != nil {
 			wailsrt.EventsEmit(a.ctx, "proto:message", msg)
 		}
-		// 连接自然关闭时从会话表移除
-		if msg.Kind == "close" || msg.Kind == "error" {
-			a.manager.Remove(msg.SessionId)
-		}
 	}
 	return a.manager.Open(sessionId, cfg, emit)
 }

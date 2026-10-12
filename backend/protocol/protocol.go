@@ -3,6 +3,7 @@
 package protocol
 
 import (
+	"context"
 	"net/http"
 	"sync"
 
@@ -38,22 +39,25 @@ type Session interface {
 }
 
 // opener 各协议的打开函数
-type opener func(id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error)
+type opener func(ctx context.Context, id string, cfg SessionConfig, emit EmitFunc, client *http.Client) (Session, error)
 
 var openers = map[string]opener{}
 
 // registerOpener 注册协议（init 时调用）
 func registerOpener(protocol string, fn opener) { openers[protocol] = fn }
 
-// Manager 管理全部活动会话
+type sessionOperation struct {
+	cancel context.CancelFunc
+	ended  bool // 在管理器锁内记录终态，旧会话不能影响同 ID 的新任务。
+}
+
+// Manager 管理连接中任务与活动会话的统一生命周期。
 type Manager struct {
-	mu       sync.Mutex
-	sessions map[string]Session
-	opening  map[string]struct{}
-	// closing 记录"dial 尚未完成时就有人调 Close"的 id：Open 的注册阶段
-	// 检查此表，避免 dial 完成后把一个前端已关闭的会话注册进 sessions（泄漏）
-	closing map[string]struct{}
-	client  *http.Client
+	mu         sync.Mutex
+	sessions   map[string]Session
+	operations map[string]*sessionOperation
+	closed     bool
+	client     *http.Client
 }
 
 // NewManager 构造
@@ -63,10 +67,9 @@ func NewManager(clients ...*http.Client) *Manager {
 		client = clients[0]
 	}
 	return &Manager{
-		sessions: map[string]Session{},
-		opening:  map[string]struct{}{},
-		closing:  map[string]struct{}{},
-		client:   client,
+		sessions:   map[string]Session{},
+		operations: map[string]*sessionOperation{},
+		client:     client,
 	}
 }
 
@@ -77,30 +80,56 @@ func (m *Manager) Open(sessionId string, cfg SessionConfig, emit EmitFunc) error
 		return model.NewError(model.KindValidation, "unsupported protocol: "+cfg.Protocol)
 	}
 	m.mu.Lock()
-	_, active := m.sessions[sessionId]
-	_, opening := m.opening[sessionId]
-	if active || opening {
+	if m.closed {
+		m.mu.Unlock()
+		return model.NewError(model.KindNetwork, "session manager is closed")
+	}
+	if _, exists := m.operations[sessionId]; exists {
 		m.mu.Unlock()
 		return model.NewError(model.KindValidation, "session already exists: "+sessionId)
 	}
-	m.opening[sessionId] = struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	operation := &sessionOperation{cancel: cancel}
+	m.operations[sessionId] = operation
 	m.mu.Unlock()
 
-	s, err := fn(sessionId, cfg, emit, m.client)
-	m.mu.Lock()
-	delete(m.opening, sessionId)
-	if err != nil {
-		// dial 失败同样要清理 closing 标记：Close 在 dial 窗口内到达后 dial
-		// 又失败时，会话从未存在，标记不清会永久残留（复用同 id 的下次
-		// Open 会被误判为"打开期间已关闭"）
-		delete(m.closing, sessionId)
+	// 终态事件由管理器处理，并用任务身份过滤旧连接的晚到事件。
+	emitCurrent := func(msg InboundMsg) {
+		terminal := msg.Kind == "close" || msg.Kind == "error"
+		m.mu.Lock()
+		current := m.operations[sessionId] == operation
+		// 显式 Close 后仍允许一次关闭通知，但不得串到复用 ID 的新连接。
+		deliver := current || (terminal && m.operations[sessionId] == nil && !operation.ended && !m.closed)
+		if terminal {
+			operation.ended = true
+			if current {
+				delete(m.operations, sessionId)
+				delete(m.sessions, sessionId)
+			}
+		}
 		m.mu.Unlock()
+		if terminal {
+			cancel()
+		}
+		if deliver && emit != nil {
+			emit(msg)
+		}
+	}
+	s, err := fn(ctx, sessionId, cfg, emitCurrent, m.client)
+	m.mu.Lock()
+	current := m.operations[sessionId] == operation
+	if err != nil {
+		if current {
+			delete(m.operations, sessionId)
+		}
+		m.mu.Unlock()
+		cancel()
 		return err
 	}
-	// dial 期间有人调过 Close（如前端面板关闭）：不注册，立即关闭并清理标记
-	if _, closePending := m.closing[sessionId]; closePending {
-		delete(m.closing, sessionId)
+	// 即使 Adapter 在取消后仍返回成功，也不允许迟到的连接重新注册。
+	if !current {
 		m.mu.Unlock()
+		cancel()
 		_ = s.Close()
 		return model.NewError(model.KindNetwork, "session closed while opening")
 	}
@@ -120,40 +149,35 @@ func (m *Manager) Send(sessionId, data string) error {
 	return s.Send(data)
 }
 
-// Close 关闭会话（未知 id 为 no-op）。
-// dial 尚未完成的 id 记入 closing 表（Open 注册时检查）——直接返回 nil，
-// 否则 Close 在 opening 窗口内到达会被当 no-op 丢弃，dial 完成后无人再关
+// Close 关闭会话并取消仍在拨号或握手的任务（未知 id 为 no-op）。
 func (m *Manager) Close(sessionId string) error {
 	m.mu.Lock()
 	s, ok := m.sessions[sessionId]
-	if ok {
-		delete(m.sessions, sessionId)
-	} else if _, opening := m.opening[sessionId]; opening {
-		m.closing[sessionId] = struct{}{}
-	}
+	operation := m.operations[sessionId]
+	delete(m.sessions, sessionId)
+	delete(m.operations, sessionId)
 	m.mu.Unlock()
+	if operation != nil {
+		operation.cancel()
+	}
 	if ok {
 		return s.Close()
 	}
 	return nil
 }
 
-// Remove 会话自然结束时从表中移除（适配器内部用）
-func (m *Manager) Remove(sessionId string) {
-	m.mu.Lock()
-	delete(m.sessions, sessionId)
-	m.mu.Unlock()
-}
-
-// CloseAll 应用退出时清理
+// CloseAll 停止接收新任务，取消全部连接中任务并关闭活动会话。
 func (m *Manager) CloseAll() {
 	m.mu.Lock()
-	ids := make([]string, 0, len(m.sessions))
-	for id := range m.sessions {
-		ids = append(ids, id)
-	}
+	m.closed = true
+	operations, sessions := m.operations, m.sessions
+	m.operations = map[string]*sessionOperation{}
+	m.sessions = map[string]Session{}
 	m.mu.Unlock()
-	for _, id := range ids {
-		_ = m.Close(id)
+	for _, operation := range operations {
+		operation.cancel()
+	}
+	for _, session := range sessions {
+		_ = session.Close()
 	}
 }

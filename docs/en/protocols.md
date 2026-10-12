@@ -10,16 +10,17 @@ A unified protocol-adapter interface supports WebSocket, SSE, gRPC, and GraphQL 
 
 ## 1. Unified Abstraction
 
-Each protocol implements `ProtocolSession`. Wails binding methods open and close its lifecycle, while Wails events deliver data.
+WebSocket, SSE, and GraphQL subscriptions implement `Session`. `protocol.Manager` owns opening operations and active sessions; gRPC uses a separate stream manager. Wails bindings call the manager and deliver events.
 
 ```go
-type ProtocolSession interface {
-    Open(cfg SessionConfig) (SessionId, error)
-    Send(id SessionId, msg OutboundMsg) error
-    Close(id SessionId) error
+type Session interface {
+    Send(data string) error
+    Close() error
     // Inbound data is sent to the frontend through the `proto:message` Wails event.
 }
 ```
+
+`Close` cancels pending dial or handshake operations. During application shutdown, `CloseAll` rejects new operations, cancels pending connections, and closes active sessions; late connections cannot register again. Terminal events clean up by operation identity so an old event cannot remove a replacement session with the same ID.
 
 ---
 
