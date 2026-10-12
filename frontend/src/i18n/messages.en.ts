@@ -1,4 +1,7 @@
 export const en: Record<string, string> = {
+  '上一页': 'Previous page',
+  '下一页': 'Next page',
+  '复制当前页': 'Copy current page',
   '初始化中…': 'Initializing...',
   '初始化失败': 'Initialization failed',
   '初始化工作区名称失败：{detail}': 'Failed to initialize the workspace name: {detail}',

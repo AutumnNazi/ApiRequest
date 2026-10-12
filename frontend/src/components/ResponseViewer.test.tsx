@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ResponseResult } from '../ipc';
 import { useLocale } from '../i18n/locale';
 import ResponseViewer from './ResponseViewer';
@@ -7,6 +7,68 @@ import ResponseViewer from './ResponseViewer';
 afterEach(() => useLocale.getState().setLocale('zh-CN'));
 
 describe('ResponseViewer body rendering', () => {
+  it('pages through loaded binary bytes and advances to newly loaded chunks', async () => {
+    const first = btoa('A'.repeat(64 << 10) + 'B'.repeat(192 << 10));
+    const read = vi.fn()
+      .mockResolvedValueOnce({ dataBase64: first, eof: false })
+      .mockResolvedValueOnce({ dataBase64: btoa('FRESH'), eof: true });
+    const original = Object.getOwnPropertyDescriptor(window, 'go');
+    Object.defineProperty(window, 'go', { configurable: true, value: { binding: { RequestApi: {
+      GetResponseBlobInfo: () => Promise.resolve({ ref: 'binary', sizeBytes: (256 << 10) + 5 }),
+      ReadResponseBlobRange: read,
+    } } } });
+    try {
+      const response = {
+        status: 200, statusText: 'OK', headers: [], cookies: [],
+        body: { inline: false, blobRef: 'binary', encoding: 'binary' },
+        timing: { dnsMs: 0, connectMs: 0, tlsMs: 0, ttfbMs: 1, downloadMs: 1, totalMs: 2 }, sizeBytes: (256 << 10) + 5, testResults: [], scriptLogs: [],
+      } as unknown as ResponseResult;
+      const view = render(<ResponseViewer response={response} sending={false} />);
+      fireEvent.click(screen.getByRole('button', { name: '加载下一块' }));
+      fireEvent.click(await screen.findByRole('button', { name: '下一页' }));
+      expect(view.container.querySelector('pre')).toHaveTextContent('00010000');
+      expect(view.container.querySelector('pre')).toHaveTextContent('BBBB');
+      fireEvent.click(screen.getByRole('button', { name: '上一页' }));
+      expect(view.container.querySelector('pre')).toHaveTextContent('00000000');
+      fireEvent.click(screen.getByRole('button', { name: '加载下一块' }));
+      await waitFor(() => expect(view.container.querySelector('pre')).toHaveTextContent('FRESH'));
+      expect(view.container.querySelector('pre')).toHaveTextContent('00040000');
+      expect(read.mock.calls[1][1]).toBe(256 << 10);
+      expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled();
+    } finally {
+      if (original) Object.defineProperty(window, 'go', original);
+      else Reflect.deleteProperty(window, 'go');
+    }
+  });
+
+  it('rejects an old chunk after switching away and back to the same response', async () => {
+    let resolveOld!: (chunk: unknown) => void;
+    let resolveNew!: (chunk: unknown) => void;
+    const read = vi.fn()
+      .mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveNew = resolve; }));
+    const original = Object.getOwnPropertyDescriptor(window, 'go');
+    Object.defineProperty(window, 'go', { configurable: true, value: { binding: { RequestApi: {
+      GetResponseBlobInfo: () => Promise.resolve({ sizeBytes: 5 }), ReadResponseBlobRange: read,
+    } } } });
+    try {
+      const response = { status: 200, statusText: 'OK', headers: [], cookies: [], body: { blobRef: 'same-ref', encoding: 'binary' }, timing: { dnsMs: 0, connectMs: 0, tlsMs: 0, ttfbMs: 1, downloadMs: 1, totalMs: 2 }, sizeBytes: 5, testResults: [], scriptLogs: [] } as unknown as ResponseResult;
+      const other = { ...response, body: { ...response.body, blobRef: 'other' } } as ResponseResult;
+      const view = render(<ResponseViewer response={response} sending={false} />);
+      fireEvent.click(screen.getByRole('button', { name: '加载下一块' }));
+      view.rerender(<ResponseViewer response={other} sending={false} />);
+      view.rerender(<ResponseViewer response={response} sending={false} />);
+      fireEvent.click(screen.getByRole('button', { name: '加载下一块' }));
+      await act(async () => resolveOld({ dataBase64: btoa('STALE'), eof: true }));
+      expect(screen.getByRole('button', { name: '加载中…' })).toBeDisabled();
+      expect(view.container.querySelector('pre')).not.toHaveTextContent('STALE');
+      await act(async () => resolveNew({ dataBase64: btoa('FRESH'), eof: true }));
+      expect(view.container.querySelector('pre')).toHaveTextContent('FRESH');
+    } finally {
+      if (original) Object.defineProperty(window, 'go', original);
+      else Reflect.deleteProperty(window, 'go');
+    }
+  });
   it('keeps oversized response text out of the DOM beyond the render limit', () => {
     const tail = 'SHOULD_NOT_REACH_THE_DOM';
     const response = {
