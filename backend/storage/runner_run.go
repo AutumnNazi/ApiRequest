@@ -9,6 +9,7 @@ import (
 )
 
 const runnerRunsDefaultLimit = 20
+const runnerRunsMaxLimit = 100
 
 // runnerRunRetentionLimit 每 (workspace, collection) 保留的最近运行次数；
 // results JSON 体积可观，不设上限会随使用无限增长（同 history 保留策略思路）
@@ -72,6 +73,9 @@ func (s *Store) ListRunnerRuns(workspaceId string, query model.RunnerRunQuery) (
 	limit := query.Limit
 	if limit <= 0 {
 		limit = runnerRunsDefaultLimit
+	}
+	if limit > runnerRunsMaxLimit {
+		limit = runnerRunsMaxLimit
 	}
 	where := "workspace_id = ?"
 	args := []any{workspaceId}

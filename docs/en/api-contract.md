@@ -95,6 +95,7 @@ RunCollection(runId, workspaceId, collectionId string, opts runner.Options) (*ru
 CancelRun(runId string) error
 ExportReport(workspaceId, runId string) (string, error) // Current or stored report JSON; workspace-scoped.
 ExportReportHTML(workspaceId, runId string) (string, error) // Supports export after restart.
+ListRunnerRuns(workspaceId string, q model.RunnerRunQuery) (model.RunnerRunPage, error) // Default 20, maximum 100 per page.
 
 // ProtocolApi (WS/SSE sessions; gRPC uses GrpcApi)
 OpenSession(cfg model.SessionConfig) (string, error)          // Return sessionId.

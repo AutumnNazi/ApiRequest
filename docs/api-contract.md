@@ -95,6 +95,7 @@ RunCollection(runId, workspaceId, collectionId string, opts runner.Options) (*ru
 CancelRun(runId string) error
 ExportReport(workspaceId, runId string) (string, error) // 当前及历史报告 JSON；校验工作区归属
 ExportReportHTML(workspaceId, runId string) (string, error) // 支持重启后导出
+ListRunnerRuns(workspaceId string, q model.RunnerRunQuery) (model.RunnerRunPage, error) // 默认 20 条，每页最多 100 条
 
 // ProtocolApi（WS/SSE 会话；gRPC 使用 GrpcApi）
 OpenSession(cfg model.SessionConfig) (string, error)          // 返回 sessionId
