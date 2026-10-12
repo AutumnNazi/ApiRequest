@@ -23,6 +23,71 @@ func openTestStore(t *testing.T) *Store {
 	return s
 }
 
+func TestListNodeSubtreeScopesOwnershipAndDeletedAncestors(t *testing.T) {
+	s := openTestStore(t)
+	ws, err := s.EnsureDefaultWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.CreateWorkspace("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := func(id, workspace, parent, kind string, order float64) {
+		t.Helper()
+		_, err := s.UpsertNode(model.Node{Id: id, WorkspaceId: workspace, ParentId: parent, Kind: kind, Name: id, SortOrder: order})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("root", ws.Id, "", "collection", 0)
+	add("child", ws.Id, "root", "folder", 1)
+	add("grandchild", ws.Id, "child", "folder", 2)
+	add("unrelated", ws.Id, "", "collection", 3)
+	add("deleted", ws.Id, "root", "folder", 4)
+	add("under-deleted", ws.Id, "deleted", "folder", 5)
+	add("foreign", other.Id, "", "collection", 6)
+	// 模拟旧库损坏的跨工作区父引用与只标记父节点的删除墓碑。
+	if _, err := s.db.Exec("UPDATE node SET parent_id = 'root' WHERE id = 'foreign'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("UPDATE node SET deleted_at = 1 WHERE id = 'deleted'"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ workspace, root, want string }{
+		{ws.Id, "root", "root,child,grandchild"},
+		{ws.Id, "child", "child,grandchild"},
+		{other.Id, "root", ""},
+		{ws.Id, "missing", ""},
+		{ws.Id, "deleted", ""},
+	} {
+		t.Run(tc.workspace+"/"+tc.root, func(t *testing.T) {
+			nodes, err := s.ListNodeSubtree(tc.workspace, tc.root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ids []string
+			for _, node := range nodes {
+				ids = append(ids, node.Id)
+			}
+			if got := strings.Join(ids, ","); got != tc.want {
+				t.Fatalf("nodes=%s, want %s", got, tc.want)
+			}
+		})
+	}
+	// 异常环不会使子树查询无限递归。
+	if _, err := s.db.Exec("UPDATE node SET parent_id = 'grandchild' WHERE id = 'root'"); err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := s.ListNodeSubtree(ws.Id, "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 3 {
+		t.Fatalf("cyclic subtree returned %d nodes", len(nodes))
+	}
+}
+
 func insertLegacyHistoryBlob(t *testing.T, store *Store, workspaceId, ref string) {
 	t.Helper()
 	if _, err := store.db.Exec(`

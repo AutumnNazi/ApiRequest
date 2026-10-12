@@ -8,6 +8,30 @@ import {
 } from './tabs';
 
 describe('Workspace Session store', () => {
+  it('debounces serialization and persists only the latest scrubbed draft', () => {
+    vi.useFakeTimers();
+    const id = useTabs.getState().openBlank('workspace-a');
+    flushWorkspaceSessions();
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      for (let i = 0; i < 20; i++) {
+        useTabs.getState().patchDraft(id, {
+          url: `https://debounce.example/${i}`,
+          auth: { type: 'bearer', params: { token: 'must-not-persist' } },
+        });
+      }
+      expect(stringify).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(400);
+      expect(stringify).toHaveBeenCalledTimes(1);
+      const raw = localStorage.getItem('apirequest.workspace-sessions.v1') ?? '';
+      expect(raw).toContain('https://debounce.example/19');
+      expect(raw).not.toContain('must-not-persist');
+    } finally {
+      stringify.mockRestore();
+      flushWorkspaceSessions();
+      vi.useRealTimers();
+    }
+  });
   beforeEach(() => {
     vi.useRealTimers();
     localStorage.clear();
@@ -279,5 +303,54 @@ describe('Workspace Session store', () => {
     expect(localStorage.getItem('apirequest.workspace-sessions.v1')).toContain('retry.example');
     setItem.mockRestore();
     vi.useRealTimers();
+  });
+
+  it('does not resurrect a closed draft when its debounce fires', () => {
+    vi.useFakeTimers();
+    try {
+      const id = useTabs.getState().openBlank('workspace-a');
+      useTabs.getState().patchDraft(id, { url: 'https://removed.example' });
+      useTabs.getState().close(id);
+      vi.advanceTimersByTime(400);
+      const saved = JSON.parse(localStorage.getItem('apirequest.workspace-sessions.v1')!);
+      expect(saved.state.sessions).toEqual({});
+    } finally {
+      flushWorkspaceSessions();
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushes only once and cancels a pending debounce on explicit close', () => {
+    vi.useFakeTimers();
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      const id = useTabs.getState().openBlank('workspace-a');
+      useTabs.getState().patchDraft(id, { url: 'https://close-now.example' });
+      flushWorkspaceSessions();
+      vi.advanceTimersByTime(400);
+      expect(stringify).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem('apirequest.workspace-sessions.v1')).toContain('close-now.example');
+    } finally {
+      stringify.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not restore pending data after clearing a failed write', () => {
+    vi.useFakeTimers();
+    const id = useTabs.getState().openBlank('workspace-a');
+    useTabs.getState().patchDraft(id, { url: 'https://clear-pending.example' });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new Error('quota exceeded');
+    });
+    try {
+      vi.advanceTimersByTime(400);
+      useTabs.persist.clearStorage();
+      flushWorkspaceSessions();
+      expect(localStorage.getItem('apirequest.workspace-sessions.v1')).toBeNull();
+    } finally {
+      setItem.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

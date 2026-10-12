@@ -85,6 +85,124 @@ func TestRunCollectionSetNextRequestSelfLoopTerminates(t *testing.T) {
 	if report.Total != runnerMaxNextRequestHops {
 		t.Fatalf("total = %d, want hop cap %d (must terminate)", report.Total, runnerMaxNextRequestHops)
 	}
+	if report.Skipped != 0 {
+		t.Fatalf("repeated execution must not create negative skipped count: %d", report.Skipped)
+	}
+}
+
+func TestRunCollectionFailedJumpTargetReturnsToNaturalOrder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	defer srv.Close()
+	store := openRunnerStore(t)
+	ws, _ := store.EnsureDefaultWorkspace()
+	col, err := store.UpsertNode(model.Node{WorkspaceId: ws.Id, Kind: "collection", Name: "failed-target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range []string{"A", "B", "C"} {
+		url, script := srv.URL, ""
+		if name == "A" {
+			script = `pm.setNextRequest('B');`
+		}
+		if name == "B" {
+			url = "://invalid"
+		}
+		_, err := store.UpsertNode(model.Node{Id: "failure-" + name, WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: name, SortOrder: float64(i), Request: &model.HttpRequest{Method: "GET", Url: url, Settings: model.DefaultSettings(), TestScript: script}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := httpengine.New()
+	engine.SetBlobsDir(store.BlobsDir())
+	api := NewRunnerApi(NewRequestApi(engine, store), store)
+	report, err := api.RunCollection("failed-target", ws.Id, col.Id, runner.Options{Iterations: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Total != 3 || report.Failed != 1 || report.Skipped != 0 {
+		t.Fatalf("failed jump target must execute once then continue: %+v", report)
+	}
+	for i, want := range []string{"A", "B", "C"} {
+		if report.Results[i].RequestName != want {
+			t.Fatalf("result %d = %s, want %s", i, report.Results[i].RequestName, want)
+		}
+	}
+}
+
+func TestRunCollectionRepeatedVisitsPreserveSkippedAndExecutionOrder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	defer srv.Close()
+	store := openRunnerStore(t)
+	ws, err := store.EnsureDefaultWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := store.UpsertNode(model.Node{WorkspaceId: ws.Id, Kind: "collection", Name: "repeat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range []string{"A", "B", "C"} {
+		script := ""
+		if name == "A" {
+			script = `let visits = Number(pm.collectionVariables.get('visits') || '0') + 1; pm.collectionVariables.set('visits', String(visits)); pm.setNextRequest(visits < 3 ? 'A' : 'C');`
+		}
+		_, err := store.UpsertNode(model.Node{Id: []string{"z-A", "m-B", "a-C"}[i], WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: name, SortOrder: float64(i), Request: &model.HttpRequest{Method: "GET", Url: srv.URL, Settings: model.DefaultSettings(), TestScript: script}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := httpengine.New()
+	engine.SetBlobsDir(store.BlobsDir())
+	report, err := NewRunnerApi(NewRequestApi(engine, store), store).RunCollection("repeat", ws.Id, col.Id, runner.Options{Iterations: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Total != 4 || report.Skipped != 1 {
+		t.Fatalf("total=%d skipped=%d", report.Total, report.Skipped)
+	}
+	var names []string
+	for _, result := range report.Results {
+		names = append(names, result.RequestName)
+	}
+	if strings.Join(names, ",") != "A,A,A,C" {
+		t.Fatalf("execution order=%v", names)
+	}
+}
+
+func TestRunCollectionReportKeepsTaskOrder(t *testing.T) {
+	for _, concurrency := range []int{1, 3} {
+		t.Run(fmt.Sprint(concurrency), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+			defer srv.Close()
+			store := openRunnerStore(t)
+			ws, _ := store.EnsureDefaultWorkspace()
+			col, err := store.UpsertNode(model.Node{WorkspaceId: ws.Id, Kind: "collection", Name: "order"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, id := range []string{"z-first", "m-second", "a-third"} {
+				_, err := store.UpsertNode(model.Node{Id: id, WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: id, SortOrder: float64(i), Request: &model.HttpRequest{Method: "GET", Url: srv.URL, Settings: model.DefaultSettings()}})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			engine := httpengine.New()
+			engine.SetBlobsDir(store.BlobsDir())
+			report, err := NewRunnerApi(NewRequestApi(engine, store), store).RunCollection("order", ws.Id, col.Id, runner.Options{Iterations: 2, Concurrency: concurrency})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(report.Results) != 6 {
+				t.Fatalf("results = %d", len(report.Results))
+			}
+			for i, rr := range report.Results {
+				want := []string{"z-first", "m-second", "a-third"}[i%3]
+				if rr.NodeId != want || rr.Iteration != i/3+1 {
+					t.Fatalf("result %d = %+v, want %s", i, rr, want)
+				}
+			}
+		})
+	}
 }
 
 // 未知名：回到自然顺序（从下一个未执行的请求继续）

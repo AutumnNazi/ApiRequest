@@ -1,6 +1,7 @@
 package binding
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -154,4 +155,83 @@ func openRunnerStore(t *testing.T) *storage.Store {
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+// 多个在途请求一起失败或被取消时，每个 worker 都可能发出停止信号。
+func TestRunCollectionSimultaneousWorkerStops(t *testing.T) {
+	for _, cancelRun := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel=%t", cancelRun), func(t *testing.T) {
+			const workers = 8
+			var arrivals atomic.Int32
+			ready, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if arrivals.Add(1) == workers {
+					close(ready)
+				}
+				select {
+				case <-release:
+				case <-r.Context().Done():
+				}
+				w.WriteHeader(500)
+			}))
+			defer srv.Close()
+			defer unblock()
+			store := openRunnerStore(t)
+			ws, err := store.EnsureDefaultWorkspace()
+			if err != nil {
+				t.Fatal(err)
+			}
+			col, err := store.UpsertNode(model.Node{WorkspaceId: ws.Id, Kind: "collection", Name: "stop-together"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = store.UpsertNode(model.Node{WorkspaceId: ws.Id, ParentId: col.Id, Kind: "request", Name: "fail", Request: &model.HttpRequest{Method: "GET", Url: srv.URL, Settings: model.DefaultSettings(), TestScript: `pm.test('fail', function(){ pm.expect(pm.response.code).to.equal(200); });`}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			engine := httpengine.New()
+			engine.SetBlobsDir(store.BlobsDir())
+			api := NewRunnerApi(NewRequestApi(engine, store), store)
+			type outcome struct {
+				report *runner.Report
+				err    error
+			}
+			result := make(chan outcome, 1)
+			go func() {
+				report, err := api.RunCollection("stop-together", ws.Id, col.Id, runner.Options{Iterations: 32, Concurrency: workers, StopOnError: true})
+				result <- outcome{report, err}
+			}()
+			defer api.CancelRun("stop-together")
+			select {
+			case <-ready:
+			case <-time.After(10 * time.Second):
+				t.Fatal("workers did not reach server")
+			}
+			if cancelRun {
+				if err := api.CancelRun("stop-together"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			unblock()
+			select {
+			case out := <-result:
+				if out.err != nil {
+					t.Fatal(out.err)
+				}
+				if out.report.Total >= 32 || out.report.Total+out.report.Skipped != 32 {
+					t.Fatalf("unexpected report: %+v", out.report)
+				}
+				if cancelRun && !out.report.Canceled {
+					t.Fatal("cancelled run was not marked cancelled")
+				}
+				if !cancelRun && out.report.Failed < workers {
+					t.Fatalf("only %d workers recorded failure", out.report.Failed)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("workers failed to stop")
+			}
+		})
+	}
 }

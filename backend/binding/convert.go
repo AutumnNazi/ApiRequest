@@ -120,22 +120,27 @@ func (a *ConvertApi) collectTree(collectionId string) ([]model.Node, model.Node,
 	}
 	collection = chain[0]
 
-	all, err := a.store.ListNodes(collection.WorkspaceId)
+	all, err := a.store.ListNodeSubtree(collection.WorkspaceId, collectionId)
 	if err != nil {
 		return nil, collection, model.WrapError(model.KindStorage, err)
 	}
-	// BFS 收集后代
+	// 保留导出的广度优先顺序，父子索引避免每层重复扫描子树。
+	byParent := make(map[string][]model.Node, len(all))
+	for _, node := range all {
+		byParent[node.ParentId] = append(byParent[node.ParentId], node)
+	}
 	descendants := []model.Node{}
-	frontier := map[string]bool{collection.Id: true}
-	for len(frontier) > 0 {
-		next := map[string]bool{}
-		for _, n := range all {
-			if frontier[n.ParentId] {
-				descendants = append(descendants, n)
-				next[n.Id] = true
+	queue := []string{collection.Id}
+	seen := map[string]bool{collection.Id: true}
+	for i := 0; i < len(queue); i++ {
+		for _, node := range byParent[queue[i]] {
+			if seen[node.Id] {
+				continue
 			}
+			seen[node.Id] = true
+			descendants = append(descendants, node)
+			queue = append(queue, node.Id)
 		}
-		frontier = next
 	}
 	return descendants, collection, nil
 }

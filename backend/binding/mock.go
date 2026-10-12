@@ -104,29 +104,10 @@ func (a *MockApi) StartMockServer(collectionId string, opts mock.Options) (MockS
 		return MockStatus{}, model.NewError(model.KindStorage, "collection not found: "+collectionId)
 	}
 	root := chain[0]
-	all, err := a.store.ListNodes(root.WorkspaceId)
+	nodes, err := a.store.ListNodeSubtree(root.WorkspaceId, collectionId)
 	if err != nil {
 		return MockStatus{}, model.WrapError(model.KindStorage, err)
 	}
-	// 收集集合子树节点
-	inTree := map[string]bool{collectionId: true}
-	changed := true
-	for changed {
-		changed = false
-		for _, n := range all {
-			if !inTree[n.Id] && inTree[n.ParentId] {
-				inTree[n.Id] = true
-				changed = true
-			}
-		}
-	}
-	var nodes []model.Node
-	for _, n := range all {
-		if inTree[n.Id] {
-			nodes = append(nodes, n)
-		}
-	}
-
 	examples, err := a.store.ListExamplesForCollection(collectionId)
 	if err != nil {
 		return MockStatus{}, model.WrapError(model.KindStorage, err)
