@@ -1,0 +1,71 @@
+{
+  "description": "URL query 双轨解析共享 Golden 测试向量：backend/requesturl（Go 引擎发送语义）与 frontend/src/utils/urlParams（UI 表格显示语义）共读此文件断言，锁死「用户在表格里看到的参数」与「引擎实际发出的参数」一致。",
+  "pairsFormat": "每个 case 的 pairs 是 [key, value] 有序数组：value 为解码后的最终形态（+ 与 %XX 已解码），键值重复按出现顺序保留，空段跳过，无 = 的段 value 为空串。",
+  "notes": [
+    "畸形 percent 转义（如 p=50%）不进共享集：前端刻意保留原文（用户可继续编辑），Go 标准库 ParseQuery 会丢弃该段——引擎最终经参数表回填路径补发该值，两端的容错策略各自有独立单测锁定。",
+    "分号分隔（a=1;b=2）不进共享集：Go 视为错误跳过该段，前端当作 value 普通字符，属历史 HTTP 语义分歧，双端行为各自锁定。"
+  ],
+  "cases": [
+    {
+      "name": "basic-two-pairs",
+      "query": "a=1&b=2",
+      "pairs": [["a", "1"], ["b", "2"]]
+    },
+    {
+      "name": "plus-decodes-to-space-but-encoded-plus-stays-plus",
+      "query": "q=x+y&n=a%2Bb",
+      "pairs": [["q", "x y"], ["n", "a+b"]]
+    },
+    {
+      "name": "percent-escapes-include-unicode",
+      "query": "name=%E5%BC%A0%E4%B8%89&msg=hello%20world",
+      "pairs": [["name", "张三"], ["msg", "hello world"]]
+    },
+    {
+      "name": "empty-value-with-equals",
+      "query": "a=&b=1",
+      "pairs": [["a", ""], ["b", "1"]]
+    },
+    {
+      "name": "missing-equals-means-empty-value",
+      "query": "flag&a=1",
+      "pairs": [["flag", ""], ["a", "1"]]
+    },
+    {
+      "name": "duplicate-keys-keep-order",
+      "query": "e=1&e=2&f=1",
+      "pairs": [["e", "1"], ["e", "2"], ["f", "1"]]
+    },
+    {
+      "name": "encoded-structural-chars-in-value",
+      "query": "q=a%26b%3Dc%23d",
+      "pairs": [["q", "a&b=c#d"]]
+    },
+    {
+      "name": "empty-segments-are-skipped",
+      "query": "a=1&&b=2&",
+      "pairs": [["a", "1"], ["b", "2"]]
+    },
+    {
+      "name": "template-components-stay-literal",
+      "query": "url={{base}}&ts={{$timestamp}}",
+      "pairs": [["url", "{{base}}"], ["ts", "{{$timestamp}}"]]
+    },
+    {
+      "name": "escapes-decode-even-inside-template-bearing-component",
+      "query": "t=a%20{{v}}&u={{u}}%21",
+      "pairs": [["t", "a {{v}}"], ["u", "{{u}}!"]],
+      "rationale": "转义解码与模板保留互不吞并：引擎在模板解析前按此语义解码，UI 表格必须显示同样的解码结果，否则用户看到的与实际发送的不一致"
+    },
+    {
+      "name": "encoded-characters-in-key",
+      "query": "a%20b=c%20d",
+      "pairs": [["a b", "c d"]]
+    },
+    {
+      "name": "empty-query-yields-no-pairs",
+      "query": "",
+      "pairs": []
+    }
+  ]
+}

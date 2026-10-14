@@ -40,7 +40,24 @@ export function parseQueryPairs(query: string): Array<{ key: string; value: stri
 
 function decodeQueryComponent(raw: string): string {
   if (!raw.includes('%') && !raw.includes('+')) return raw;
-  if (raw.includes('{{')) return raw;
+  // 分段解码：模板跨度保持字面（引擎按字面量找 {{），其余部分的转义照常解码——
+  // 与 Go 引擎 QueryUnescape 语义一致，保证表格显示与实际发送的参数相同
+  const parts: string[] = [];
+  let rest = raw;
+  for (;;) {
+    const match = rest.match(TEMPLATE_RE);
+    if (!match || match.index === undefined) {
+      parts.push(decodeSegment(rest));
+      break;
+    }
+    parts.push(decodeSegment(rest.slice(0, match.index)), match[0]);
+    rest = rest.slice(match.index + match[0].length);
+  }
+  return parts.join('');
+}
+
+function decodeSegment(raw: string): string {
+  if (!raw.includes('%') && !raw.includes('+')) return raw;
   try {
     return decodeURIComponent(raw.replace(/\+/g, ' '));
   } catch {
