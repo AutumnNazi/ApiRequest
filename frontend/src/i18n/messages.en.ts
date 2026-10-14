@@ -328,6 +328,7 @@ export const en: Record<string, string> = {
   '校验通过': 'Validation passed',
   '{count} 个问题': '{count} issue(s)',
   '断言聚合': 'Assertion summary',
+  '错误率': 'error rate',
   '失败于：{names}': 'failing in: {names}',
   '自动同步：↑{pushed} ↓{pulled}{deleted}': 'Auto-synced: ↑{pushed} ↓{pulled}{deleted}',
   '导出报告': 'Export report',

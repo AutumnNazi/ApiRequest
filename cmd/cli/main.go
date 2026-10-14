@@ -402,8 +402,8 @@ func cmdRun(args []string) int {
 		return 2
 	}
 	if *htmlPath != "" {
-		// HTML 与 JSON/JUnit 同源：rememberReport 已缓存，ExportReportHTML 直接取
-		hout, herr := runnerApi.ExportReportHTML(wsId, runId)
+		// HTML 渲染在领域包 runner（与 JUnit 同层）：CLI 直接用本地 report，不经绑定层
+		hout, herr := runner.RenderReportHTML(report)
 		if herr != nil {
 			fmt.Fprintln(os.Stderr, "render html:", herr)
 		} else if werr := os.WriteFile(*htmlPath, []byte(hout), 0o644); werr != nil {

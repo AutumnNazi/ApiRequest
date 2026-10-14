@@ -20,7 +20,7 @@ import {
   type RunnerRunSummary,
 } from '../ipc';
 import { formatMessage, Verbatim } from '../i18n/locale';
-import { aggregateAssertions } from '../utils/runnerAggregate';
+import { aggregateAssertions, computeRunnerStats } from '../utils/runnerAggregate';
 import { useDialog } from './DialogProvider';
 import ModalFrame from './ModalFrame';
 import LoadMoreTrigger from './LoadMoreTrigger';
@@ -461,6 +461,20 @@ export default function RunnerDialog({ workspaceId, collectionId, collectionName
                   {(report.durationMs / 1000).toFixed(1)}s{report.canceled ? formatMessage('（已取消）') : ''}
                 </span>
               </div>
+              {(() => {
+                const stats = computeRunnerStats(report);
+                if (stats.executed === 0) return null;
+                return (
+                  <div className="text-xs text-gray-500 flex gap-3 flex-wrap">
+                    <span>RPS {stats.rps.toFixed(1)}</span>
+                    <span>{formatMessage('错误率')} {stats.errorRatePct.toFixed(1)}%</span>
+                    <span>P50 {stats.p50Ms}ms</span>
+                    <span>P90 {stats.p90Ms}ms</span>
+                    <span>P95 {stats.p95Ms}ms</span>
+                    <span>P99 {stats.p99Ms}ms</span>
+                  </div>
+                );
+              })()}
               {(() => {
                 const rows = aggregateAssertions(report);
                 if (rows.length === 0) return null;
