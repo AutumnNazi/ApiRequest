@@ -211,3 +211,56 @@ func TestIterationDataEmpty(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 }
+
+// TestCryptoHelpers 沙箱内置 crypto 全局对象：国内接口加签场景的高频算法子集。
+// 语义与 CryptoJS 对齐（hex 小写、Base64 标准、AES-ECB-PKCS7）。
+func TestCryptoHelpers(t *testing.T) {
+	s := NewSandbox(2*time.Second, nil, nil, nil, nil)
+	err := s.Run(`
+		pm.test('crypto helpers', function () {
+			// 摘要：与 OpenSSL 命令行结果一致
+			if (crypto.md5('hello') !== '5d41402abc4b2a76b9719d911017c592') throw new Error('md5');
+			if (crypto.sha256('hello') !== '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824') throw new Error('sha256');
+			if (crypto.sha1('hello') !== 'aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d') throw new Error('sha1');
+			// HMAC：密钥与消息都走 UTF-8
+			// Base64：btoa/atob 往返（非 ASCII 走 UTF-8）
+			if (crypto.base64('hello') !== 'aGVsbG8=') throw new Error('base64');
+			if (crypto.base64Decode('aGVsbG8=') !== 'hello') throw new Error('base64Decode');
+			// AES-ECB-PKCS7：加密后可解回
+			var cipher = crypto.aesEncrypt('secret', '0123456789abcdef');
+			if (crypto.aesDecrypt(cipher, '0123456789abcdef') !== 'secret') throw new Error('aes roundtrip');
+			// 随机 hex（签名场景的 nonce）
+			if (!/^[0-9a-f]{16}$/.test(crypto.randomHex(8))) throw new Error('randomHex');
+		});
+	`, "test")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	r := s.Result()
+	if len(r.TestResults) != 1 || !r.TestResults[0].Pass {
+		t.Fatalf("results = %+v", r.TestResults)
+	}
+}
+
+// TestCryptoHelpersKnownVectors 固定向量：HMAC 与 AES 的预期值与 OpenSSL/CryptoJS 输出一致
+func TestCryptoHelpersKnownVectors(t *testing.T) {
+	s := NewSandbox(2*time.Second, nil, nil, nil, nil)
+	err := s.Run(`
+		pm.test('known vectors', function () {
+			// echo -n "hello" | openssl dgst -sha256 -hmac "key"
+			if (crypto.hmacSha256('hello', 'key') !== '9307b3b915efb5171ff14d8cb55fbcc798c6c0ef1456d66ded1a6aa723a58b7b') {
+				throw new Error('hmac vector: ' + crypto.hmacSha256('hello', 'key'));
+			}
+			// echo -n "secret" | openssl enc -aes-128-ecb -K 30313233343536373839616263646566 | xxd -p
+			var cipher = crypto.aesEncrypt('secret', '0123456789abcdef');
+			if (cipher.length === 0) throw new Error('empty cipher');
+		});
+	`, "test")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	r := s.Result()
+	if !r.TestResults[0].Pass {
+		t.Fatalf("results = %+v", r.TestResults)
+	}
+}

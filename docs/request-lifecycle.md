@@ -96,10 +96,11 @@ SendRequest 内部：
 | `pm.sendRequest(req, cb)` | 走受控通道回调 Go 的 http_engine | 次做 |
 | `pm.cookies.*` | 桥接 Cookie Jar（已实现）：目标域的 Jar cookie 只读视图，数组 + `get/has`，接口形态与 `pm.response.cookies` 一致 | 必做 |
 | `console.log/warn/error` | 收集到 `scriptLogs` 返回前端 | 必做 |
+| 全局 `crypto.*` | 加签算法子集（已实现）：md5/sha1/sha256/hmacSha1/hmacSha256/base64/base64Decode/aesEncrypt/aesDecrypt/randomHex | 必做 |
 
 ### 3.3 沙箱约束
 
-- 无 `require`/`import`、无 `fs`、无直接 `fetch`；网络仅经 `pm.sendRequest` 受控通道。
+- 无 `require`/`import`、无 `fs`、无直接 `fetch`；网络仅经 `pm.sendRequest` 受控通道。全局 `crypto` 对象提供加签常用算法子集：`md5/sha1/sha256/hmacSha256/hmacSha1/base64/base64Decode/aesEncrypt/aesDecrypt/randomHex`（hex 小写、标准 Base64、AES-ECB-PKCS7，key 为 16/24/32 字节 UTF-8 原始密钥，输出 Base64）。
 - CPU 时间与 wall-clock 双重超时；内存上限；单请求内脚本互相隔离。
 - 每次执行新建 context，避免全局状态跨请求泄漏。
 

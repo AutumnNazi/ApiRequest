@@ -158,8 +158,11 @@ func (s *Sandbox) Run(code, phase string) (runErr error) {
 		}
 	}()
 
-	// 沙箱约束：不注入 require/fs/fetch；仅暴露 pm 与 console
+	// 沙箱约束：不注入 require/fs/fetch；暴露 pm、console 与 crypto（加签算法子集）
 	if err := s.injectConsole(vm); err != nil {
+		return err
+	}
+	if err := injectCrypto(vm); err != nil {
 		return err
 	}
 	if err := s.injectPM(vm, phase); err != nil {

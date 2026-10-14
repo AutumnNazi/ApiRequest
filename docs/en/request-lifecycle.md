@@ -99,10 +99,11 @@ persistVariableChanges(ctx)                 // Commit centrally in Go to avoid r
 | `pm.sendRequest(req, cb)` | Call back into the Go HTTP engine through a controlled channel | Secondary |
 | `pm.cookies.*` | Bridge to the Cookie Jar (implemented): read-only view of the target host's jar cookies as an array with `get/has`, mirroring `pm.response.cookies` | Required |
 | `console.log/warn/error` | Collect into `scriptLogs` returned to the frontend | Required |
+| global `crypto.*` | Request-signing algorithm subset (implemented): md5/sha1/sha256/hmacSha1/hmacSha256/base64/base64Decode/aesEncrypt/aesDecrypt/randomHex | Required |
 
 ### 3.3 Sandbox Constraints
 
-- No `require`/`import`, no `fs`, and no direct `fetch`. Network access is available only through the controlled `pm.sendRequest` channel.
+- No `require`/`import`, no `fs`, and no direct `fetch`. Network access is available only through the controlled `pm.sendRequest` channel. A global `crypto` object provides the request-signing algorithm subset: `md5/sha1/sha256/hmacSha256/hmacSha1/base64/base64Decode/aesEncrypt/aesDecrypt/randomHex` (lowercase hex, standard Base64, AES-ECB-PKCS7 with a 16/24/32-byte UTF-8 raw key, Base64 output).
 - Enforce both CPU-time and wall-clock timeouts, plus a memory limit. Scripts within one request are isolated.
 - Create a new context for each execution so global state cannot leak across requests.
 
