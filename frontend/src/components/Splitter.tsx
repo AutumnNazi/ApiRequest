@@ -7,12 +7,18 @@ interface Props {
   orientation: 'horizontal' | 'vertical';
   onRatio(ratio: number): void;
   ratio: number; // 当前比例，用于限制拖拽方向相对初始点
+  // 拖拽结束（mouseup）时以最终（clamp 后）比例结算一次。
+  // 高频面板（侧栏/编辑区）用它落 state：拖拽过程走 DOM 直写，松手才提交 React。
+  onDragEnd?(ratio: number): void;
 }
 
-export default function Splitter({ orientation, onRatio, ratio }: Props) {
+export default function Splitter({ orientation, onRatio, ratio, onDragEnd }: Props) {
   const startPayload = useRef({ client: 0, ratio });
   const onRatioRef = useRef(onRatio);
   onRatioRef.current = onRatio;
+  const onDragEndRef = useRef(onDragEnd);
+  onDragEndRef.current = onDragEnd;
+  const lastRatioRef = useRef<number | null>(null);
   // 拖拽期间的清理函数：注册在 mousedown，卸载与 mouseup 都要能调用到
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -38,6 +44,7 @@ export default function Splitter({ orientation, onRatio, ratio }: Props) {
       const size = isRow ? window.innerWidth : window.innerHeight;
       if (size <= 0) return;
       const next = Math.min(0.85, Math.max(0.15, startRatio + delta / size));
+      lastRatioRef.current = next;
       onRatioRef.current(next);
     };
     const cleanup = () => {
@@ -46,6 +53,12 @@ export default function Splitter({ orientation, onRatio, ratio }: Props) {
       document.body.style.userSelect = previousUserSelect;
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', cleanup);
+      // 结算：拖动过才调用（纯点击不触发），值是最后一次 clamp 后的比例
+      if (lastRatioRef.current !== null) {
+        const final = lastRatioRef.current;
+        lastRatioRef.current = null;
+        onDragEndRef.current?.(final);
+      }
     };
 
     cleanupRef.current = cleanup;

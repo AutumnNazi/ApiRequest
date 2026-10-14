@@ -117,100 +117,107 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
 
   return (
     <div className="flex flex-col h-full">
-      {/* method + url + 按钮行 */}
-      <div className="flex gap-2 p-3 border-b">
-        <Dropdown
-          className="shrink-0"
-          value={d.method}
-          options={METHODS.map((m) => ({ value: m, label: m }))}
-          onChange={(m) => patchDraft(tab.id, { method: m })}
-          buttonClassName={`tidy flex items-center gap-1 border border-gray-200 rounded px-2 py-1.5 font-semibold text-sm bg-white hover:border-gray-300 focus:border-blue-400 focus:outline-hidden min-w-0 ${methodColor[d.method] ?? 'text-gray-700'}`}
-        />
-        <div className="relative flex-1">
-          <input
-            ref={urlInputRef}
-            className="w-full border rounded px-3 py-1.5 pr-24 text-sm font-mono outline-hidden focus:border-blue-400"
-            placeholder="https://api.example.com/path"
-            value={d.url}
-            onFocus={() => setUrlSuggestOpen(true)}
-            onBlur={() => {
-              // 延迟 150ms 关闭，给建议项的 click 留出先于 blur 落地的窗口
-              closeUrlSuggest(() => setUrlSuggestOpen(false), 150);
-              syncParamsFromUrlChange(lastSyncedUrlRef.current, d.url ?? '');
-            }}
-            onChange={(e) => {
-              patchDraft(tab.id, { url: e.target.value });
-              setUrlSuggestOpen(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                e.stopPropagation();
-                syncParamsFromUrlChange(lastSyncedUrlRef.current, d.url ?? '');
-                onSend();
-              }
-              if (e.key === 'Escape') setUrlSuggestOpen(false);
-            }}
+      {/* 一体化流线胶囊 URL 栏 + 按钮组 */}
+      <div className="flex items-center gap-2 p-2.5 border-b select-none">
+        {/* 一体化 Method + URL 输入胶囊 */}
+        <div className="flex-1 flex items-center rounded-xl border bg-white shadow-2xs focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600/30 transition-all overflow-hidden">
+          <Dropdown
+            className="shrink-0"
+            value={d.method}
+            options={METHODS.map((m) => ({ value: m, label: m }))}
+            onChange={(m) => patchDraft(tab.id, { method: m })}
+            buttonClassName={`tidy flex items-center gap-1 px-3 py-1.5 font-mono font-bold text-xs bg-gray-50 hover:bg-gray-100 border-r focus:outline-hidden min-w-0 transition-colors ${methodColor[d.method] ?? 'text-gray-700'}`}
           />
-          {urlSuggestOpen && urlSuggestions.length > 0 && (
-            <div className="absolute top-full left-0 z-30 mt-0.5 w-full overflow-auto rounded border bg-white py-1 text-xs shadow-lg max-h-56">
-              {urlSuggestions.map((u) => (
-                <button
-                  key={u}
-                  type="button"
-                  className="block w-full truncate px-2 py-1 text-left text-gray-700 font-mono hover:bg-blue-50"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    applyUrlSuggestion(u);
-                  }}
-                >
-                  <Verbatim value={u} />
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
-            <button
-              type="button"
-              className="rounded px-1.5 py-0.5 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-              title={formatMessage('切换 http/https')}
-              onClick={() => {
-                const u = d.url.trim();
-                if (u.startsWith('https://')) patchDraft(tab.id, { url: 'http://' + u.slice(8) });
-                else if (u.startsWith('http://')) patchDraft(tab.id, { url: 'https://' + u.slice(7) });
-                else patchDraft(tab.id, { url: 'https://' + u });
+          <div className="relative flex-1">
+            <input
+              ref={urlInputRef}
+              className="w-full border-0 px-3 py-1.5 pr-20 text-xs font-mono outline-hidden bg-transparent"
+              placeholder="https://api.example.com/path"
+              value={d.url}
+              onFocus={() => setUrlSuggestOpen(true)}
+              onBlur={() => {
+                // 延迟 150ms 关闭，给建议项的 click 留出先于 blur 落地的窗口
+                closeUrlSuggest(() => setUrlSuggestOpen(false), 150);
+                syncParamsFromUrlChange(lastSyncedUrlRef.current, d.url ?? '');
               }}
-            >
-              ⇄
-            </button>
-            <button
-              type="button"
-              className="rounded px-1.5 py-0.5 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-              title={formatMessage('复制 URL')}
-              onClick={() => void navigator.clipboard.writeText(d.url).catch(() => {})}
-            >
-              {formatMessage('复制')}
-            </button>
-            <button
-              type="button"
-              className="rounded px-1.5 py-0.5 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-              title={formatMessage('复制为 cURL')}
-              onClick={() => void copyAsCurl(d).catch(() => {})}
-            >
-              cURL
-            </button>
+              onChange={(e) => {
+                patchDraft(tab.id, { url: e.target.value });
+                setUrlSuggestOpen(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  syncParamsFromUrlChange(lastSyncedUrlRef.current, d.url ?? '');
+                  onSend();
+                }
+                if (e.key === 'Escape') setUrlSuggestOpen(false);
+              }}
+            />
+            {urlSuggestOpen && urlSuggestions.length > 0 && (
+              <div className="absolute top-full left-0 z-30 mt-1 w-full overflow-auto rounded-xl border bg-white py-1 text-xs shadow-xl max-h-56">
+                {urlSuggestions.map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    className="block w-full truncate px-3 py-1.5 text-left text-gray-700 font-mono hover:bg-blue-50 transition-colors"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyUrlSuggestion(u);
+                    }}
+                  >
+                    <Verbatim value={u} />
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 text-gray-400">
+              <button
+                type="button"
+                className="rounded px-1.5 py-0.5 text-[10px] hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                title={formatMessage('切换 http/https')}
+                onClick={() => {
+                  const u = d.url.trim();
+                  if (u.startsWith('https://')) patchDraft(tab.id, { url: 'http://' + u.slice(8) });
+                  else if (u.startsWith('http://')) patchDraft(tab.id, { url: 'https://' + u.slice(7) });
+                  else patchDraft(tab.id, { url: 'https://' + u });
+                }}
+              >
+                ⇄
+              </button>
+              <button
+                type="button"
+                className="rounded px-1.5 py-0.5 text-[10px] hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                title={formatMessage('复制 URL')}
+                onClick={() => void navigator.clipboard.writeText(d.url).catch(() => {})}
+              >
+                {formatMessage('复制')}
+              </button>
+              <button
+                type="button"
+                className="rounded px-1.5 py-0.5 text-[10px] hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                title={formatMessage('复制为 cURL')}
+                onClick={() => void copyAsCurl(d).catch(() => {})}
+              >
+                cURL
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* 发送按钮 */}
         <button
-          className="bg-blue-600 hover:bg-blue-700 text-white rounded px-5 py-1.5 text-sm font-medium disabled:opacity-50"
+          className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-5 py-2 text-xs font-bold shadow-sm active:scale-95 transition-all disabled:opacity-50 flex items-center gap-1.5"
           disabled={tab.sending || !d.url.trim()}
           onClick={onSend}
         >
-          {tab.sending ? formatMessage('发送中…') : formatMessage('发送')}
+          <span>{tab.sending ? formatMessage('发送中…') : formatMessage('发送')}</span>
+          <kbd className="text-[10px] opacity-75 font-mono">↵</kbd>
         </button>
+
         {tab.sending && (
           <button
-            className="border border-red-200 text-red-600 rounded px-3 py-1.5 text-sm hover:bg-red-50"
+            className="border border-red-200 text-red-600 rounded-xl px-3 py-2 text-xs hover:bg-red-50 transition-colors font-medium"
             onClick={onCancel}
             title={formatMessage('取消当前请求')}
           >
@@ -218,14 +225,14 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
           </button>
         )}
         <button
-          className="border rounded px-3 py-1.5 text-sm hover:bg-gray-50"
+          className="border rounded-xl px-3 py-2 text-xs hover:bg-gray-50 transition-colors font-medium text-gray-700"
           onClick={onSave}
           title="Ctrl+S"
         >
           {formatMessage('保存')}{tab.dirty ? ' •' : ''}
         </button>
         <button
-          className="border rounded px-3 py-1.5 text-sm hover:bg-gray-50 text-gray-500"
+          className="border rounded-xl px-2.5 py-2 text-xs hover:bg-gray-50 text-gray-500 transition-colors"
           onClick={() => setShowCodegen(true)}
           title={formatMessage('生成代码片段')}
         >

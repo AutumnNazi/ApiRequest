@@ -48,17 +48,122 @@ const EMPTY_NODES: NodeSummary[] = [];
 
 interface Props {
   workspaceId: string;
+  collapsed?: boolean;
+  onToggleCollapse?(): void;
+  onOpenSettings?(): void;
+  onOpenNewTab?(): void;
 }
 
-// memo：App 在编辑请求草稿时频繁重渲染，Sidebar 仅依赖 workspaceId，无需跟着重渲染。
+// memo：App 在编辑请求草稿时频繁重渲染，Sidebar 仅依赖 workspaceId 与折叠状态，无需跟着重渲染。
 // 但 translateExact 读的是 useLocale 快照而非响应式值，memo 会拦住语言切换导致的重渲染，
 // 故显式订阅 locale（与 ResponseViewer 同做法），保证切换语言时文案跟着更新。
-const Sidebar = memo(function Sidebar({ workspaceId }: Props) {
+const Sidebar = memo(function Sidebar({
+  workspaceId,
+  collapsed = false,
+  onToggleCollapse,
+  onOpenSettings,
+  onOpenNewTab,
+}: Props) {
   useLocale((state) => state.locale);
   const [pane, setPane] = useState<'collections' | 'history'>('collections');
+
+  // 模式 B：48px 极窄图标导轨 (Icon Rail)
+  if (collapsed) {
+    return (
+      <div className="flex flex-col h-full border-r bg-gray-50 items-center py-2 justify-between w-12 shrink-0 select-none">
+        <div className="flex flex-col items-center gap-2.5 w-full">
+          {/* 展开按钮 */}
+          <button
+            onClick={onToggleCollapse}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-800 hover:bg-gray-200 transition-colors"
+            title={formatMessage('展开侧边栏 (Ctrl+B)')}
+            aria-label={formatMessage('展开侧边栏')}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          {/* 集合图标 */}
+          <button
+            onClick={() => {
+              setPane('collections');
+              onToggleCollapse?.();
+            }}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors relative ${
+              pane === 'collections'
+                ? 'bg-blue-50 text-blue-600 font-bold'
+                : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
+            }`}
+            title={formatMessage('集合')}
+            aria-label={formatMessage('集合')}
+          >
+            {pane === 'collections' && (
+              <span className="w-1 h-3.5 bg-blue-600 rounded-r absolute -left-1" />
+            )}
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+          </button>
+
+          {/* 历史图标 */}
+          <button
+            onClick={() => {
+              setPane('history');
+              onToggleCollapse?.();
+            }}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors relative ${
+              pane === 'history'
+                ? 'bg-blue-50 text-blue-600 font-bold'
+                : 'text-gray-500 hover:text-gray-800 hover:bg-gray-200'
+            }`}
+            title={formatMessage('历史')}
+            aria-label={formatMessage('历史')}
+          >
+            {pane === 'history' && (
+              <span className="w-1 h-3.5 bg-blue-600 rounded-r absolute -left-1" />
+            )}
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+
+          {/* 新建标签 */}
+          {onOpenNewTab && (
+            <button
+              onClick={onOpenNewTab}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors"
+              title={formatMessage('新建标签 (Ctrl+T)')}
+              aria-label={formatMessage('新建标签')}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* 底部设置 */}
+        {onOpenSettings && (
+          <button
+            onClick={onOpenSettings}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-800 hover:bg-gray-200 transition-colors"
+            title={formatMessage('应用设置')}
+            aria-label={formatMessage('应用设置')}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full border-r bg-gray-50">
-      <div className="flex gap-1 px-2 pt-2 text-sm border-b">
+      <div className="flex items-center gap-1 px-2 pt-2 text-sm border-b">
         {(
           [
             ['collections', formatMessage('集合')],
@@ -77,6 +182,18 @@ const Sidebar = memo(function Sidebar({ workspaceId }: Props) {
             {label}
           </button>
         ))}
+        {onToggleCollapse && (
+          <button
+            onClick={onToggleCollapse}
+            className="p-1 mb-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
+            title={formatMessage('折叠侧边栏 (Ctrl+B)')}
+            aria-label={formatMessage('折叠侧边栏')}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
       </div>
       <div className="flex-1 overflow-auto">
         {pane === 'collections' ? (
@@ -256,9 +373,9 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   // 节点选中高亮：selected 优先；focus 用更克制的灰色描边，避免两套蓝混淆。
   const nodeHighlightClass = (id: string) =>
     selectedIds.has(id)
-      ? 'bg-blue-100 ring-1 ring-blue-300'
+      ? 'tree-node-selected font-medium text-gray-900'
       : focusedId === id
-        ? 'bg-gray-100 ring-1 ring-gray-300'
+        ? 'tree-node-focused'
         : 'hover:bg-gray-100';
 
   // 批量选择：Ctrl/Cmd+点击切换选中，Shift+点击范围选择，普通单击选中单节点。
@@ -901,7 +1018,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   const visibleRoots = effectiveChildrenOf('');
 
   return (
-    <div className="p-2 text-sm">
+    <div className="p-2 text-sm relative min-h-full flex flex-col">
       <div className="flex gap-1 mb-2">
         <button
           className="flex-1 border rounded py-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 hover:border-gray-300"
@@ -918,37 +1035,14 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         </button>
       </div>
       <input
-        className="w-full border rounded px-2 py-1 mb-2 text-xs outline-hidden focus:border-blue-400"
+        className="w-full border rounded px-2 py-1 mb-1.5 text-xs outline-hidden focus:border-blue-400"
         placeholder={formatMessage('搜索 名称 / 方法…')}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
       />
-      {selectedIds.size > 0 ? (
-        <div className="flex items-center gap-2 mb-2 px-2 py-1 border-b border-gray-200 text-xs text-gray-600">
-          <span className="font-medium text-gray-800">
-            {formatMessage('已选 {count} 项', { count: selectedIds.size })}
-          </span>
-          <span className="text-gray-400 hidden sm:inline">
-            {formatMessage('Ctrl 多选 · Shift 范围')}
-          </span>
-          <button
-            className="text-red-600 hover:text-red-700 hover:underline"
-            onClick={() => void batchDelete()}
-          >
-            {formatMessage('删除')}
-          </button>
-          <button
-            className="text-gray-500 hover:text-gray-800 hover:underline ml-auto"
-            onClick={() => setSelectedIds(new Set())}
-          >
-            {formatMessage('取消选择')}
-          </button>
-        </div>
-      ) : (
-        <div className="mb-2 px-1 text-[11px] text-gray-400">
-          {formatMessage('单击选中 · 双击打开 · Ctrl/Shift 多选')}
-        </div>
-      )}
+      <div className="mb-2 px-1 text-[11px] text-gray-400">
+        {formatMessage('单击选中 · 双击打开 · Ctrl/Shift 多选')}
+      </div>
       {importing && <ImportDialog workspaceId={workspaceId} onClose={() => setImporting(false)} />}
       {runnerTarget && (
         <RunnerDialog
@@ -970,7 +1064,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         tabIndex={0}
         onKeyDown={onTreeKeyDown}
         onMouseDown={() => treeRef.current?.focus()}
-        className="outline-hidden"
+        className={`outline-hidden flex-1 ${selectedIds.size > 0 ? 'pb-14' : ''}`}
       >
       {visibleRoots.length === 0 && (
         <p className="text-gray-400 text-center py-6 text-xs">
@@ -1012,6 +1106,44 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         }
       />
       </div>
+
+      {/* 底部轻奢悬浮操作胶囊 (Floating Bottom Action Capsule) */}
+      {selectedIds.size > 0 && (
+        <div className="sticky bottom-2 z-30 mt-auto pt-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl border border-gray-200 bg-white/95 backdrop-blur-md shadow-lg shadow-black/10 select-none">
+            {/* 计数药丸徽章 */}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-blue-50 text-blue-600 border border-blue-200/50">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+                {formatMessage('已选 {count} 项', { count: selectedIds.size })}
+              </span>
+            </div>
+
+            {/* 动作按钮组 */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-all active:scale-95"
+                onClick={() => void batchDelete()}
+                title={formatMessage('批量删除选中的项目 (Delete)')}
+              >
+                <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                <span>{formatMessage('删除')}</span>
+              </button>
+
+              <button
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-all active:scale-95"
+                onClick={() => setSelectedIds(new Set())}
+                title={formatMessage('取消选择 (Esc)')}
+              >
+                <span>{formatMessage('取消选择')}</span>
+                <kbd className="hidden sm:inline px-1 py-0.2 rounded text-[10px] font-mono bg-gray-100 border text-gray-400">Esc</kbd>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {ctxMenu && (
         <CtxMenu
           node={ctxMenu.node}
@@ -1229,9 +1361,9 @@ function TreeLeaf({
       data-node-id={node.id}
       className={`relative flex items-center group pr-1 py-1 rounded cursor-pointer ${
         isSelected
-          ? 'bg-blue-100 ring-1 ring-blue-300'
+          ? 'tree-node-selected font-medium text-gray-900'
           : isFocused
-            ? 'bg-gray-100 ring-1 ring-gray-300'
+            ? 'tree-node-focused'
             : 'hover:bg-gray-100'
       } ${isDragging ? 'opacity-50' : ''} ${
         dragOver

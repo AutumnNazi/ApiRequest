@@ -18,6 +18,7 @@ body {
 .bg-white { background-color: var(--t-bg-panel) !important; }
 .bg-gray-50 { background-color: var(--t-bg-panel2) !important; }
 .bg-gray-100 { background-color: var(--t-bg-chrome) !important; }
+.bg-gray-200 { background-color: var(--t-bg-chrome) !important; }
 .hover\:bg-gray-50:hover { background-color: var(--t-bg-hover) !important; }
 .hover\:bg-gray-100:hover,
 .hover\:bg-gray-200:hover { background-color: var(--t-bg-hover) !important; }
@@ -25,38 +26,42 @@ body {
 .bg-blue-600 { background-color: var(--t-accent) !important; color: var(--t-on-accent) !important; }
 .hover\:bg-blue-700:hover { background-color: var(--t-accent-hover) !important; }
 .bg-blue-400, .bg-blue-500 { background-color: var(--t-accent) !important; }
-.bg-red-50 { background-color: var(--t-danger-soft) !important; }
-.hover\:bg-red-50:hover { background-color: var(--t-danger-soft) !important; }
-.bg-green-50 { background-color: color-mix(in srgb, var(--t-success) 12%, transparent) !important; }
-.bg-yellow-50 { background-color: var(--t-warn-soft) !important; }
+.bg-red-50, .bg-rose-50 { background-color: var(--t-danger-soft) !important; }
+.hover\:bg-red-50:hover, .hover\:bg-rose-50:hover { background-color: var(--t-danger-soft) !important; }
+.bg-green-50, .bg-emerald-50 { background-color: color-mix(in srgb, var(--t-success) 12%, transparent) !important; }
+.bg-yellow-50, .bg-amber-50 { background-color: var(--t-warn-soft) !important; }
 .bg-yellow-200 { background-color: color-mix(in srgb, var(--t-warn) 40%, transparent) !important; }
 .bg-black\/30 { background-color: rgba(0, 0, 0, 0.45) !important; }
 
 /* ── 文本 ── */
-.text-gray-900 { color: var(--t-fg-1) !important; }
+.text-gray-900, .text-slate-800 { color: var(--t-fg-1) !important; }
 .text-gray-700, .text-gray-800 { color: var(--t-fg-2) !important; }
 .text-gray-500, .text-gray-600 { color: var(--t-fg-3) !important; }
-.text-gray-400 { color: var(--t-fg-4) !important; }
+.text-gray-300, .text-gray-400 { color: var(--t-fg-4) !important; }
 .hover\:text-gray-700:hover,
 .hover\:text-gray-800:hover,
 .hover\:text-gray-900:hover { color: var(--t-fg-1) !important; }
 .text-blue-600, .text-blue-700 { color: var(--t-accent) !important; }
 .text-white { color: var(--t-on-accent) !important; }
-.text-green-600, .text-green-700, .text-green-800 { color: var(--t-success) !important; }
-.text-yellow-600, .text-yellow-800 { color: var(--t-warn) !important; }
-.text-red-500, .text-red-600, .text-red-700, .text-red-800 { color: var(--t-danger) !important; }
-.hover\:text-red-500:hover { color: var(--t-danger) !important; }
+.text-green-600, .text-green-700, .text-green-800,
+.text-emerald-500, .text-emerald-600, .text-emerald-700 { color: var(--t-success) !important; }
+.text-yellow-600, .text-yellow-800,
+.text-amber-500, .text-amber-600, .text-amber-700 { color: var(--t-warn) !important; }
+.text-red-500, .text-red-600, .text-red-700, .text-red-800,
+.text-rose-500, .text-rose-600, .text-rose-700 { color: var(--t-danger) !important; }
+.hover\:text-red-500:hover, .hover\:text-rose-500:hover { color: var(--t-danger) !important; }
 .text-purple-600 { color: var(--t-accent) !important; }
 
 /* ── 边框 ── */
 .border, .border-b, .border-t, .border-l, .border-r { border-color: var(--t-br-1); }
 .border-current { border-color: currentColor; }
-.border-gray-100 { border-color: var(--t-br-1) !important; }
+.border-gray-50, .border-gray-100, .border-gray-200, .border-gray-300 { border-color: var(--t-br-1) !important; }
 .border-gray-400 { border-color: var(--t-br-2) !important; }
 .hover\:border-gray-400:hover { border-color: var(--t-br-2) !important; }
-.border-red-200 { border-color: color-mix(in srgb, var(--t-danger) 35%, transparent) !important; }
-.border-yellow-200 { border-color: color-mix(in srgb, var(--t-warn) 35%, transparent) !important; }
-.border-blue-400, .border-blue-600, .focus\:border-blue-400:focus {
+.border-red-200, .border-rose-200 { border-color: color-mix(in srgb, var(--t-danger) 35%, transparent) !important; }
+.border-yellow-200, .border-amber-200 { border-color: color-mix(in srgb, var(--t-warn) 35%, transparent) !important; }
+.border-green-200, .border-emerald-200 { border-color: color-mix(in srgb, var(--t-success) 35%, transparent) !important; }
+.border-blue-400, .border-blue-600, .focus\:border-blue-400:focus, .focus-within\:border-blue-500:focus-within, .focus-within\:border-blue-600:focus-within {
   border-color: var(--t-accent) !important;
 }
 .border-transparent { border-color: transparent !important; }
@@ -98,3 +103,120 @@ mark { color: inherit; }
   border-radius: 6px;
 }
 :root[data-theme='dark'] ::-webkit-scrollbar-track { background: transparent; }
+
+/* ── 语义化请求方法徽章 (Adaptive Method Badges) ── */
+.badge-method-get {
+  color: var(--t-success) !important;
+  background-color: color-mix(in srgb, var(--t-success) 14%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--t-success) 28%, transparent) !important;
+}
+.badge-method-post {
+  color: var(--t-warn) !important;
+  background-color: var(--t-warn-soft) !important;
+  border: 1px solid color-mix(in srgb, var(--t-warn) 32%, transparent) !important;
+}
+.badge-method-put {
+  color: var(--t-accent) !important;
+  background-color: var(--t-accent-soft) !important;
+  border: 1px solid color-mix(in srgb, var(--t-accent) 30%, transparent) !important;
+}
+.badge-method-patch {
+  color: color-mix(in srgb, var(--t-accent) 60%, #a855f7) !important;
+  background-color: color-mix(in srgb, var(--t-accent) 15%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--t-accent) 28%, transparent) !important;
+}
+.badge-method-delete {
+  color: var(--t-danger) !important;
+  background-color: var(--t-danger-soft) !important;
+  border: 1px solid color-mix(in srgb, var(--t-danger) 32%, transparent) !important;
+}
+.badge-method-default {
+  color: var(--t-fg-3) !important;
+  background-color: var(--t-bg-hover) !important;
+  border: 1px solid var(--t-br-1) !important;
+}
+
+/* ── 响应状态胶囊 (Adaptive Status Pills) ── */
+.status-pill-success {
+  color: var(--t-success) !important;
+  background-color: color-mix(in srgb, var(--t-success) 14%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--t-success) 28%, transparent) !important;
+}
+.status-pill-warn {
+  color: var(--t-warn) !important;
+  background-color: var(--t-warn-soft) !important;
+  border: 1px solid color-mix(in srgb, var(--t-warn) 32%, transparent) !important;
+}
+.status-pill-danger {
+  color: var(--t-danger) !important;
+  background-color: var(--t-danger-soft) !important;
+  border: 1px solid color-mix(in srgb, var(--t-danger) 32%, transparent) !important;
+}
+.status-dot-success { background-color: var(--t-success) !important; }
+.status-dot-warn { background-color: var(--t-warn) !important; }
+.status-dot-danger { background-color: var(--t-danger) !important; }
+
+/* ── 轻奢卡片页签 (Luxury Card Tabs) ── */
+.luxury-tab {
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  background-color: var(--t-bg-panel2);
+  border: 1px solid var(--t-br-1);
+  color: var(--t-fg-3);
+}
+.luxury-tab:hover {
+  background-color: var(--t-bg-hover);
+  border-color: var(--t-br-2);
+  color: var(--t-fg-1);
+  transform: translateY(-1px);
+}
+.luxury-tab-active {
+  background-color: var(--t-bg-panel) !important;
+  color: var(--t-fg-1) !important;
+  border-color: color-mix(in srgb, var(--t-accent) 45%, var(--t-br-2)) !important;
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08), 0 0 0 1px color-mix(in srgb, var(--t-accent) 22%, transparent) !important;
+}
+:root[data-theme='dark'] .luxury-tab {
+  background-color: color-mix(in srgb, var(--t-bg-panel) 35%, var(--t-bg-chrome));
+  border-color: var(--t-br-1);
+}
+:root[data-theme='dark'] .luxury-tab:hover {
+  background-color: var(--t-bg-hover);
+  border-color: var(--t-br-2);
+}
+:root[data-theme='dark'] .luxury-tab-active {
+  background-color: var(--t-bg-panel) !important;
+  border-color: color-mix(in srgb, var(--t-accent) 55%, var(--t-br-2)) !important;
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.5), 0 0 8px 1px color-mix(in srgb, var(--t-accent) 25%, transparent) !important;
+}
+
+/* ── 接口树节点选中与聚焦状态 (Tree Node Selection & Focus) ── */
+.tree-node-selected,
+.bg-blue-100 {
+  background-color: var(--t-bg-selected) !important;
+  color: var(--t-fg-1) !important;
+}
+.tree-node-selected {
+  box-shadow: inset 2.5px 0 0 0 var(--t-accent), inset 0 0 0 1px color-mix(in srgb, var(--t-accent) 35%, transparent) !important;
+}
+:root[data-theme='dark'] .tree-node-selected,
+:root[data-theme='dark'] .bg-blue-100 {
+  background-color: color-mix(in srgb, var(--t-accent) 22%, var(--t-bg-panel2)) !important;
+  color: var(--t-fg-1) !important;
+}
+:root[data-theme='dark'] .tree-node-selected {
+  box-shadow: inset 2.5px 0 0 0 var(--t-accent), inset 0 0 0 1px color-mix(in srgb, var(--t-accent) 50%, transparent), 0 0 10px -2px color-mix(in srgb, var(--t-accent) 25%, transparent) !important;
+}
+
+.tree-node-focused {
+  background-color: var(--t-bg-hover) !important;
+  box-shadow: inset 0 0 0 1px var(--t-br-2) !important;
+}
+
+.ring-blue-300, .ring-blue-400, .ring-blue-500 {
+  --tw-ring-color: color-mix(in srgb, var(--t-accent) 45%, transparent) !important;
+}
+.ring-gray-300 {
+  --tw-ring-color: var(--t-br-2) !important;
+}
+
+

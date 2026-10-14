@@ -61,6 +61,16 @@ function findTab(tabId: string): Tab | undefined {
   return undefined;
 }
 
+const methodBadgeStyle: Record<string, string> = {
+  GET: 'badge-method-get',
+  POST: 'badge-method-post',
+  PUT: 'badge-method-put',
+  PATCH: 'badge-method-patch',
+  DELETE: 'badge-method-delete',
+  HEAD: 'badge-method-default',
+  OPTIONS: 'badge-method-default',
+};
+
 function ActiveResponse({ tab }: { tab: Tab }) {
   const progress = useRequestProgress((state) =>
     tab.sendId ? state.bySendId[tab.sendId] : undefined,
@@ -154,6 +164,15 @@ export default function App() {
   // 布局持久化：侧栏宽度（px）与编辑区高度比例（0~1）
   const [sidebarWidth, setSidebarWidth] = usePersistentState('apirequest-layout-sidebar', 256);
   const [editorRatio, setEditorRatio] = usePersistentState('apirequest-layout-editor', 0.5);
+  // 拖拽期间 DOM 直写的目标元素：不经 React state，避免 App 根组件每帧重渲染
+  const asideRef = useRef<HTMLElement>(null);
+  const editorPaneRef = useRef<HTMLDivElement>(null);
+  // 侧栏折叠状态持久化（模式 B：48px 极窄图标导轨）
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState('apirequest-sidebar-collapsed', false);
+  // 工作区分屏方式：'horizontal' (上下分屏) | 'vertical' (左右并排)
+  const [splitLayout, setSplitLayout] = usePersistentState<'horizontal' | 'vertical'>('apirequest-split-layout', 'horizontal');
+  // 全屏禅模式：最大化响应区
+  const [zenMode, setZenMode] = useState(false);
   // Ctrl/Cmd+E 展开环境下拉：每次按下递增，EnvSwitcher 侧按信号变化响应
   const [envOpenSignal, setEnvOpenSignal] = useState(0);
   const [showPalette, setShowPalette] = useState(false);
@@ -540,14 +559,44 @@ export default function App() {
     }
   };
 
-  // 快捷键：Ctrl/Cmd+Enter 发送、Ctrl/Cmd+S 保存、Ctrl/Cmd+T 新标签、Ctrl/Cmd+W 关标签、Ctrl/Cmd+E 切环境
+  // 快捷键：Ctrl/Cmd+Enter 发送、Ctrl/Cmd+S 保存、Ctrl/Cmd+T 新标签、Ctrl/Cmd+W 关标签、Ctrl/Cmd+E 切环境、Ctrl/Cmd+B 折叠侧栏
   // 用 ref 持有最新 handler，避免每次渲染都重新绑定 keydown（输入 URL 时频繁重渲染）
-  const hotkeyRef = useRef({ handleSend, handleSave, openBlank, closeTab, workspace, active, hotkeys: parseHotkeySettings(hotkeysQuery.data) });
-  hotkeyRef.current = { handleSend, handleSave, openBlank, closeTab, workspace, active, hotkeys: parseHotkeySettings(hotkeysQuery.data) };
+  const hotkeyRef = useRef({
+    handleSend,
+    handleSave,
+    openBlank,
+    closeTab,
+    workspace,
+    active,
+    hotkeys: parseHotkeySettings(hotkeysQuery.data),
+    sidebarCollapsed,
+    setSidebarCollapsed,
+  });
+  hotkeyRef.current = {
+    handleSend,
+    handleSave,
+    openBlank,
+    closeTab,
+    workspace,
+    active,
+    hotkeys: parseHotkeySettings(hotkeysQuery.data),
+    sidebarCollapsed,
+    setSidebarCollapsed,
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isHotkeySuppressed(e.target)) return;
-      const { handleSend, handleSave, openBlank, closeTab, workspace, active, hotkeys } = hotkeyRef.current;
+      const {
+        handleSend,
+        handleSave,
+        openBlank,
+        closeTab,
+        workspace,
+        active,
+        hotkeys,
+        sidebarCollapsed: currentCollapsed,
+        setSidebarCollapsed: toggleSidebar,
+      } = hotkeyRef.current;
       const combo = eventCombo(e);
       if (!combo) return;
       // 动作匹配：自定义热键表（settings 'hotkeys'），默认值见 DEFAULT_HOTKEYS
@@ -569,6 +618,9 @@ export default function App() {
       } else if (combo === hotkeys.palette) {
         e.preventDefault();
         setShowPalette(true);
+      } else if (combo === 'mod+b') {
+        e.preventDefault();
+        toggleSidebar(!currentCollapsed);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -596,14 +648,32 @@ export default function App() {
     <div className="h-screen flex flex-col">
       {/* 自绘标题栏（无边框窗口）：标题区可拖动，交互控件与窗口按钮 no-drag */}
       <header
-        className="flex items-center h-10 px-3 border-b bg-white shrink-0"
+        className="flex items-center h-10 px-3 border-b bg-white shrink-0 select-none"
         style={maximised ? undefined : dragRegion}
         onMouseDown={onTitleMouseDown}
         onDoubleClick={onTitleDoubleClick}
       >
-        <h1 className="hidden px-1 text-sm font-semibold sm:block cursor-default">
-          ApiRequest
+        {/* 侧栏折叠开关 */}
+        <button
+          type="button"
+          data-no-drag
+          style={noDragRegion}
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="mr-2 p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+          title={formatMessage('折叠/展开侧边栏 (Ctrl+B)')}
+          aria-label={formatMessage('切换侧边栏')}
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={2}/>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v18"/>
+          </svg>
+        </button>
+
+        <h1 className="hidden pr-3 text-xs font-bold tracking-tight text-gray-800 sm:flex items-center gap-1.5 cursor-default border-r mr-2">
+          <span className="w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center text-[10px]">⚡</span>
+          <span>ApiRequest</span>
         </h1>
+
         {/* 左侧交互控件组（工作区/环境/协议/同步） */}
         <div className="flex items-center min-w-0" data-no-drag style={noDragRegion}>
           {/* 分组1：工作区 + 环境 */}
@@ -614,29 +684,29 @@ export default function App() {
           <EnvSwitcher workspaceId={workspace.id} openSignal={envOpenSignal} />
 
           {/* 分组2：协议工具 */}
-          <div className="ml-3 hidden items-center gap-1.5 border-l pl-3 lg:flex">
+          <div className="ml-3 hidden items-center gap-1 border-l pl-3 lg:flex">
             <button
-              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              className="text-xs text-gray-600 hover:text-gray-900 border rounded-lg px-2.5 py-1 bg-white hover:bg-gray-50 transition-colors"
               onClick={() => setShowCookies(true)}
             >
               Cookies
             </button>
             <button
-              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              className="text-xs text-gray-600 hover:text-gray-900 border rounded-lg px-2.5 py-1 bg-white hover:bg-gray-50 transition-colors"
               onClick={() => setShowWs(true)}
               title={formatMessage('WebSocket / SSE 会话')}
             >
               WS/SSE
             </button>
             <button
-              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              className="text-xs text-gray-600 hover:text-gray-900 border rounded-lg px-2.5 py-1 bg-white hover:bg-gray-50 transition-colors"
               onClick={() => setShowGrpc(true)}
               title={formatMessage('gRPC 反射调用')}
             >
               gRPC
             </button>
             <button
-              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              className="text-xs text-gray-600 hover:text-gray-900 border rounded-lg px-2.5 py-1 bg-white hover:bg-gray-50 transition-colors"
               onClick={() => setShowGraphql(true)}
               title={formatMessage('GraphQL schema 内省与补全')}
             >
@@ -648,12 +718,15 @@ export default function App() {
           {syncEnabled && (
           <div className="ml-3 hidden items-center gap-1.5 border-l pl-3 lg:flex">
             <button
-              className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 disabled:opacity-50"
+              className="text-xs text-gray-600 hover:text-gray-900 border rounded-lg px-2 py-1 bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors flex items-center gap-1"
               onClick={handleSync}
               disabled={syncing}
               title={formatMessage('WebDAV 同步（先在 ⚙ 设置里配置）')}
             >
-              {syncing ? formatMessage('⇅ 同步中…') : formatMessage('⇅ 同步')}
+              <svg className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-blue-600' : 'text-emerald-600'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              <span>{syncing ? formatMessage('同步中…') : formatMessage('同步')}</span>
             </button>
             {syncMsg && (
               <span
@@ -665,26 +738,50 @@ export default function App() {
           </div>
           )}
         </div>
-        {/* 中间空白区域：继承 header 的 dragRegion，可拖动窗口；双击最大化/还原 */}
-        <div className="flex-1" />
+
+        {/* 中间快捷搜索栏（点击打开 Ctrl+K 命令面板） */}
+        <div className="flex-1 flex justify-center px-4" data-no-drag style={noDragRegion}>
+          <button
+            type="button"
+            onClick={() => setShowPalette(true)}
+            className="hidden md:flex items-center gap-2 px-3 py-1 rounded-lg border bg-gray-50 hover:bg-gray-100 text-gray-400 hover:text-gray-600 text-xs w-64 justify-between transition-colors shadow-2xs"
+            title={formatMessage('命令面板 (Ctrl+K)')}
+          >
+            <span className="flex items-center gap-1.5 truncate">
+              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+              </svg>
+              <span>{formatMessage('搜索或输入命令…')}</span>
+            </span>
+            <kbd className="px-1 py-0.5 rounded bg-gray-100 border text-[10px] font-mono text-gray-500">Ctrl K</kbd>
+          </button>
+        </div>
+
         {/* 右侧交互控件组（主题/设置） */}
         <div className="flex items-center gap-1.5 border-l pl-3" data-no-drag style={noDragRegion}>
           <button
-            className="hidden text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 md:block"
+            className="hidden text-xs text-gray-600 hover:text-gray-900 border rounded-lg px-2 py-1 md:flex items-center gap-1.5 hover:bg-gray-50 transition-colors"
             onClick={() => setShowTheme(true)}
             title={formatMessage('主题')}
           >
-            {formatMessage('主题')}
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+            </svg>
+            <span>{formatMessage('主题')}</span>
           </button>
           <button
-            className="hidden text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1 md:block"
+            className="hidden text-xs text-gray-600 hover:text-gray-900 border rounded-lg px-2 py-1 md:flex items-center gap-1.5 hover:bg-gray-50 transition-colors"
             onClick={() => setShowSettings(true)}
             title={formatMessage('应用设置')}
           >
-            {formatMessage('设置')}
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            <span>{formatMessage('设置')}</span>
           </button>
         </div>
-          <WindowControls onClose={() => void requestClose()} />
+        <WindowControls onClose={() => void requestClose()} />
       </header>
       {/* 每个浮层独立错误边界：面板抛错只关掉该面板，标签页与未保存草稿不受影响 */}
       <Suspense fallback={null}>
@@ -812,97 +909,197 @@ export default function App() {
       })()}
 
       <div className="flex-1 flex min-h-0">
-        {/* 侧栏（可拖拽调整宽度） */}
-        <aside className="shrink-0" style={{ width: sidebarWidth }}>
-          <Sidebar workspaceId={workspace.id} />
+        {/* 侧栏（模式 B：折叠时为 48px 图标导轨，展开时为完整树） */}
+        <aside
+          ref={asideRef}
+          className="shrink-0 transition-all duration-200"
+          style={{ width: sidebarCollapsed ? 48 : sidebarWidth }}
+        >
+          <Sidebar
+            workspaceId={workspace.id}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+            onOpenSettings={() => setShowSettings(true)}
+            onOpenNewTab={() => openBlank(workspace.id)}
+          />
         </aside>
-        <Splitter
-          orientation="vertical"
-          ratio={sidebarWidth / Math.max(window.innerWidth, 1)}
-          onRatio={(r) => setSidebarWidth(r * window.innerWidth)}
-        />
+        {!sidebarCollapsed && (
+          <Splitter
+            orientation="vertical"
+            ratio={sidebarWidth / Math.max(window.innerWidth, 1)}
+            onRatio={(r) => {
+              // 拖拽期间 DOM 直写（不经 React state）：App 根重渲染会拖动
+              // RequestEditor/CodeMirror 等重组件跟着 reconcile，造成拖拽卡顿。
+              // transition 同步禁用，否则每帧宽度变化被 200ms 过渡追帧抖动。
+              const el = asideRef.current;
+              if (!el) return;
+              el.style.transition = 'none';
+              el.style.width = `${Math.round(r * window.innerWidth)}px`;
+            }}
+            onDragEnd={(r) => {
+              const el = asideRef.current;
+              if (el) el.style.transition = '';
+              setSidebarWidth(Math.round(r * window.innerWidth));
+            }}
+          />
+        )}
 
-        {/* 编辑 + 响应 */}
+        {/* 主工作区：标签栏 + 编辑/响应双向分屏 */}
         <main className="flex-1 flex flex-col min-w-0">
-          {/* 标签栏 */}
-          <div className="flex items-center gap-1 border-b bg-gray-50 px-2 py-1 text-sm overflow-x-auto">
-            {tabs.map((t) => (
-              <div
-                key={t.id}
-                draggable
-                onDragStart={(e) => {
-                  setDragTabId(t.id);
-                  e.dataTransfer.effectAllowed = 'move';
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const fromId = dragTabId;
-                  setDragTabId(null);
-                  if (!fromId || fromId === t.id) return;
-                  reorderTabs(workspace.id, fromId, t.id);
-                }}
-                onDragEnd={() => setDragTabId(null)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setTabCtx({ x: e.clientX, y: e.clientY, tabId: t.id });
-                }}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded cursor-pointer whitespace-nowrap ${
-                  t.id === activeId ? 'bg-white font-medium shadow-sm' : 'text-gray-500 hover:bg-gray-100'
-                } ${dragTabId === t.id ? 'opacity-50' : ''}`}
-                onClick={() => setActive(t.id)}
-                onAuxClick={(e) => {
-                  if (e.button === 1) void closeTab(t); // 中键关闭
-                }}
-              >
-                <span className="truncate max-w-40">
-                  {t.dirty && <span className="text-blue-500 mr-0.5">•</span>}
-                  <Verbatim value={t.name} />
-                </span>
-                <button
-                  className="text-gray-400 hover:text-gray-700 ml-1"
-                  onClick={(e) => {
+          {/* 标签栏（轻奢立体悬浮卡片风格 Luxury Card Tabs） */}
+          <div className="flex items-center gap-1.5 border-b bg-gray-100 px-2.5 py-1.5 text-xs overflow-x-auto select-none">
+            {tabs.map((t) => {
+              const method = t.draft?.method || 'GET';
+              const badgeClass =
+                methodBadgeStyle[method] || 'badge-method-default';
+              const isActive = t.id === activeId;
+              return (
+                <div
+                  key={t.id}
+                  draggable
+                  onDragStart={(e) => {
+                    setDragTabId(t.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const fromId = dragTabId;
+                    setDragTabId(null);
+                    if (!fromId || fromId === t.id) return;
+                    reorderTabs(workspace.id, fromId, t.id);
+                  }}
+                  onDragEnd={() => setDragTabId(null)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
-                    void closeTab(t);
+                    setTabCtx({ x: e.clientX, y: e.clientY, tabId: t.id });
+                  }}
+                  className={`luxury-tab flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer whitespace-nowrap text-xs ${
+                    isActive
+                      ? 'luxury-tab-active font-medium text-gray-900'
+                      : 'text-gray-500 hover:text-gray-800'
+                  } ${dragTabId === t.id ? 'opacity-50' : ''}`}
+                  onClick={() => setActive(t.id)}
+                  onAuxClick={(e) => {
+                    if (e.button === 1) void closeTab(t); // 中键关闭
                   }}
                 >
-                  ×
-                </button>
-              </div>
-            ))}
+                  <span className={`font-mono text-[9px] font-bold px-1.5 py-0.5 rounded shadow-2xs ${badgeClass}`}>
+                    {method}
+                  </span>
+                  <span className="truncate max-w-44 flex items-center">
+                    {t.dirty && <span className="text-amber-500 font-bold mr-1">•</span>}
+                    <Verbatim value={t.name} />
+                  </span>
+                  <button
+                    className="w-4 h-4 rounded flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 ml-0.5 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void closeTab(t);
+                    }}
+                    title={formatMessage('关闭')}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
             <button
-              className="border rounded px-2.5 py-0.5 ml-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 text-sm"
+              className="luxury-tab rounded-xl px-2.5 py-1 text-gray-500 hover:text-gray-900 text-xs font-bold shadow-2xs"
               onClick={() => openBlank(workspace.id)}
               title={formatMessage('新建标签 (Ctrl+T)')}
             >
               +
             </button>
+
+            {/* 右侧工具组：分屏切换 + 全屏禅模式 */}
+            <div className="ml-auto flex items-center gap-1 pl-2">
+              <button
+                className={`p-1.5 rounded-lg border transition-colors ${
+                  splitLayout === 'vertical'
+                    ? 'border-blue-400 bg-blue-50 text-blue-600'
+                    : 'border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+                onClick={() => setSplitLayout(splitLayout === 'horizontal' ? 'vertical' : 'horizontal')}
+                title={
+                  splitLayout === 'horizontal'
+                    ? formatMessage('切换为左右并排分屏')
+                    : formatMessage('切换为上下分屏')
+                }
+              >
+                {splitLayout === 'horizontal' ? (
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={2}/>
+                    <line x1="3" y1="12" x2="21" y2="12" strokeWidth={2}/>
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={2}/>
+                    <line x1="12" y1="3" x2="12" y2="21" strokeWidth={2}/>
+                  </svg>
+                )}
+              </button>
+              <button
+                className={`p-1.5 rounded-lg border transition-colors ${
+                  zenMode
+                    ? 'border-blue-400 bg-blue-50 text-blue-600'
+                    : 'border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+                onClick={() => setZenMode(!zenMode)}
+                title={zenMode ? formatMessage('退出全屏禅模式') : formatMessage('响应全屏禅模式')}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                </svg>
+              </button>
+            </div>
           </div>
 
           {active ? (
             <div
-              className="flex-1 flex flex-col min-h-0"
+              className={`flex-1 flex min-h-0 min-w-0 ${
+                splitLayout === 'vertical' ? 'flex-row' : 'flex-col'
+              }`}
               style={{ height: '100%' }}
             >
-              <div className="min-h-0" style={{ height: `${editorRatio * 100}%` }}>
-                <RequestEditor
-                  tab={active}
-                  workspaceId={workspace.id}
-                  onSend={handleSend}
-                  onCancel={handleCancel}
-                  onSave={handleSave}
+              {!zenMode && (
+                <div
+                  ref={editorPaneRef}
+                  className="min-h-0 min-w-0"
+                  style={
+                    splitLayout === 'vertical'
+                      ? { width: `${editorRatio * 100}%` }
+                      : { height: `${editorRatio * 100}%` }
+                  }
+                >
+                  <RequestEditor
+                    tab={active}
+                    workspaceId={workspace.id}
+                    onSend={handleSend}
+                    onCancel={handleCancel}
+                    onSave={handleSave}
+                  />
+                </div>
+              )}
+              {!zenMode && (
+                <Splitter
+                  orientation={splitLayout === 'vertical' ? 'vertical' : 'horizontal'}
+                  ratio={editorRatio}
+                  onRatio={(r) => {
+                    // 同侧栏：拖拽期间 DOM 直写，松手才落 editorRatio state
+                    const el = editorPaneRef.current;
+                    if (!el) return;
+                    if (splitLayout === 'vertical') el.style.width = `${r * 100}%`;
+                    else el.style.height = `${r * 100}%`;
+                  }}
+                  onDragEnd={setEditorRatio}
                 />
-              </div>
-              <Splitter
-                orientation="horizontal"
-                ratio={editorRatio}
-                onRatio={setEditorRatio}
-              />
-              <div className="flex-1 min-h-0">
+              )}
+              <div className="flex-1 min-h-0 min-w-0">
                 <ActiveResponse tab={active} />
               </div>
             </div>

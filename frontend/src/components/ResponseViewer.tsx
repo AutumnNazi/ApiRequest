@@ -383,14 +383,64 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   return (
     <div className="flex flex-col h-full">
       {/* 状态行 */}
-      <div className="flex items-center gap-4 px-3 py-2 border-b text-sm">
-        <span className={`font-semibold ${statusColor}`}>
+      <div className="flex items-center gap-3 px-3 py-2 border-b text-xs select-none">
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg font-mono font-bold ${
+            response.status < 300
+              ? 'status-pill-success'
+              : response.status < 400
+              ? 'status-pill-warn'
+              : 'status-pill-danger'
+          }`}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              response.status < 300
+                ? 'status-dot-success'
+                : response.status < 400
+                ? 'status-dot-warn'
+                : 'status-dot-danger'
+            }`}
+          />
           {response.status} <Verbatim value={response.statusText} />
         </span>
-        <span className="text-gray-500">{response.timing.totalMs.toFixed(0)} ms</span>
-        <span className="text-gray-500">{formatSize(response.sizeBytes)}</span>
+
+        {/* 耗时微瀑布流 */}
+        <div
+          className="flex items-center gap-1.5 text-gray-500 cursor-default"
+          title={`DNS: ${Math.round(response.timing.dnsMs || 0)}ms | 连接: ${Math.round(response.timing.connectMs || 0)}ms | TTFB: ${Math.round(response.timing.ttfbMs || 0)}ms | 下载: ${Math.round(response.timing.downloadMs || 0)}ms`}
+        >
+          <span className="font-mono text-gray-700">⏱ {response.timing.totalMs.toFixed(0)} ms</span>
+          {response.timing.totalMs > 0 && (
+            <div className="w-14 h-1.5 rounded-full bg-gray-100 border overflow-hidden flex">
+              <div
+                style={{ width: `${Math.max(5, ((response.timing.dnsMs || 0) / response.timing.totalMs) * 100)}%` }}
+                className="bg-blue-500 h-full"
+                title="DNS"
+              />
+              <div
+                style={{ width: `${Math.max(5, (((response.timing.connectMs || 0) + (response.timing.tlsMs || 0)) / response.timing.totalMs) * 100)}%` }}
+                className="bg-indigo-500 h-full"
+                title="TCP / TLS"
+              />
+              <div
+                style={{ width: `${Math.max(10, ((response.timing.ttfbMs || 0) / response.timing.totalMs) * 100)}%` }}
+                className="bg-amber-500 h-full"
+                title="TTFB"
+              />
+              <div
+                style={{ width: `${Math.max(5, ((response.timing.downloadMs || 0) / response.timing.totalMs) * 100)}%` }}
+                className="bg-emerald-500 h-full"
+                title="Download"
+              />
+            </div>
+          )}
+        </div>
+
+        <span className="text-gray-500 font-mono">📦 {formatSize(response.sizeBytes)}</span>
+
         {tests.length > 0 && (
-          <span className={passCount === tests.length ? 'text-green-600' : 'text-red-600'}>
+          <span className={`font-medium ${passCount === tests.length ? 'text-green-600' : 'text-red-600'}`}>
             {passCount === tests.length ? '✓' : '✗'} {passCount}/{tests.length}
           </span>
         )}

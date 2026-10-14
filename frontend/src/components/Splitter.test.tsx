@@ -86,3 +86,42 @@ describe('Splitter 拖拽', () => {
     expect(document.body.style.userSelect).toBe('');
   });
 });
+
+// 松手结算：onDragEnd 以最终比例调用一次；拖拽期间不重复调用
+describe('Splitter 拖拽结束回调', () => {
+  it('mouseup 后以最终 ratio 调用 onDragEnd 恰一次', () => {
+    const onRatio = vi.fn();
+    const onDragEnd = vi.fn();
+    const { container } = render(
+      <Splitter orientation="vertical" ratio={0.25} onRatio={onRatio} onDragEnd={onDragEnd} />,
+    );
+    fireEvent.mouseDown(splitterOf(container), { clientX: 300 });
+    fireEvent.mouseMove(window, { clientX: 300 + window.innerWidth * 0.1 });
+    fireEvent.mouseMove(window, { clientX: 300 + window.innerWidth * 0.2 });
+    expect(onDragEnd).not.toHaveBeenCalled();
+    fireEvent.mouseUp(window);
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+    expect(onDragEnd).toHaveBeenCalledWith(0.45);
+  });
+
+  it('未拖动直接松手不调用 onDragEnd', () => {
+    const onDragEnd = vi.fn();
+    const { container } = render(
+      <Splitter orientation="vertical" ratio={0.25} onRatio={vi.fn()} onDragEnd={onDragEnd} />,
+    );
+    fireEvent.mouseDown(splitterOf(container), { clientX: 300 });
+    fireEvent.mouseUp(window);
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  it('clamp 后的 ratio 才是结算值（拖出边界）', () => {
+    const onDragEnd = vi.fn();
+    const { container } = render(
+      <Splitter orientation="vertical" ratio={0.5} onRatio={vi.fn()} onDragEnd={onDragEnd} />,
+    );
+    fireEvent.mouseDown(splitterOf(container), { clientX: 500 });
+    fireEvent.mouseMove(window, { clientX: 500 + window.innerWidth }); // 远超 0.85 上限
+    fireEvent.mouseUp(window);
+    expect(onDragEnd).toHaveBeenCalledWith(0.85);
+  });
+});

@@ -139,6 +139,24 @@ export namespace convert {
 		    return a;
 		}
 	}
+	export class ImportedExample {
+	    requestId: string;
+	    name: string;
+	    status?: number;
+	    body?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportedExample(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.requestId = source["requestId"];
+	        this.name = source["name"];
+	        this.status = source["status"];
+	        this.body = source["body"];
+	    }
+	}
 	export class SuggestedEnvironment {
 	    name: string;
 	    variables: model.Variable[];
@@ -176,6 +194,7 @@ export namespace convert {
 	    children: model.Node[];
 	    warnings: string[];
 	    suggestedEnvironments?: SuggestedEnvironment[];
+	    examples?: ImportedExample[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ImportResult(source);
@@ -187,6 +206,7 @@ export namespace convert {
 	        this.children = this.convertValues(source["children"], model.Node);
 	        this.warnings = source["warnings"];
 	        this.suggestedEnvironments = this.convertValues(source["suggestedEnvironments"], SuggestedEnvironment);
+	        this.examples = this.convertValues(source["examples"], ImportedExample);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -207,6 +227,7 @@ export namespace convert {
 		    return a;
 		}
 	}
+	
 
 }
 
