@@ -116,3 +116,55 @@ func TestImportCommitRollsBackWholeTreeOnInvalidChild(t *testing.T) {
 		t.Fatalf("failed import left Vault values behind: %+v", keyring.values)
 	}
 }
+
+// ImportCommit 落库导入器提取的响应示例（占位 requestId 经映射换算）：
+// Mock Server 以 Example 为数据源，导入 OpenAPI 即具备 Mock 响应能力。
+func TestImportCommitPersistsImportedExamples(t *testing.T) {
+	dir := t.TempDir()
+	store, err := storage.OpenWithVault(dir, secrets.NewWithKeyring(dir, &bindingMemoryKeyring{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace, _ := store.EnsureDefaultWorkspace()
+
+	result := convert.ImportResult{
+		Collection: model.Node{Id: "root", Kind: "collection", Name: "with-examples"},
+		Children: []model.Node{
+			{Id: "req-1", ParentId: "root", Kind: "request", Name: "get user", Request: &model.HttpRequest{
+				Method: "GET", Url: "https://example.test/u", Settings: model.DefaultSettings(),
+			}},
+		},
+		Examples: []convert.ImportedExample{
+			{RequestId: "req-1", Name: "200 响应示例", Status: 200, Body: `{"name":"alice"}`},
+		},
+	}
+	out, err := NewConvertApi(store).ImportCommit(workspace.Id, result)
+	if err != nil {
+		t.Fatalf("import commit: %v", err)
+	}
+	if out.Collection.Id == "" {
+		t.Fatal("collection not saved")
+	}
+	// 示例挂在 GET 请求的真实新 id 上
+	nodes, _ := store.ListNodes(workspace.Id)
+	var reqId string
+	for _, n := range nodes {
+		if n.Kind == "request" {
+			reqId = n.Id
+		}
+	}
+	examples, err := store.ListExamples(reqId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(examples) != 1 {
+		t.Fatalf("examples = %d, want 1", len(examples))
+	}
+	if examples[0].Name != "200 响应示例" || examples[0].Status != 200 {
+		t.Fatalf("example = %+v", examples[0])
+	}
+	if !strings.Contains(examples[0].Body, "alice") {
+		t.Fatalf("example body = %q", examples[0].Body)
+	}
+}

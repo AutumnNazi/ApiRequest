@@ -56,6 +56,18 @@ type oaOperation struct {
 			Example any `json:"example" yaml:"example"`
 		} `json:"content" yaml:"content"`
 	} `json:"requestBody" yaml:"requestBody"`
+	// Responses 状态码 → 响应定义：example 单示例，examples 多示例
+	// （{name: {summary, value}}）。无 example 有 schema 时不合成假数据，
+	// 计入 Warnings（Mock 需要"真实示例"而非编造结构）。
+	Responses map[string]struct {
+		Content map[string]struct {
+			Example  any `json:"example" yaml:"example"`
+			Examples map[string]struct {
+				Summary string `json:"summary" yaml:"summary"`
+				Value   any    `json:"value" yaml:"value"`
+			} `json:"examples" yaml:"examples"`
+		} `json:"content" yaml:"content"`
+	} `json:"responses" yaml:"responses"`
 }
 
 func (openapiImporter) Import(payload string) (*ImportResult, error) {
@@ -248,10 +260,49 @@ func (openapiImporter) Import(payload string) (*ImportResult, error) {
 		}
 
 		order += 10
+		reqId := nextId()
 		res.Children = append(res.Children, model.Node{
-			Id: nextId(), ParentId: parent, Kind: "request",
+			Id: reqId, ParentId: parent, Kind: "request",
 			Name: reqName, SortOrder: order, Request: &req,
 		})
+
+		// responses：提取响应示例（2xx 优先，其余状态码照收）→
+		// ImportCommit 落 Example 表（Mock Server 以 Example 为数据源，导入即 Mock）
+		for status, resp := range o.detail.Responses {
+			for mediaType, content := range resp.Content {
+				if !strings.Contains(mediaType, "json") {
+					continue
+				}
+				if content.Example != nil {
+					if text, err := json.MarshalIndent(content.Example, "", "  "); err == nil {
+						res.Examples = append(res.Examples, ImportedExample{
+							RequestId: reqId, Name: status + " 响应示例",
+							Status: parseStatus(status), Body: string(text),
+						})
+					}
+				}
+				for exName, ex := range content.Examples {
+					if ex.Value == nil {
+						continue
+					}
+					if text, err := json.MarshalIndent(ex.Value, "", "  "); err == nil {
+						exName := strings.TrimSpace(exName)
+						if exName == "" {
+							exName = "default"
+						}
+						label := status + " " + exName
+						if ex.Summary != "" {
+							label = status + " " + ex.Summary
+						}
+						res.Examples = append(res.Examples, ImportedExample{
+							RequestId: reqId, Name: label,
+							Status: parseStatus(status), Body: string(text),
+						})
+					}
+				}
+				break // 首个 json media-type 即可（与 requestBody 取法一致）
+			}
+		}
 	}
 	if len(ops) == 0 {
 		res.Warnings = append(res.Warnings, "no operations found in paths")
@@ -268,3 +319,15 @@ func isHttpMethod(s string) bool {
 }
 
 func init() { RegisterImporter(openapiImporter{}) }
+
+// parseStatus 状态码键转数字（"200" → 200）；通配（"2XX"/"default"）返回 0
+func parseStatus(status string) int {
+	n := 0
+	for _, ch := range status {
+		if ch < '0' || ch > '9' {
+			return 0
+		}
+		n = n*10 + int(ch-'0')
+	}
+	return n
+}

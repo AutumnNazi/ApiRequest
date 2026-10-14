@@ -220,7 +220,7 @@ func cmdImport(args []string) int {
 		fmt.Fprintln(os.Stderr, "import:", err)
 		return 2
 	}
-	saved, err := store.ImportNodeTree(wsId, res.Collection, res.Children)
+	saved, _, err := store.ImportNodeTree(wsId, res.Collection, res.Children)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "commit:", err)
 		return 2

@@ -22,28 +22,28 @@ type nodeRow struct {
 
 // ImportNodeTree validates and writes a re-identified collection tree as one
 // database transaction paired with one recoverable Vault batch.
-func (s *Store) ImportNodeTree(workspaceId string, collection model.Node, children []model.Node) (model.Node, error) {
+func (s *Store) ImportNodeTree(workspaceId string, collection model.Node, children []model.Node) (model.Node, map[string]string, error) {
 	if workspaceId == "" {
-		return model.Node{}, errors.New("workspace id is required")
+		return model.Node{}, nil, errors.New("workspace id is required")
 	}
 	if collection.Id == "" || collection.Kind != "collection" {
-		return model.Node{}, errors.New("import root must be an identified collection")
+		return model.Node{}, nil, errors.New("import root must be an identified collection")
 	}
 
 	original := make(map[string]model.Node, len(children)+1)
 	original[collection.Id] = collection
 	for _, node := range children {
 		if node.Id == "" {
-			return model.Node{}, errors.New("import node id is required")
+			return model.Node{}, nil, errors.New("import node id is required")
 		}
 		if _, exists := original[node.Id]; exists {
-			return model.Node{}, fmt.Errorf("duplicate import node id %q", node.Id)
+			return model.Node{}, nil, fmt.Errorf("duplicate import node id %q", node.Id)
 		}
 		if node.Kind != "folder" && node.Kind != "request" {
-			return model.Node{}, fmt.Errorf("invalid import node kind %q", node.Kind)
+			return model.Node{}, nil, fmt.Errorf("invalid import node kind %q", node.Kind)
 		}
 		if node.Kind == "request" && node.Request == nil {
-			return model.Node{}, fmt.Errorf("import request %q has no request data", node.Id)
+			return model.Node{}, nil, fmt.Errorf("import request %q has no request data", node.Id)
 		}
 		original[node.Id] = node
 	}
@@ -57,10 +57,10 @@ func (s *Store) ImportNodeTree(workspaceId string, collection model.Node, childr
 		for _, node := range remaining {
 			parent, exists := original[node.ParentId]
 			if !exists {
-				return model.Node{}, fmt.Errorf("import node %q references missing parent %q", node.Id, node.ParentId)
+				return model.Node{}, nil, fmt.Errorf("import node %q references missing parent %q", node.Id, node.ParentId)
 			}
 			if parent.Kind != "collection" && parent.Kind != "folder" {
-				return model.Node{}, fmt.Errorf("import node %q has invalid parent kind %q", node.Id, parent.Kind)
+				return model.Node{}, nil, fmt.Errorf("import node %q has invalid parent kind %q", node.Id, parent.Kind)
 			}
 			if !inserted[node.ParentId] {
 				next = append(next, node)
@@ -71,7 +71,7 @@ func (s *Store) ImportNodeTree(workspaceId string, collection model.Node, childr
 			progressed = true
 		}
 		if !progressed {
-			return model.Node{}, errors.New("import tree contains a cycle")
+			return model.Node{}, nil, errors.New("import tree contains a cycle")
 		}
 		remaining = next
 	}
@@ -117,9 +117,9 @@ func (s *Store) ImportNodeTree(workspaceId string, collection model.Node, childr
 		return tx.Commit()
 	})
 	if err != nil {
-		return model.Node{}, err
+		return model.Node{}, nil, err
 	}
-	return prepared[0], nil
+	return prepared[0], ids, nil
 }
 
 func insertImportedNode(tx *sql.Tx, writer secrets.SecretWriter, node model.Node) error {

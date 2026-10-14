@@ -19,6 +19,8 @@
 - **HAR 导出**（已实现）：集合树按序导出为 HAR 1.2 JSON（queryString/postData 从请求定义生成；response 为 0 占位——导出的是请求定义而非捕获会话）
 - **Insomnia 导出**（已实现）：集合树导出为 Insomnia v4 JSON（workspace + base environment + request_group/request，metaSortKey 保树序；inherit auth 导出前解析为具体类型）。与 Insomnia 导入器对称，往返自校验
 - **Postman 环境文件导入**（已实现）：`.postman_environment` JSON（`_postman_variable_scope: "environment"`）按 `values` 生成建议环境，确认导入后落地（不激活）；禁用变量剔除，缺 `enabled` 字段按启用处理。auto 识别与集合文件互不冲突
+- **Bruno (.bru) 导入**（已实现）：单文件单请求（meta 命名、方法块内 url/params/headers/auth 子块、`~` 前缀禁用行、body:json/text/xml/formUrlencoded/multipart、script:pre/post 映射脚本）；`vars:*` 请求级变量暂无落点计入 Warnings。auto 识别
+- **OpenAPI 响应示例联动**（已实现）：导入 OpenAPI 时把 responses 的 `example`/`examples` 提取为 ImportedExample，确认导入后经占位 id 映射写入 Example 表——Mock Server 以 Example 为数据源，导入即具备 Mock 响应能力；仅有 schema 无 example 的响应不合成假数据（Warnings 提示数量）
 
 内部模型 → 各语言 HTTP 代码：cURL、JavaScript(fetch/axios)、Python(requests)、Go、Java、Rust、PHP 等。以模板 + 生成器接口扩展。
 

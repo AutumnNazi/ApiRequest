@@ -16,12 +16,25 @@ type ImportResult struct {
 	// SuggestedEnvironments 导入器建议创建的环境（如 OpenAPI servers → 每服务器一个
 	// baseUrl 环境）；由 ImportCommit 落库，切换环境即切换服务器
 	SuggestedEnvironments []SuggestedEnvironment `json:"suggestedEnvironments,omitempty"`
+	// Examples 导入器提取的响应示例（OpenAPI responses）；ImportCommit 落库
+	Examples []ImportedExample `json:"examples,omitempty"`
 }
 
 // SuggestedEnvironment 建议创建的环境
 type SuggestedEnvironment struct {
 	Name      string           `json:"name"`
 	Variables []model.Variable `json:"variables"`
+}
+
+// ImportedExample 导入器从接口定义（如 OpenAPI responses.example）提取的
+// 响应示例：挂在目标请求的占位 id 上，ImportCommit 落库时经 id 映射换算成
+// 真实节点 id 后写入 Example 表（Mock Server 以 Example 为数据源，
+// 因此导入即具备 Mock 响应能力）。
+type ImportedExample struct {
+	RequestId string `json:"requestId"` // Children 里的占位 id
+	Name      string `json:"name"`
+	Status    int    `json:"status,omitempty"`
+	Body      string `json:"body,omitempty"`
 }
 
 // ImportCommitResult ImportCommit 的返回：落库的集合 + 新建的环境

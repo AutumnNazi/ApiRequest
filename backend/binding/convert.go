@@ -24,11 +24,13 @@ func (a *ConvertApi) ImportPreview(format, payload string) (*convert.ImportResul
 
 // ImportCommit 确认导入：把预览树落库（id 重新生成，占位 id 映射到新 id）。
 // 导入器建议的环境（OpenAPI servers 等）一并创建（不激活），返回创建的环境列表。
+// 导入器提取的响应示例（OpenAPI responses）经映射换算 nodeId 后落 Example 表
+// （Mock Server 以 Example 为数据源，导入即具备 Mock 响应能力）。
 func (a *ConvertApi) ImportCommit(workspaceId string, res convert.ImportResult) (convert.ImportCommitResult, error) {
 	if workspaceId == "" {
 		return convert.ImportCommitResult{}, model.NewError(model.KindValidation, "workspaceId is required")
 	}
-	saved, err := a.store.ImportNodeTree(workspaceId, res.Collection, res.Children)
+	saved, idMap, err := a.store.ImportNodeTree(workspaceId, res.Collection, res.Children)
 	if err != nil {
 		return convert.ImportCommitResult{}, model.WrapError(model.KindStorage, err)
 	}
@@ -43,6 +45,18 @@ func (a *ConvertApi) ImportCommit(workspaceId string, res convert.ImportResult) 
 			return out, model.WrapError(model.KindStorage, envErr)
 		}
 		out.Environments = append(out.Environments, env)
+	}
+	for _, ex := range res.Examples {
+		nodeId, ok := idMap[ex.RequestId]
+		if !ok {
+			continue // 示例挂的请求不在本次导入树内：跳过而非失败
+		}
+		if _, exErr := a.store.UpsertExample(model.Example{
+			NodeId: nodeId, Name: ex.Name, Status: ex.Status,
+			Body: ex.Body,
+		}); exErr != nil {
+			return out, model.WrapError(model.KindStorage, exErr)
+		}
 	}
 	return out, nil
 }
