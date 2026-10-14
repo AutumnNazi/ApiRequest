@@ -207,6 +207,12 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	for _, value := range secrets.HeaderValues(res.Headers) {
 		redactor.Add(value)
 	}
+	// WireDump 头值同样是凭据载体（Authorization/Cookie 等）：一并入脱敏集
+	if res.Wire != nil {
+		for _, h := range res.Wire.Headers {
+			redactor.Add(h.Value)
+		}
+	}
 
 	// 5.5 响应 Set-Cookie 写回工作区 Jar
 	cookiePersistErr := persistCookies(a.store, sendCtx.WorkspaceId, resolved.Url, res.Cookies)
@@ -240,6 +246,12 @@ func (a *RequestApi) sendRequest(parent context.Context, sendId string, req mode
 	}
 	res.ScriptLogs = redactor.Strings(res.ScriptLogs)
 	res.TestResults = redactor.TestResults(res.TestResults)
+	// WireDump 脱敏：凭据值替换为掩码后才允许透出前端/落历史
+	if res.Wire != nil {
+		for i := range res.Wire.Headers {
+			res.Wire.Headers[i].Value = redactor.String(res.Wire.Headers[i].Value)
+		}
+	}
 
 	// 8. 落历史（存已解析请求快照；大响应仅作为 live Blob 返回，不进入审计历史）
 	histItem := model.HistoryRecord{

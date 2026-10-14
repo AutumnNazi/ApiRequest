@@ -141,6 +141,15 @@ type TestResult struct {
 	Error string `json:"error,omitempty"`
 }
 
+// WireDump 实际发出的请求摘要（调试可观测性）：从最终响应回指的
+// resp.Request 提取——鉴权注入后、Go 自动跟随重定向后的最终请求行与头。
+// 引擎侧捕获原样值，脱敏由 binding 层经 secrets.Redactor 完成后透出前端。
+type WireDump struct {
+	Method  string `json:"method"`
+	Url     string `json:"url"`
+	Headers []KV   `json:"headers"`
+}
+
 // ResponseResult SendRequest 的返回值
 type ResponseResult struct {
 	Status      int          `json:"status"`
@@ -149,6 +158,7 @@ type ResponseResult struct {
 	Cookies     []Cookie     `json:"cookies"`
 	Body        ResponseBody `json:"body"`
 	Timing      Timing       `json:"timing"`
+	Wire        *WireDump    `json:"wire,omitempty"`
 	SizeBytes   int64        `json:"sizeBytes"`
 	TestResults []TestResult `json:"testResults"`
 	ScriptLogs  []string     `json:"scriptLogs"`

@@ -46,7 +46,7 @@ const errorKindLabel: Record<string, string> = {
 // memo：App 在编辑请求草稿时频繁重渲染，ResponseViewer 仅依赖响应数据，无需跟着重渲染
 const ResponseViewer = memo(function ResponseViewer({ response, error, sending, progress, nodeId, workspaceId, requestUrl }: Props) {
   const locale = useLocale((state) => state.locale);
-  const [pane, setPane] = useState<'body' | 'preview' | 'headers' | 'tests' | 'timing'>('body');
+  const [pane, setPane] = useState<'body' | 'preview' | 'headers' | 'wire' | 'tests' | 'timing'>('body');
   const [raw, setRaw] = useState(false);
   const [search, setSearch] = useState('');
   // 当前命中的序号（整数下标，-1=无）；搜索词变化时重置
@@ -431,6 +431,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
             ['body', 'Body'],
             ...(previewable ? ([['preview', 'Preview']] as const) : []),
             ['headers', `Headers (${response.headers.length})`],
+            ...(response.wire ? ([['wire', formatMessage('原始请求')]] as const) : []),
             ['tests', testsLabel],
             ['timing', formatMessage('计时')],
           ] as const
@@ -568,6 +569,48 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {pane === 'wire' && response.wire && (
+          <div className="m-3">
+            {(() => {
+              const wire = response.wire;
+              return (
+            <>
+            <div className="text-sm font-mono mb-2">
+              <span className="font-semibold"><Verbatim value={wire.method} /></span>{' '}
+              <Verbatim value={wire.url} />
+            </div>
+            <button
+              className="mb-2 text-xs text-gray-500 hover:text-gray-800"
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(
+                    [
+                      `${wire.method} ${wire.url}`,
+                      ...wire.headers.map((h) => `${h.key}: ${h.value}`),
+                    ].join('\n'),
+                  )
+                  .catch(() => {})
+              }
+            >
+              {formatMessage('复制全部')}
+            </button>
+            <table className="w-full text-sm">
+              <tbody>
+                {wire.headers.map((h, i) => (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="p-1 pr-4 font-medium text-gray-700 whitespace-nowrap align-top">
+                      <Verbatim value={h.key} />
+                    </td>
+                    <td className="p-1 font-mono text-xs break-all"><Verbatim value={h.value} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </>
+              );
+            })()}
           </div>
         )}
         {pane === 'tests' && (

@@ -300,6 +300,8 @@ func (e *Engine) send(ctx context.Context, req model.HttpRequest, progress Progr
 		}
 	}
 	defer func() { _ = resp.Body.Close() }()
+	// WireDump：最终实际发出的请求（含重定向落点与鉴权头；脱敏在 binding 层）
+	res.Wire = captureWire(resp)
 	totalBytes := resp.ContentLength
 	if totalBytes < 0 {
 		totalBytes = 0

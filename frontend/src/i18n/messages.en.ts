@@ -656,6 +656,7 @@ export const en: Record<string, string> = {
   'JSON 压缩失败: {detail}': 'JSON minify failed: {detail}',
   '复制响应体': 'Copy response body',
   '复制全部': 'Copy all',
+  '原始请求': 'Wire request',
   '关闭其他': 'Close others',
   '关闭左侧': 'Close to the left',
   '关闭右侧': 'Close to the right',

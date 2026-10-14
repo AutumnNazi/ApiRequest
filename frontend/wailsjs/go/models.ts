@@ -1037,6 +1037,40 @@ export namespace model {
 	        this.encoding = source["encoding"];
 	    }
 	}
+	export class WireDump {
+	    method: string;
+	    url: string;
+	    headers: KV[];
+	
+	    static createFrom(source: any = {}) {
+	        return new WireDump(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.method = source["method"];
+	        this.url = source["url"];
+	        this.headers = this.convertValues(source["headers"], KV);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ResponseResult {
 	    status: number;
 	    statusText: string;
@@ -1044,6 +1078,7 @@ export namespace model {
 	    cookies: Cookie[];
 	    body: ResponseBody;
 	    timing: Timing;
+	    wire?: WireDump;
 	    sizeBytes: number;
 	    testResults: TestResult[];
 	    scriptLogs: string[];
@@ -1062,6 +1097,7 @@ export namespace model {
 	        this.cookies = this.convertValues(source["cookies"], Cookie);
 	        this.body = this.convertValues(source["body"], ResponseBody);
 	        this.timing = this.convertValues(source["timing"], Timing);
+	        this.wire = this.convertValues(source["wire"], WireDump);
 	        this.sizeBytes = source["sizeBytes"];
 	        this.testResults = this.convertValues(source["testResults"], TestResult);
 	        this.scriptLogs = source["scriptLogs"];
@@ -1222,6 +1258,7 @@ export namespace model {
 	        this.walBytes = source["walBytes"];
 	    }
 	}
+	
 	
 	
 	
