@@ -12,6 +12,7 @@ import { Verbatim, formatMessage } from '../i18n/locale';
 import { useRecentTargets } from '../hooks/useRecentTargets';
 import RecentTargets from './RecentTargets';
 import ModalFrame from './ModalFrame';
+import { aggregateAiStream } from '../utils/aiStream';
 
 interface Props {
   onClose(): void;
@@ -22,6 +23,8 @@ export default function WsPanel({ onClose }: Props) {
   const [url, setUrl] = useState('');
   const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<InboundMsg[]>([]);
+  // SSE 会话可切换 AI 聚合视图：拼接主流 LLM 流式字段为完整回复 + 事件层耗时
+  const [aiView, setAiView] = useState(false);
   const [outgoing, setOutgoing] = useState('');
   const [error, setError] = useState('');
   const sessionIdRef = useRef('');
@@ -49,6 +52,8 @@ export default function WsPanel({ onClose }: Props) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const aiResult = protocol === 'sse' ? aggregateAiStream(messages) : null;
 
   // 组件卸载时断开
   useEffect(() => () => {
@@ -168,12 +173,53 @@ export default function WsPanel({ onClose }: Props) {
 
         <RecentTargets recents={recents} current={url} onPick={pickRecent} />
 
+        {/* SSE 会话：AI 流式聚合视图切换（LLM 接口调试用） */}
+        {protocol === 'sse' && (
+          <div className="px-3 py-1.5 border-b flex items-center justify-between">
+            <button
+              className={`text-xs border rounded px-2 py-0.5 ${aiView ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}
+              onClick={() => setAiView((v) => !v)}
+            >
+              {formatMessage('AI 聚合')}
+            </button>
+            {aiView && aiResult && (
+              <span className="text-xs text-gray-500">
+                {formatMessage('首事件 {ms}ms · {count} 事件', {
+                  ms: aiResult.metrics.firstEventMs ?? '—',
+                  count: aiResult.metrics.eventCount,
+                })}
+                {aiResult.metrics.usage &&
+                  ` · ${Object.entries(aiResult.metrics.usage)
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join(' ')}`}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* 消息时间线 */}
         <div className="flex-1 overflow-auto p-3 space-y-1.5 flex flex-col">
-          {messages.length === 0 && (
+          {aiView && aiResult && (
+            <div className="flex-1 flex flex-col min-h-0">
+              {aiResult.metrics.unhandled > 0 && (
+                <div className="text-xs text-gray-400 mb-1">
+                  {formatMessage('{count} 个事件未命中已知流式字段', { count: aiResult.metrics.unhandled })}
+                </div>
+              )}
+              <pre className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-900 rounded p-2 text-xs whitespace-pre-wrap break-words">
+                <Verbatim value={aiResult.text || (aiResult.matchedField ? '' : formatMessage('未识别到流式内容字段'))} />
+              </pre>
+              {aiResult.matchedField && (
+                <div className="text-xs text-gray-400 mt-1">
+                  {formatMessage('字段')}: <Verbatim value={aiResult.matchedField} />
+                </div>
+              )}
+            </div>
+          )}
+          {!aiView && messages.length === 0 && (
             <div className="m-auto text-gray-400 text-sm">{formatMessage('连接后消息将显示在此处')}</div>
           )}
-          {messages.map((m, i) => (
+          {!aiView && messages.map((m, i) => (
             <div
               key={i}
               className={`max-w-[80%] rounded px-2.5 py-1.5 text-xs font-mono whitespace-pre-wrap break-all ${
