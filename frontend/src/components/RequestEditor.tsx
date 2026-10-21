@@ -119,14 +119,15 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
     <div className="flex flex-col h-full">
       {/* 一体化流线胶囊 URL 栏 + 按钮组 */}
       <div className="flex items-center gap-2 p-2.5 border-b select-none">
-        {/* 一体化 Method + URL 输入胶囊 */}
-        <div className="flex-1 flex items-center rounded-xl border bg-white shadow-2xs focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600/30 transition-all overflow-hidden">
+        {/* 一体化 Method + URL 输入胶囊（不可 overflow-hidden：method 下拉与 URL 建议
+             浮层为胶囊内 absolute 定位，裁剪会让其不可见；左圆角由按钮自身承担） */}
+        <div className="flex-1 flex items-center rounded-xl border bg-white shadow-2xs focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600/30 transition-all">
           <Dropdown
             className="shrink-0"
             value={d.method}
             options={METHODS.map((m) => ({ value: m, label: m }))}
             onChange={(m) => patchDraft(tab.id, { method: m })}
-            buttonClassName={`tidy flex items-center gap-1 px-3 py-1.5 font-mono font-bold text-xs bg-gray-50 hover:bg-gray-100 border-r focus:outline-hidden min-w-0 transition-colors ${methodColor[d.method] ?? 'text-gray-700'}`}
+            buttonClassName={`tidy flex items-center gap-1 px-3 py-1.5 font-mono font-bold text-xs bg-gray-50 hover:bg-gray-100 border-r rounded-l-xl focus:outline-hidden min-w-0 transition-colors ${methodColor[d.method] ?? 'text-gray-700'}`}
           />
           <div className="relative flex-1">
             <input
