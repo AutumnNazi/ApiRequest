@@ -9,6 +9,7 @@ import AuthEditor from './AuthEditor';
 import CodegenDialog from './CodegenDialog';
 import Dropdown from './Dropdown';
 import { useLatestTimeout } from '../hooks/useLatestTimeout';
+import { formatSize } from '../utils/formatSize';
 import VarPreview, { useActiveVariables, VarPreviewMulti } from './VarPreview';
 import type { Tab } from '../stores/tabs';
 import { useTabs } from '../stores/tabs';
@@ -261,7 +262,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
           [
             ['params', `Params${countEnabled(d.params)}`],
             ['headers', `Headers${countEnabled(d.headers)}`],
-            ['body', `Body${bodyFilled(d.body)}`],
+            ['body', `Body${bodyTabCount(d.body)}`],
             ['auth', `Auth${d.auth?.type && d.auth.type !== 'inherit' && d.auth.type !== 'none' ? ' •' : ''}`],
             ['scripts', formatMessage('脚本{marker}', { marker: d.preScript || d.testScript ? ' •' : '' })],
             ['settings', formatMessage('设置')],
@@ -613,21 +614,27 @@ ${snippet.code}
   );
 }
 
-// bodyFilled Body 页签的内容标记：请求携带了实际 body（raw 非空白、
-// 表单有启用条目、binary 指定文件、graphql 有 query）。kind=none 恒无标记，
-// 与 Auth/Scripts 页签的 • 约定一致——从其他页签即可看出请求带了 body。
-function bodyFilled(body?: Body): string {
+// bodyTabCount Body 页签的计数后缀（对齐 Params/Headers 的 "(n)" 约定，
+// 避免与标签页"未保存圆点"语义混淆）：raw/graphql 显示 body 字节大小，
+// urlencoded/formdata 显示启用条目数，binary 计 1。未填写返回空串。
+function bodyTabCount(body?: Body): string {
   if (!body || body.kind === 'none' || body.kind === '') return '';
   switch (body.kind) {
-    case 'raw':
-      return body.text && body.text.trim() !== '' ? ' •' : '';
+    case 'raw': {
+      const text = body.text ?? '';
+      return text.trim() === '' ? '' : ` (${formatSize(new TextEncoder().encode(text).length)})`;
+    }
+    case 'graphql': {
+      const query = body.query ?? '';
+      return query.trim() === '' ? '' : ` (${formatSize(new TextEncoder().encode(query).length)})`;
+    }
     case 'formdata':
-    case 'urlencoded':
-      return (body.items ?? []).some((i) => i.enabled && i.key) ? ' •' : '';
+    case 'urlencoded': {
+      const n = (body.items ?? []).filter((i) => i.enabled && i.key).length;
+      return n > 0 ? ` (${n})` : '';
+    }
     case 'binary':
-      return body.path ? ' •' : '';
-    case 'graphql':
-      return body.query && body.query.trim() !== '' ? ' •' : '';
+      return body.path ? ' (1)' : '';
     default:
       return '';
   }

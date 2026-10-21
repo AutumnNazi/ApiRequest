@@ -1,5 +1,6 @@
-// Body 页签的内容标记：从其他页签（Params/Headers/脚本区）也能看出
-// 请求带了 body，不必切到 Body 页签确认（对齐 Auth/Scripts 的 • 约定）。
+// Body 页签的计数标记：从其他页签（Params/Headers/脚本区）也能看出
+// 请求带了 body 及其体量——raw/graphql 显示字节大小，表单显示启用条目数
+// （对齐 Params/Headers 的 "(n)" 约定，避免与标签页"未保存圆点"混淆）。
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -51,7 +52,7 @@ describe('Body 页签内容标记', () => {
     const draft = newDefaultRequest();
     draft.body = { ...draft.body, kind: 'raw', language: 'json', text: '{"a":1}' } as Body;
     renderEditor(draft);
-    expect(bodyTab().textContent).toBe('Body •');
+    expect(bodyTab().textContent).toBe('Body (7 B)');
   });
 
   it('raw 仅空白字符：视为未填写', () => {
@@ -71,7 +72,8 @@ describe('Body 页签内容标记', () => {
       ],
     } as Body;
     renderEditor(draft);
-    expect(bodyTab().textContent).toBe('Body •');
+    // 仅 1 条启用（另一条 disabled 被过滤）
+    expect(bodyTab().textContent).toBe('Body (1)');
   });
 
   it('formdata 全部禁用：无标记', () => {
@@ -88,12 +90,12 @@ describe('Body 页签内容标记', () => {
     const bin = newDefaultRequest();
     bin.body = { ...bin.body, kind: 'binary', path: 'C:/data.bin' } as Body;
     const { unmount } = renderEditor(bin);
-    expect(bodyTab().textContent).toBe('Body •');
+    expect(bodyTab().textContent).toBe('Body (1)');
     unmount();
 
     const gql = newDefaultRequest();
     gql.body = { ...gql.body, kind: 'graphql', query: '{ user { id } }' } as Body;
     renderEditor(gql);
-    expect(bodyTab().textContent).toBe('Body •');
+    expect(bodyTab().textContent).toBe('Body (15 B)');
   });
 });
