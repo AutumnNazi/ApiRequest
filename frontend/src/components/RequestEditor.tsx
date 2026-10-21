@@ -261,7 +261,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
           [
             ['params', `Params${countEnabled(d.params)}`],
             ['headers', `Headers${countEnabled(d.headers)}`],
-            ['body', 'Body'],
+            ['body', `Body${bodyFilled(d.body)}`],
             ['auth', `Auth${d.auth?.type && d.auth.type !== 'inherit' && d.auth.type !== 'none' ? ' •' : ''}`],
             ['scripts', formatMessage('脚本{marker}', { marker: d.preScript || d.testScript ? ' •' : '' })],
             ['settings', formatMessage('设置')],
@@ -611,6 +611,26 @@ ${snippet.code}
       </div>
     </div>
   );
+}
+
+// bodyFilled Body 页签的内容标记：请求携带了实际 body（raw 非空白、
+// 表单有启用条目、binary 指定文件、graphql 有 query）。kind=none 恒无标记，
+// 与 Auth/Scripts 页签的 • 约定一致——从其他页签即可看出请求带了 body。
+function bodyFilled(body?: Body): string {
+  if (!body || body.kind === 'none' || body.kind === '') return '';
+  switch (body.kind) {
+    case 'raw':
+      return body.text && body.text.trim() !== '' ? ' •' : '';
+    case 'formdata':
+    case 'urlencoded':
+      return (body.items ?? []).some((i) => i.enabled && i.key) ? ' •' : '';
+    case 'binary':
+      return body.path ? ' •' : '';
+    case 'graphql':
+      return body.query && body.query.trim() !== '' ? ' •' : '';
+    default:
+      return '';
+  }
 }
 
 function countEnabled(items?: { enabled: boolean; key: string }[]): string {
