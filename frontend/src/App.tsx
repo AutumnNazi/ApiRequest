@@ -30,6 +30,7 @@ const GrpcPanel = lazy(() => import('./components/GrpcPanel'));
 const GraphqlPanel = lazy(() => import('./components/GraphqlPanel'));
 const ThemeDialog = lazy(() => import('./components/ThemeDialog'));
 import { flushWorkspaceSessions, useTabs, type Tab } from './stores/tabs';
+import { useTheme } from './theme/store';
 import { useRequestProgress } from './stores/requestProgress';
 import {
   getDefaultWorkspace,
@@ -89,6 +90,7 @@ function ActiveResponse({ tab }: { tab: Tab }) {
 }
 
 export default function App() {
+  const glassActive = useTheme((st) => st.activeId) === 'liquid-glass';
   const qc = useQueryClient();
   const dialog = useDialog();
   const locale = useLocale((state) => state.locale);
@@ -645,10 +647,28 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className={`h-screen flex flex-col${glassActive ? ' app-liquid-glass' : ''}`}>
+      {glassActive && (
+      <svg className="glass-wallpaper" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <defs>
+          <linearGradient id="glass-ribbon" x1="0" y1="0" x2="1" y2="1">
+            <stop stopColor="var(--liquid-wall-ribbon-a)" />
+            <stop offset=".5" stopColor="var(--liquid-wall-ribbon-b)" />
+            <stop offset="1" stopColor="var(--liquid-wall-ribbon-c)" />
+          </linearGradient>
+          <linearGradient id="glass-fold" x1="0" y1="1" x2="1" y2="0">
+            <stop stopColor="var(--liquid-wall-fold-a)" />
+            <stop offset="1" stopColor="var(--liquid-wall-fold-b)" />
+          </linearGradient>
+        </defs>
+        <path fill="url(#glass-ribbon)" d="M-180 870C75 270 346 104 688 296s495 149 754-149 446 7 365 314S1167 1097 798 920 272 620-180 1163Z" />
+        <path fill="url(#glass-fold)" d="M130-200c461 25 281 457 613 599s591 58 995-50v190c-385 300-806 256-1115 29S201 277-75 342Z" opacity=".76" />
+        <path fill="none" stroke="var(--liquid-wall-highlight)" strokeWidth="3" d="M-40 904C221 233 490 268 781 469s511 91 870-234" opacity=".55" />
+      </svg>
+      )}
       {/* 自绘标题栏（无边框窗口）：标题区可拖动，交互控件与窗口按钮 no-drag */}
       <header
-        className="flex items-center h-10 px-3 border-b bg-white shrink-0 select-none"
+        className="flex items-center h-10 px-3 border-b shrink-0 select-none"
         style={maximised ? undefined : dragRegion}
         onMouseDown={onTitleMouseDown}
         onDoubleClick={onTitleDoubleClick}
@@ -947,7 +967,7 @@ export default function App() {
         {/* 主工作区：标签栏 + 编辑/响应双向分屏 */}
         <main className="flex-1 flex flex-col min-w-0">
           {/* 标签栏（轻奢立体悬浮卡片风格 Luxury Card Tabs） */}
-          <div className="flex items-center gap-1.5 border-b bg-gray-100 px-2.5 py-1.5 text-xs overflow-x-auto select-none">
+          <div className="flex items-center gap-1.5 border-b px-2.5 py-1.5 text-xs overflow-x-auto select-none">
             {tabs.map((t) => {
               const method = t.draft?.method || 'GET';
               const badgeClass =

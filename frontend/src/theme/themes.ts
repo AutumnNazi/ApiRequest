@@ -41,6 +41,19 @@ export interface ThemeDefinition {
 
 // ── 内置预设（命名与氛围对齐 GoNavi 的六套 + 默认亮色）──
 
+// Windows 液态玻璃：青色系半透明材质，壁纸为 SVG 飘带（style.css 接线）。
+// mode 保持 light（亮色材质）；材质变量经 data-theme-id 选择器激活。
+const liquidGlass: ThemePalette = {
+  mode: 'light',
+  bgApp: '#dcebea', bgChrome: 'rgba(255,255,255,0.48)', bgPanel: 'rgba(255,255,255,0.72)', bgPanel2: 'rgba(248,252,252,0.58)',
+  bgInput: 'rgba(255,255,255,0.62)', bgHover: 'rgba(16,117,145,0.08)', bgSelected: 'rgba(16,137,170,0.14)',
+  fg1: '#17313d', fg2: '#294854', fg3: '#607984', fg4: '#8da2aa',
+  br1: 'rgba(44,104,119,0.14)', br2: 'rgba(44,104,119,0.22)',
+  accent: '#218eae', accentHover: '#08759a', accentSoft: 'rgba(33,142,174,0.13)', onAccent: '#ffffff',
+  success: '#14856b', warn: '#b76c12', warnSoft: 'rgba(183,108,18,0.13)',
+  danger: '#c65061', dangerSoft: 'rgba(198,80,97,0.11)',
+};
+
 const daylight: ThemePalette = {
   mode: 'light',
   bgApp: '#f6f6f4', bgChrome: '#ececea', bgPanel: '#ffffff', bgPanel2: '#fafaf8',
@@ -108,7 +121,8 @@ const mistJade: ThemePalette = {
 };
 
 export const BUILTIN_THEMES: ThemeDefinition[] = [
-  { id: 'daylight', name: '☀️ 明亮（默认）', builtin: true, palette: daylight },
+  { id: 'liquid-glass', name: '🫧 液态玻璃（默认）', builtin: true, palette: liquidGlass },
+  { id: 'daylight', name: '☀️ 明亮', builtin: true, palette: daylight },
   { id: 'comfort-dark', name: '🌙 舒适暗色', builtin: true, palette: comfortDark },
   { id: 'midnight-navy', name: '🌌 午夜藏蓝', builtin: true, palette: midnightNavy },
   { id: 'nord-slate', name: '🧊 北欧石板', builtin: true, palette: nordSlate },
@@ -144,7 +158,7 @@ export function loadSnapshot(): ThemeSnapshot {
   } catch {
     // 损坏数据回落默认
   }
-  return { version: 1, activeId: 'daylight', custom: [] };
+  return { version: 1, activeId: 'liquid-glass', custom: [] };
 }
 
 export function saveSnapshot(snap: ThemeSnapshot) {

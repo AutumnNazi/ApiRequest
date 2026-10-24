@@ -63,3 +63,44 @@ select.tidy {
   background-position: right 0.5rem center;
   padding-right: 1.75rem;
 }
+
+/* ── 液态玻璃接线（WorkspaceApp，仅 liquid-glass 主题激活）── */
+.app-liquid-glass {
+  position: relative;
+  isolation: isolate;
+  color: var(--t-fg-1);
+}
+.app-liquid-glass .glass-wallpaper { position: fixed; inset: 0; z-index: -1; width: 100%; height: 100%; }
+.app-liquid-glass .app-glass-titlebar {
+  background: var(--liquid-chrome) !important;
+  border-color: var(--liquid-line) !important;
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+.app-liquid-glass .app-glass-tabs {
+  background: var(--liquid-sidebar) !important;
+  border-color: var(--liquid-line) !important;
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+.app-liquid-glass .app-glass-sidebar-shell {
+  background: var(--liquid-sidebar) !important;
+  border-color: var(--liquid-line) !important;
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+.app-liquid-glass .app-glass-sidebar-shell > div,
+.app-liquid-glass .app-glass-sidebar-shell .bg-gray-50 { background: transparent !important; }
+.app-liquid-glass .app-glass-request-pane,
+.app-liquid-glass .app-glass-response-pane {
+  background: var(--liquid-pane) !important;
+  border-color: var(--liquid-edge) !important;
+  box-shadow: var(--liquid-shadow), inset 0 1px 0 var(--liquid-inner-edge) !important;
+  -webkit-backdrop-filter: var(--liquid-blur);
+  backdrop-filter: var(--liquid-blur);
+}
+.app-liquid-glass .app-glass-request-pane {
+  overflow: clip;
+  overflow-clip-margin: 280px;
+}
+.app-liquid-glass .sidebar-liquid-clear { background: transparent !important; }

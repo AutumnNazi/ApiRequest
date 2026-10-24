@@ -70,7 +70,7 @@ const Sidebar = memo(function Sidebar({
   // 模式 B：48px 极窄图标导轨 (Icon Rail)
   if (collapsed) {
     return (
-      <div className="flex flex-col h-full border-r bg-gray-50 items-center py-2 justify-between w-12 shrink-0 select-none">
+      <div className="flex flex-col h-full border-r sidebar-liquid-clear items-center py-2 justify-between w-12 shrink-0 select-none">
         <div className="flex flex-col items-center gap-2.5 w-full">
           {/* 展开按钮 */}
           <button
@@ -162,7 +162,7 @@ const Sidebar = memo(function Sidebar({
   }
 
   return (
-    <div className="flex flex-col h-full border-r bg-gray-50">
+    <div className="flex flex-col h-full border-r sidebar-liquid-clear">
       <div className="flex items-center gap-1 px-2 pt-2 text-sm border-b">
         {(
           [

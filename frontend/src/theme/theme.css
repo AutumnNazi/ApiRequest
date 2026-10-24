@@ -219,4 +219,18 @@ mark { color: inherit; }
   --tw-ring-color: var(--t-br-2) !important;
 }
 
-
+/* ── 液态玻璃材质（预览页 A「晶透」参数）：变量经 data-theme-id 激活，
+   壁纸为 SVG 飘带（App.tsx），内容卡以 68% 白面板锚定可读性。 ── */
+:root[data-theme-id='liquid-glass'] {
+  --liquid-chrome: rgb(246 253 255 / 43%);
+  --liquid-sidebar: rgb(239 251 254 / 26%);
+  --liquid-pane: rgb(255 255 255 / 68%);
+  --liquid-pane-soft: rgb(248 252 252 / 48%);
+  --liquid-edge: rgb(255 255 255 / 78%);
+  --liquid-inner-edge: rgb(255 255 255 / 58%);
+  --liquid-line: rgb(33 80 105 / 13%);
+  --liquid-shadow: 0 28px 70px -28px rgb(16 58 82 / 48%), 0 6px 24px -16px rgb(16 58 82 / 40%);
+  --liquid-wall-ribbon-a: #66aac5; --liquid-wall-ribbon-b: #40b8c1; --liquid-wall-ribbon-c: #0d779d;
+  --liquid-wall-fold-a: #e6d9c5; --liquid-wall-fold-b: #e6bdb5; --liquid-wall-highlight: #d2ffff;
+  --liquid-blur: blur(26px) saturate(1.35);
+}
