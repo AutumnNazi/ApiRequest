@@ -9,22 +9,6 @@
   color-scheme: dark;
 }
 
-/* 材质 token：工作台的玻璃层只读取这些变量，不再自带一套孤立色板。 */
-:root[data-theme='liquid-glass'] {
-  --liquid-wall-start: #d6e7e8;
-  --liquid-wall-mid: #eef2eb;
-  --liquid-wall-end: #bdd8da;
-  --liquid-wall-glow: rgba(58, 184, 197, 0.34);
-  --liquid-wall-warm: rgba(255, 236, 219, 0.43);
-  --liquid-pane: rgba(255, 255, 255, 0.68);
-  --liquid-pane-soft: rgba(248, 252, 252, 0.48);
-  --liquid-chrome: rgba(255, 255, 255, 0.42);
-  --liquid-sidebar: rgba(238, 251, 253, 0.31);
-  --liquid-edge: rgba(255, 255, 255, 0.82);
-  --liquid-inner-edge: rgba(255, 255, 255, 0.58);
-  --liquid-shadow: 0 18px 42px -30px rgba(16, 58, 82, 0.54), 0 3px 14px -10px rgba(16, 58, 82, 0.42);
-}
-
 body {
   background: var(--t-bg-app);
   color: var(--t-fg-1);
