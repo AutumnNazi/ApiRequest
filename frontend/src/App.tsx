@@ -30,6 +30,7 @@ const GrpcPanel = lazy(() => import('./components/GrpcPanel'));
 const GraphqlPanel = lazy(() => import('./components/GraphqlPanel'));
 const ThemeDialog = lazy(() => import('./components/ThemeDialog'));
 import { flushWorkspaceSessions, useTabs, type Tab } from './stores/tabs';
+import { useTheme } from './theme/store';
 import { useRequestProgress } from './stores/requestProgress';
 import {
   getDefaultWorkspace,
@@ -88,7 +89,8 @@ function ActiveResponse({ tab }: { tab: Tab }) {
   );
 }
 
-export default function App() {
+function WorkspaceApp() {
+  const glassActive = useTheme((st) => st.activeId) === 'liquid-glass';
   const qc = useQueryClient();
   const dialog = useDialog();
   const locale = useLocale((state) => state.locale);
@@ -645,10 +647,28 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className={`h-screen flex flex-col${glassActive ? ' app-liquid-glass' : ''}`}>
+      {glassActive && (
+      <svg className="glass-wallpaper" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <defs>
+          <linearGradient id="glass-ribbon" x1="0" y1="0" x2="1" y2="1">
+            <stop stopColor="var(--liquid-wall-ribbon-a, #66aac5)" />
+            <stop offset=".5" stopColor="var(--liquid-wall-ribbon-b, #40b8c1)" />
+            <stop offset="1" stopColor="var(--liquid-wall-ribbon-c, #0d779d)" />
+          </linearGradient>
+          <linearGradient id="glass-fold" x1="0" y1="1" x2="1" y2="0">
+            <stop stopColor="var(--liquid-wall-fold-a, #e6d9c5)" />
+            <stop offset="1" stopColor="var(--liquid-wall-fold-b, #e6bdb5)" />
+          </linearGradient>
+        </defs>
+        <path fill="url(#glass-ribbon)" d="M-180 870C75 270 346 104 688 296s495 149 754-149 446 7 365 314S1167 1097 798 920 272 620-180 1163Z" />
+        <path fill="url(#glass-fold)" d="M130-200c461 25 281 457 613 599s591 58 995-50v190c-385 300-806 256-1115 29S201 277-75 342Z" opacity=".76" />
+        <path fill="none" stroke="var(--liquid-wall-highlight, #d2ffff)" strokeWidth="3" d="M-40 904C221 233 490 268 781 469s511 91 870-234" opacity=".55" />
+      </svg>
+      )}
       {/* 自绘标题栏（无边框窗口）：标题区可拖动，交互控件与窗口按钮 no-drag */}
       <header
-        className="flex items-center h-10 px-3 border-b bg-white shrink-0 select-none"
+        className="app-glass-titlebar flex items-center h-10 px-3 border-b bg-white shrink-0 select-none"
         style={maximised ? undefined : dragRegion}
         onMouseDown={onTitleMouseDown}
         onDoubleClick={onTitleDoubleClick}
@@ -669,8 +689,12 @@ export default function App() {
           </svg>
         </button>
 
-        <h1 className="hidden pr-3 text-xs font-bold tracking-tight text-gray-800 sm:flex items-center gap-1.5 cursor-default border-r mr-2">
-          <span className="w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center text-[10px]">⚡</span>
+        <h1 className="app-glass-brand hidden pr-3 text-xs font-bold tracking-tight text-gray-800 sm:flex items-center gap-1.5 cursor-default border-r mr-2">
+          <span className="app-glass-brand-mark w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center text-[10px]" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m13 3-9 11h7l-1 7 10-12h-8l1-6Z" />
+            </svg>
+          </span>
           <span>ApiRequest</span>
         </h1>
 
@@ -908,11 +932,11 @@ export default function App() {
         );
       })()}
 
-      <div className="flex-1 flex min-h-0">
+      <div className="app-glass-body flex-1 flex min-h-0">
         {/* 侧栏（模式 B：折叠时为 48px 图标导轨，展开时为完整树） */}
         <aside
           ref={asideRef}
-          className="shrink-0 transition-all duration-200"
+          className="app-glass-sidebar-shell shrink-0 transition-all duration-200"
           style={{ width: sidebarCollapsed ? 48 : sidebarWidth }}
         >
           <Sidebar
@@ -945,9 +969,9 @@ export default function App() {
         )}
 
         {/* 主工作区：标签栏 + 编辑/响应双向分屏 */}
-        <main className="flex-1 flex flex-col min-w-0">
+        <main className="app-glass-main flex-1 flex flex-col min-w-0">
           {/* 标签栏（轻奢立体悬浮卡片风格 Luxury Card Tabs） */}
-          <div className="flex items-center gap-1.5 border-b bg-gray-100 px-2.5 py-1.5 text-xs overflow-x-auto select-none">
+          <div className="app-glass-tabs flex items-center gap-1.5 border-b bg-gray-100 px-2.5 py-1.5 text-xs overflow-x-auto select-none">
             {tabs.map((t) => {
               const method = t.draft?.method || 'GET';
               const badgeClass =
@@ -1061,7 +1085,7 @@ export default function App() {
 
           {active ? (
             <div
-              className={`flex-1 flex min-h-0 min-w-0 ${
+              className={`app-glass-workbench flex-1 flex min-h-0 min-w-0 ${
                 splitLayout === 'vertical' ? 'flex-row' : 'flex-col'
               }`}
               style={{ height: '100%' }}
@@ -1069,7 +1093,7 @@ export default function App() {
               {!zenMode && (
                 <div
                   ref={editorPaneRef}
-                  className="min-h-0 min-w-0"
+                  className="app-glass-request-pane min-h-0 min-w-0"
                   style={
                     splitLayout === 'vertical'
                       ? { width: `${editorRatio * 100}%` }
@@ -1099,7 +1123,7 @@ export default function App() {
                   onDragEnd={setEditorRatio}
                 />
               )}
-              <div className="flex-1 min-h-0 min-w-0">
+              <div className="app-glass-response-pane flex-1 min-h-0 min-w-0">
                 <ActiveResponse tab={active} />
               </div>
             </div>
@@ -1112,6 +1136,220 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+type GlassVariant = 'aurora' | 'midnight' | 'titanium';
+
+const GLASS_VARIANTS: Array<{
+  id: GlassVariant;
+  code: string;
+  name: string;
+  material: string;
+  note: string;
+}> = [
+  { id: 'aurora', code: 'A+C', name: '晶透', material: 'Clear / stacked', note: '已选组合：A 的晶透材质 + C 的上下分屏' },
+  { id: 'midnight', code: 'B', name: '烟灰', material: 'Smoked / dark', note: '深色烟灰玻璃与紧凑导航，左右分屏' },
+  { id: 'titanium', code: 'C', name: '雾白', material: 'Frost / focus', note: '玻璃只用于导航与外壳，内容区上下分屏' },
+];
+
+const GLASS_DEMO_RESPONSE = {
+  code: 0,
+  message: 'success',
+  data: {
+    total: 2,
+    items: [
+      { id: 'ord_4821', status: 'paid', total: 129.9 },
+      { id: 'ord_9157', status: 'paid', total: 68.5 },
+    ],
+  },
+};
+
+// A visual-only route: no workspace reads, persistence, or real network requests.
+function LiquidGlassPreview() {
+  const [variant, setVariant] = useState<GlassVariant>('aurora');
+  const [activeNav, setActiveNav] = useState('集合');
+  const [requestPane, setRequestPane] = useState('query');
+  const [sent, setSent] = useState(true);
+  const selectedVariant = GLASS_VARIANTS.find((item) => item.id === variant) ?? GLASS_VARIANTS[0];
+  const sampleRows = requestPane === 'headers'
+    ? [['Accept', 'application/json'], ['X-Request-ID', 'demo_7fc2a9'], ['Content-Type', 'application/json']]
+    : [['status', 'paid'], ['limit', '20']];
+
+  return (
+    <div className={`glass-lab glass-lab-${variant}${variant === 'midnight' ? '' : ' glass-layout-stacked'}`} data-variant={variant}>
+      <svg className="glass-wallpaper" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <defs>
+          <linearGradient id="glass-ribbon" x1="0" y1="0" x2="1" y2="1">
+            <stop stopColor="var(--wall-ribbon-a)" />
+            <stop offset=".5" stopColor="var(--wall-ribbon-b)" />
+            <stop offset="1" stopColor="var(--wall-ribbon-c)" />
+          </linearGradient>
+          <linearGradient id="glass-fold" x1="0" y1="1" x2="1" y2="0">
+            <stop stopColor="var(--wall-fold-a)" />
+            <stop offset="1" stopColor="var(--wall-fold-b)" />
+          </linearGradient>
+        </defs>
+        <path fill="url(#glass-ribbon)" d="M-180 870C75 270 346 104 688 296s495 149 754-149 446 7 365 314S1167 1097 798 920 272 620-180 1163Z" />
+        <path fill="url(#glass-fold)" d="M130-200c461 25 281 457 613 599s591 58 995-50v190c-385 300-806 256-1115 29S201 277-75 342Z" opacity=".76" />
+        <path fill="none" stroke="var(--wall-highlight)" strokeWidth="3" d="M-40 904C221 233 490 268 781 469s511 91 870-234" opacity=".55" />
+      </svg>
+
+      <div className="glass-variant-switcher" role="group" aria-label="液态玻璃方案选择">
+        <div className="glass-variant-heading">
+          <strong>在 Windows，也可以很通透。</strong>
+          <span>{selectedVariant.note}</span>
+        </div>
+        <div className="glass-variant-options">
+          {GLASS_VARIANTS.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              className={`glass-variant-option ${variant === item.id ? 'is-active' : ''}`}
+              onClick={() => setVariant(item.id)}
+              aria-label={`方案 ${item.code}：${item.name}`}
+              aria-pressed={variant === item.id}
+            >
+              <span className={`glass-variant-swatch glass-swatch-${item.id}`} />
+              <span><strong>{item.code} · {item.name}</strong><small>{item.material}</small></span>
+              <svg className="glass-variant-check" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m5 10 3.3 3.3L15 6.5" /></svg>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="glass-lab-window">
+        <header className="glass-titlebar">
+          <div className="glass-brand">
+            <span className="glass-brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m13 3-9 11h7l-1 7 10-12h-8l1-6Z" /></svg>
+            </span>
+            <strong>ApiRequest</strong>
+            <span className="glass-brand-muted">我的工作区</span>
+          </div>
+          <span className="glass-titlebar-center">界面材质预览 · 不连接后端</span>
+          <div className="glass-window-controls" aria-label="Windows 窗口控件示意">
+            <button type="button" className="glass-window-control" aria-label="最小化（视觉示意）" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10h10" /></svg></button>
+            <button type="button" className="glass-window-control" aria-label="最大化（视觉示意）" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5.5" y="5.5" width="9" height="9" /></svg></button>
+            <button type="button" className="glass-window-control glass-window-close" aria-label="关闭（视觉示意）" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 5.5 9 9m0-9-9 9" /></svg></button>
+          </div>
+        </header>
+
+        <div className="glass-app-grid">
+          <aside className="glass-sidebar">
+            <div className="glass-workspace-card">
+              <div className="glass-workspace-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="4" y="4" width="6" height="6" rx="1.5" /><rect x="14" y="4" width="6" height="6" rx="1.5" /><rect x="4" y="14" width="6" height="6" rx="1.5" /><rect x="14" y="14" width="6" height="6" rx="1.5" /></svg></div>
+              <div className="glass-workspace-copy"><strong>我的工作区</strong><span>本地工作区 / 示例数据</span></div>
+              <svg className="glass-workspace-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+            </div>
+
+            <nav className="glass-nav" aria-label="预览侧栏">
+              {[
+                { name: '集合', path: 'M3 7h7l2-3h9v15H3Z' },
+                { name: '历史', path: 'M4 11a8 8 0 1 1 2 6M4 4v7h7m1-4v5l3 2' },
+              ].map((item) => (
+                <button type="button" key={item.name} title={item.name} className={`glass-nav-item ${activeNav === item.name ? 'is-active' : ''}`} onClick={() => setActiveNav(item.name)}>
+                  <svg className="glass-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={item.path} /></svg>
+                  <span>{item.name}</span>
+                  {item.name === '集合' && <span className="glass-count">3</span>}
+                </button>
+              ))}
+            </nav>
+
+            <div className="glass-sidebar-label">{activeNav === '集合' ? '商城服务' : '最近的示例请求'}<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M5 10h10m-5-5v10" /></svg></div>
+            <div className="glass-pinned-list">
+              <div className="glass-folder-row"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="m3 6 3 3-3 3M9 4h4l2 2h3v10H9Z" /></svg><span>订单管理</span><small>3</small></div>
+              {[
+                ['GET', '获取订单列表', true],
+                ['GET', '查询订单详情', false],
+                ['POST', '创建订单', false],
+              ].map(([method, name, current]) => (
+                <div key={String(name)} className={`glass-pinned-item ${current ? 'is-current' : ''}`} title={String(name)}>
+                  <span className={`glass-method-dot ${method === 'POST' ? 'method-post' : 'method-get'}`}>{method}</span>
+                  <span>{name}</span>
+                </div>
+              ))}
+              <div className="glass-folder-row"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="m3 6 3 3-3 3M9 4h4l2 2h3v10H9Z" /></svg><span>用户服务</span><small>5</small></div>
+              <div className="glass-folder-row"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="m3 6 3 3-3 3M9 4h4l2 2h3v10H9Z" /></svg><span>支付服务</span><small>4</small></div>
+            </div>
+            <div className="glass-sidebar-footer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /><circle cx="8" cy="7" r="2" fill="var(--glass-sidebar)" /><circle cx="16" cy="12" r="2" fill="var(--glass-sidebar)" /><circle cx="10" cy="17" r="2" fill="var(--glass-sidebar)" /></svg>
+              <span>设置与偏好</span><kbd>Ctrl ,</kbd>
+            </div>
+          </aside>
+
+          <main className="glass-main">
+            <div className="glass-main-heading">
+              <div><div className="glass-breadcrumb">商城服务 <span>/</span> 订单管理</div><h1>获取订单列表</h1></div>
+              <div className="glass-heading-actions"><span className="glass-environment"><span className="glass-live-dot" /> 开发环境</span><span className="glass-heading-divider" /><span className="glass-key-hint">Ctrl K <span>命令面板</span></span></div>
+            </div>
+
+            <div className="glass-tab-strip" aria-label="请求标签示意">
+              <div className="glass-open-tab is-active"><span className="glass-method-dot method-get">GET</span><span>获取订单列表</span><span className="glass-tab-close" aria-hidden="true">×</span></div>
+              <div className="glass-open-tab"><span className="glass-method-dot method-post">POST</span><span>创建订单</span><span className="glass-tab-close" aria-hidden="true">×</span></div>
+              <span className="glass-new-tab" aria-hidden="true">+</span>
+              <svg className="glass-layout-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="3" /><path d="M10 3v14" /></svg>
+            </div>
+
+            <div className="glass-workbench">
+              <section className="glass-panel glass-request-panel" aria-label="示例请求">
+                <div className="glass-panel-topline"><span className="glass-panel-kicker">请求</span><span className="glass-panel-meta">HTTP / 1.1</span></div>
+                <div className="glass-url-bar">
+                  <span className="glass-method-select">GET<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m5 6 3 3 3-3" /></svg></span>
+                  <input aria-label="示例请求 URL" defaultValue="https://api.example.com/v1/orders" spellCheck={false} />
+                  <button type="button" className="glass-send-button" onClick={() => setSent(true)}><span>模拟发送</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4 11 16-7-6 16-3-7-7-2Zm7 2 4-4" /></svg></button>
+                </div>
+                <div className="glass-request-tabs" role="tablist" aria-label="示例请求参数">
+                  {[
+                    { id: 'query', name: '参数', count: 2 },
+                    { id: 'headers', name: '请求头', count: 3 },
+                    { id: 'body', name: '请求体', count: 0 },
+                    { id: 'auth', name: '授权', count: 0 },
+                  ].map((item) => (
+                    <button type="button" role="tab" key={item.id} className={requestPane === item.id ? 'is-active' : ''} aria-selected={requestPane === item.id} aria-controls="glass-request-content" id={`glass-tab-${item.id}`} onClick={() => setRequestPane(item.id)}>
+                      {item.name}{item.count > 0 && <span className="glass-tab-badge">{item.count}</span>}
+                    </button>
+                  ))}
+                </div>
+                <div className="glass-request-content" role="tabpanel" id="glass-request-content" aria-labelledby={`glass-tab-${requestPane}`}>
+                  {requestPane === 'body' ? (
+                    <div className="glass-body-note"><span className="glass-body-symbol">{`{ }`}</span><strong>此 GET 请求无需请求体</strong><span>可切回参数或请求头，查看表格控件的材质。</span></div>
+                  ) : requestPane === 'auth' ? (
+                    <div className="glass-auth-preview"><label htmlFor="glass-token">Bearer Token</label><input id="glass-token" type="password" value="visual-preview-only" readOnly /><span>演示令牌，不会发送或保存。</span></div>
+                  ) : (
+                    <div className="glass-kv-table"><div className="glass-kv-head"><span /><span>参数名</span><span>参数值</span></div>
+                      {sampleRows.map(([key, value]) => (
+                        <div className="glass-kv-row" key={`${requestPane}-${key}`}><input type="checkbox" aria-label={`启用 ${key}`} defaultChecked /><input aria-label={`${key} 参数名`} defaultValue={key} spellCheck={false} /><input aria-label={`${key} 参数值`} defaultValue={value} spellCheck={false} /></div>
+                      ))}
+                      <div className="glass-kv-placeholder"><span>+</span><span>添加参数</span><span>值</span></div>
+                    </div>
+                  )}
+                </div>
+                <div className="glass-request-foot"><span>示例内容 · 编辑不会保存</span><span className="glass-request-foot-spacer" /><span className="glass-save-hint">Ctrl S 保存</span></div>
+              </section>
+
+              <section className="glass-panel glass-response-panel" aria-label="示例响应">
+                <div className="glass-panel-topline"><span className="glass-panel-kicker">响应</span>{sent && <span className="glass-response-status"><span />200 OK <span className="glass-response-time">184 ms</span></span>}</div>
+                <div className="glass-response-toolbar"><div className="glass-response-tabs"><span className="is-active">响应体</span><span>响应头 <small>8</small></span></div><div className="glass-response-format"><span>JSON</span><span>UTF-8</span><button type="button" className="glass-icon-button" onClick={() => setSent(false)} disabled={!sent} aria-label="清空示例响应"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M5 6h14M9 6V3h6v3M7 6l1 15h8l1-15M10 10v7m4-7v7" /></svg></button></div></div>
+                {sent ? (
+                  <div className="glass-code-preview"><pre data-testid="glass-response-code"><code>{JSON.stringify(GLASS_DEMO_RESPONSE, null, 2)}</code></pre><span className="glass-code-watermark" aria-hidden="true">示例响应</span></div>
+                ) : (
+                  <div className="glass-response-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true"><path d="m4 11 16-7-6 16-3-7-7-2Zm7 2 4-4" /></svg><strong>等待响应</strong><span>点击“模拟发送”，查看固定的示例数据。</span></div>
+                )}
+                <div className="glass-response-foot"><span className="glass-demo-label">DEMO</span><span>仅演示响应样式，不代表实际请求结果</span></div>
+              </section>
+            </div>
+            <footer className="glass-statusbar"><span><span className="glass-live-dot" /> Windows 视觉预览</span><span className="glass-status-spacer" /><span>所有数据均为示例</span><span>不会读取或修改工作区</span></footer>
+          </main>
+        </div>
+      </div>
+      <p className="glass-lab-caption">保留 Windows 窗口习惯，默认展示 A 的晶透材质 + C 的上下分屏。所有内容均为示例。</p>
+    </div>
+  );
+}
+
+export default function App() {
+  const glassPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('glass') === '1';
+  return glassPreview ? <LiquidGlassPreview /> : <WorkspaceApp />;
 }
 
 // 查找请求中引用了但未在激活环境 / 全局变量中定义的变量名。

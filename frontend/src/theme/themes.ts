@@ -107,14 +107,28 @@ const mistJade: ThemePalette = {
   accent: '#0d9488', accentHover: '#0f766e', accentSoft: 'rgba(13,148,136,0.12)',
 };
 
+// Windows 下的液态玻璃：保留现有 token 结构，额外的材质层由 theme.css 叠加。
+const liquidGlass: ThemePalette = {
+  mode: 'light',
+  bgApp: '#dcebea', bgChrome: 'rgba(255,255,255,0.48)', bgPanel: 'rgba(255,255,255,0.72)', bgPanel2: 'rgba(248,252,252,0.58)',
+  bgInput: 'rgba(255,255,255,0.62)', bgHover: 'rgba(16,117,145,0.08)', bgSelected: 'rgba(16,137,170,0.14)',
+  fg1: '#17313d', fg2: '#294854', fg3: '#607984', fg4: '#8da2aa',
+  br1: 'rgba(44,104,119,0.14)', br2: 'rgba(44,104,119,0.22)',
+  accent: '#218eae', accentHover: '#08759a', accentSoft: 'rgba(33,142,174,0.13)', onAccent: '#ffffff',
+  success: '#14856b', warn: '#b76c12', warnSoft: 'rgba(183,108,18,0.13)',
+  danger: '#c65061', dangerSoft: 'rgba(198,80,97,0.11)',
+};
+
 export const BUILTIN_THEMES: ThemeDefinition[] = [
-  { id: 'daylight', name: '☀️ 明亮（默认）', builtin: true, palette: daylight },
+  { id: 'liquid-glass', name: '🫧 液态玻璃（默认）', builtin: true, palette: liquidGlass },
+  { id: 'daylight', name: '☀️ 明亮', builtin: true, palette: daylight },
   { id: 'comfort-dark', name: '🌙 舒适暗色', builtin: true, palette: comfortDark },
   { id: 'midnight-navy', name: '🌌 午夜藏蓝', builtin: true, palette: midnightNavy },
   { id: 'nord-slate', name: '🧊 北欧石板', builtin: true, palette: nordSlate },
   { id: 'deep-ocean', name: '🌊 深海青', builtin: true, palette: deepOcean },
   { id: 'warm-paper', name: '📜 暖纸', builtin: true, palette: warmPaper },
   { id: 'mist-jade', name: '🍃 雾松青玉', builtin: true, palette: mistJade },
+  { id: 'liquid-glass', name: '🫧 液态玻璃', builtin: true, palette: liquidGlass },
 ];
 
 // ── 应用与持久化 ──
@@ -144,7 +158,7 @@ export function loadSnapshot(): ThemeSnapshot {
   } catch {
     // 损坏数据回落默认
   }
-  return { version: 1, activeId: 'daylight', custom: [] };
+  return { version: 1, activeId: 'liquid-glass', custom: [] };
 }
 
 export function saveSnapshot(snap: ThemeSnapshot) {
