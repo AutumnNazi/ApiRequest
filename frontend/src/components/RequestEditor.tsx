@@ -119,10 +119,10 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
   return (
     <div className="flex flex-col h-full">
       {/* 一体化流线胶囊 URL 栏 + 按钮组 */}
-      <div className="flex items-center gap-2 p-2.5 border-b select-none">
+      <div className="request-toolbar flex items-center gap-2 p-2.5 border-b select-none">
         {/* 一体化 Method + URL 输入胶囊（不可 overflow-hidden：method 下拉与 URL 建议
              浮层为胶囊内 absolute 定位，裁剪会让其不可见；左圆角由按钮自身承担） */}
-        <div className="flex-1 flex items-center rounded-xl border bg-white shadow-2xs focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600/30 transition-all">
+        <div className="request-url flex-1 flex items-center rounded-xl border bg-white shadow-2xs focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600/30 transition-all">
           <Dropdown
             className="shrink-0"
             value={d.method}
@@ -257,7 +257,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
       />
 
       {/* 页签 */}
-      <div className="flex gap-1 px-3 pt-2 border-b text-sm">
+      <div className="panel-tabs flex gap-1 px-3 pt-2 border-b text-sm">
         {(
           [
             ['params', `Params${countEnabled(d.params)}`],
@@ -283,7 +283,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
       </div>
 
       {/* 页签内容 */}
-      <div className="flex-1 overflow-auto p-3">
+      <div className="panel-content flex-1 overflow-auto p-3">
         {pane === 'params' && (
           <KVTable
             key={`${tab.id}:params`}

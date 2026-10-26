@@ -1,6 +1,8 @@
 import { render, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import Splitter from './Splitter';
+const { readFileSync } = await vi.importActual<{ readFileSync: (path: string, encoding: 'utf8') => string }>('node:fs');
+const workspaceStyles = readFileSync('src/style.css', 'utf8');
 
 // 拖拽依赖 window 尺寸换算比例，jsdom 默认 1024x768。
 function splitterOf(container: HTMLElement) {
@@ -8,6 +10,31 @@ function splitterOf(container: HTMLElement) {
   if (!(node instanceof HTMLElement)) throw new Error('splitter 未渲染');
   return node;
 }
+
+describe('Splitter 接缝与热区', () => {
+  it.each(['vertical', 'horizontal'] as const)('%s 用 1px 接缝保留独立 6px 热区和最终比例', (orientation) => {
+    const onRatio = vi.fn();
+    const onDragEnd = vi.fn();
+    const { container } = render(<Splitter orientation={orientation} ratio={0.5} onRatio={onRatio} onDragEnd={onDragEnd} />);
+    const seam = splitterOf(container);
+    expect(seam).toHaveClass('app-splitter');
+    expect(seam).toHaveAttribute('data-orientation', orientation);
+    expect(seam).not.toHaveClass('w-1.5', 'h-1.5');
+    const hitarea = seam.querySelector('.app-splitter-hitarea')!;
+    expect(hitarea).not.toBeNull();
+    expect(workspaceStyles).toMatch(/\.app-splitter\[data-orientation='vertical'\]\s*\{[^}]*width:\s*1px;/);
+    expect(workspaceStyles).toMatch(/\.app-splitter\[data-orientation='horizontal'\]\s*\{[^}]*height:\s*1px;/);
+    expect(workspaceStyles).toMatch(/\.app-splitter\[data-orientation='vertical'\] > \.app-splitter-hitarea\s*\{[^}]*width:\s*6px;/);
+    expect(workspaceStyles).toMatch(/\.app-splitter\[data-orientation='horizontal'\] > \.app-splitter-hitarea\s*\{[^}]*height:\s*6px;/);
+    fireEvent.mouseDown(hitarea, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(window, orientation === 'vertical' ? { clientX: 100 + window.innerWidth * 0.1 } : { clientY: 100 + window.innerHeight * 0.1 });
+    fireEvent.mouseUp(window);
+    expect(onRatio).toHaveBeenLastCalledWith(expect.closeTo(0.6, 5));
+    expect(onDragEnd).toHaveBeenCalledExactlyOnceWith(expect.closeTo(0.6, 5));
+    expect(document.body.style.cursor).toBe('');
+    expect(document.body.style.userSelect).toBe('');
+  });
+});
 
 describe('Splitter 拖拽', () => {
   it('vertical：mousedown 后移动鼠标按 clientX 增量回调新比例', () => {

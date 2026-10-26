@@ -7,6 +7,22 @@ import ResponseViewer from './ResponseViewer';
 afterEach(() => useLocale.getState().setLocale('zh-CN'));
 
 describe('ResponseViewer body rendering', () => {
+  it('keeps response actions, tabs and long body in separate responsive regions', () => {
+    const response = {
+      status: 200, statusText: 'OK', headers: [], cookies: [],
+      body: { inline: true, text: 'long response line '.repeat(1000), encoding: 'utf8' },
+      timing: { dnsMs: 0, connectMs: 0, tlsMs: 0, ttfbMs: 1, downloadMs: 1, totalMs: 2 },
+      sizeBytes: 19000, testResults: [], scriptLogs: [],
+    } as unknown as ResponseResult;
+    const view = render(<ResponseViewer response={response} sending={false} workspaceId="workspace-1" nodeId="node-1" />);
+    const compare = screen.getByRole('button', { name: '对比' });
+    const status = compare.parentElement;
+    expect(status).toHaveClass('response-status');
+    expect(status).toContainElement(screen.getByRole('button', { name: '保存为示例' }));
+    expect(screen.getByRole('button', { name: 'Body' }).parentElement).toHaveClass('panel-tabs');
+    expect(view.container.querySelector('.panel-content')).toContainElement(view.container.querySelector('pre'));
+  });
+
   it('pages through loaded binary bytes and advances to newly loaded chunks', async () => {
     const first = btoa('A'.repeat(64 << 10) + 'B'.repeat(192 << 10));
     const read = vi.fn()

@@ -3,6 +3,7 @@
 // data-theme 挂 body，自定义主题在预设基础上改色。
 export interface ThemePalette {
   mode: 'light' | 'dark';
+  material?: 'liquid-glass'; // 仅兼容历史色板字段，所有主题统一使用玻璃材质
   // 背景族
   bgApp: string; // 应用底
   bgChrome: string; // 顶栏/侧栏
@@ -40,19 +41,6 @@ export interface ThemeDefinition {
 }
 
 // ── 内置预设（命名与氛围对齐 GoNavi 的六套 + 默认亮色）──
-
-// Windows 液态玻璃：青色系半透明材质，壁纸为 SVG 飘带（style.css 接线）。
-// mode 保持 light（亮色材质）；材质变量经 data-theme-id 选择器激活。
-const liquidGlass: ThemePalette = {
-  mode: 'light',
-  bgApp: '#dcebea', bgChrome: 'rgba(255,255,255,0.48)', bgPanel: 'rgba(255,255,255,0.72)', bgPanel2: 'rgba(248,252,252,0.58)',
-  bgInput: 'rgba(255,255,255,0.62)', bgHover: 'rgba(16,117,145,0.08)', bgSelected: 'rgba(16,137,170,0.14)',
-  fg1: '#17313d', fg2: '#294854', fg3: '#607984', fg4: '#8da2aa',
-  br1: 'rgba(44,104,119,0.14)', br2: 'rgba(44,104,119,0.22)',
-  accent: '#218eae', accentHover: '#08759a', accentSoft: 'rgba(33,142,174,0.13)', onAccent: '#ffffff',
-  success: '#14856b', warn: '#b76c12', warnSoft: 'rgba(183,108,18,0.13)',
-  danger: '#c65061', dangerSoft: 'rgba(198,80,97,0.11)',
-};
 
 const daylight: ThemePalette = {
   mode: 'light',
@@ -121,7 +109,6 @@ const mistJade: ThemePalette = {
 };
 
 export const BUILTIN_THEMES: ThemeDefinition[] = [
-  { id: 'liquid-glass', name: '🫧 液态玻璃（默认）', builtin: true, palette: liquidGlass },
   { id: 'daylight', name: '☀️ 明亮', builtin: true, palette: daylight },
   { id: 'comfort-dark', name: '🌙 舒适暗色', builtin: true, palette: comfortDark },
   { id: 'midnight-navy', name: '🌌 午夜藏蓝', builtin: true, palette: midnightNavy },
@@ -148,17 +135,18 @@ export function loadSnapshot(): ThemeSnapshot {
     if (raw) {
       const parsed = JSON.parse(raw) as ThemeSnapshot;
       if (parsed.version === 1) {
-        // builtin id 是保留命名空间，持久化数据不得遮蔽内置主题
+        // 内置与已移除的内置 id 均保留，持久化数据不得复活或遮蔽它们
         parsed.custom = (parsed.custom ?? []).filter(
-          (t) => t && !BUILTIN_THEMES.some((b) => b.id === t.id) && t.palette,
+          (t) => t && t.id !== 'liquid-glass' && !BUILTIN_THEMES.some((b) => b.id === t.id) && t.palette,
         );
+        parsed.activeId = findTheme(parsed.custom, parsed.activeId).id;
         return parsed;
       }
     }
   } catch {
     // 损坏数据回落默认
   }
-  return { version: 1, activeId: 'liquid-glass', custom: [] };
+  return { version: 1, activeId: 'daylight', custom: [] };
 }
 
 export function saveSnapshot(snap: ThemeSnapshot) {
@@ -208,6 +196,7 @@ export function applyTheme(theme: ThemeDefinition) {
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
   root.dataset.theme = theme.palette.mode;
   root.dataset.themeId = theme.id;
+  root.dataset.material = 'liquid-glass';
 }
 
 export function createCustomId(): string {

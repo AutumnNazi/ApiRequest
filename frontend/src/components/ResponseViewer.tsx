@@ -383,7 +383,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
   return (
     <div className="flex flex-col h-full">
       {/* 状态行 */}
-      <div className="flex items-center gap-3 px-3 py-2 border-b text-xs select-none">
+      <div className="response-status flex items-center gap-3 px-3 py-2 border-b text-xs select-none">
         <span
           className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg font-mono font-bold ${
             response.status < 300
@@ -475,7 +475,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
       )}
 
       {/* 页签 */}
-      <div className="flex gap-4 px-3 pt-2 border-b text-sm">
+      <div className="panel-tabs flex gap-4 px-3 pt-2 border-b text-sm">
         {(
           [
             ['body', 'Body'],
@@ -533,7 +533,7 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
         )}
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="panel-content flex-1 overflow-auto">
         {pane === 'body' && (
           <div>
             {response.body?.blobRef && (

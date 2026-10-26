@@ -8,6 +8,7 @@ function Harness() {
   const [result, setResult] = useState('');
   return (
     <>
+      <button onClick={() => void dialog.alert('提示测试')}>open alert</button>
       <button onClick={() => void dialog.confirm('确认测试？').then((ok) => setResult(String(ok)))}>
         open confirm
       </button>
@@ -20,6 +21,24 @@ function Harness() {
 }
 
 describe('DialogProvider', () => {
+  it.each([
+    ['alert', 'alertdialog'],
+    ['confirm', 'dialog'],
+    ['prompt', 'dialog'],
+  ])('provides the shared dialog surface for %s content', async (kind, role) => {
+    render(
+      <DialogProvider>
+        <Harness />
+      </DialogProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: `open ${kind}` }));
+
+    const content = screen.getByRole(role);
+    expect(content).toHaveClass('app-dialog-surface', 'bg-white');
+    expect(content.parentElement).not.toHaveClass('app-dialog-surface');
+    fireEvent.click(screen.getByRole('button', { name: '确定' }));
+    await waitFor(() => expect(screen.queryByRole(role)).not.toBeInTheDocument());
+  });
   it('resolves confirm and restores focus', async () => {
     render(
       <DialogProvider>

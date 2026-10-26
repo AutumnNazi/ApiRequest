@@ -3,6 +3,20 @@ import { describe, expect, it, vi } from 'vitest';
 import ModalFrame from './ModalFrame';
 
 describe('ModalFrame', () => {
+  it.each(['bg-white rounded-lg shadow-xl', 'w-[720px] max-w-[92vw] h-[70vh]'])(
+    'provides the shared dialog surface while preserving caller classes: %s',
+    (className) => {
+      render(
+        <ModalFrame className={className} onClose={() => undefined} ariaLabel="Dialog">
+          <button>Inside</button>
+        </ModalFrame>,
+      );
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveClass('app-dialog-surface', ...className.split(' '));
+      expect(dialog.parentElement).not.toHaveClass('app-dialog-surface');
+    },
+  );
   it('closes from Escape and the backdrop but not from content clicks', () => {
     const onClose = vi.fn();
     render(

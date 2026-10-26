@@ -27,6 +27,10 @@ describe('DialogErrorBoundary', () => {
 
     expect(screen.getByText('主界面存活标记')).toBeInTheDocument();
     expect(screen.getByText('dialog exploded')).toBeInTheDocument();
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveClass('app-dialog-surface', 'bg-white', 'dark:bg-slate-800');
+    expect(dialog.parentElement).not.toHaveClass('app-dialog-surface');
     // 不能退化成全屏降级页（那是根边界的行为）
     expect(screen.queryByRole('button', { name: '刷新页面' })).not.toBeInTheDocument();
   });

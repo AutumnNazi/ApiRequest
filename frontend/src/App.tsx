@@ -30,7 +30,6 @@ const GrpcPanel = lazy(() => import('./components/GrpcPanel'));
 const GraphqlPanel = lazy(() => import('./components/GraphqlPanel'));
 const ThemeDialog = lazy(() => import('./components/ThemeDialog'));
 import { flushWorkspaceSessions, useTabs, type Tab } from './stores/tabs';
-import { useTheme } from './theme/store';
 import { useRequestProgress } from './stores/requestProgress';
 import {
   getDefaultWorkspace,
@@ -90,7 +89,6 @@ function ActiveResponse({ tab }: { tab: Tab }) {
 }
 
 export default function App() {
-  const glassActive = useTheme((st) => st.activeId) === 'liquid-glass';
   const qc = useQueryClient();
   const dialog = useDialog();
   const locale = useLocale((state) => state.locale);
@@ -212,12 +210,7 @@ export default function App() {
   closeRef.current = requestClose;
   useEffect(() => onApplicationCloseRequest(() => { void closeRef.current(); }), []);
 
-  // 标题栏双击最大化/还原。
-  // 非最大化：--wails-draggable:drag 让 Wails 拦截 mousedown 启动原生拖拽，
-  //   浏览器无法合成 dblclick，用 mousedown 手动检测双击 → WindowMaximise。
-  // 最大化：移除 --wails-draggable，避免 Wails 拦截 mousedown 触发 Windows 原生
-  //   “还原并拖拽”行为（第一次按下就会还原窗口，导致双击恢复失效）。
-  //   改用原生 dblclick → WindowUnmaximise。
+  // Wails 在鼠标移动后启动原生拖动，静止双击由标题栏切换窗口状态。
   const [maximised, setMaximised] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -234,22 +227,11 @@ export default function App() {
     };
   }, []);
 
-  const lastTitleClick = useRef(0);
-  const onTitleMouseDown = (e: React.MouseEvent) => {
+  const onTitleDoubleClick = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest('[data-no-drag]')) return;
-    if (maximised) return; // 最大化时由 onDoubleClick 处理
-    const now = Date.now();
-    if (now - lastTitleClick.current < 400) {
-      setTimeout(() => WindowMaximise(), 0);
-      lastTitleClick.current = 0;
-    } else {
-      lastTitleClick.current = now;
-    }
-  };
-
-  const onTitleDoubleClick = () => {
+    if (getComputedStyle(e.target as Element).getPropertyValue('--wails-draggable').trim() === 'no-drag') return;
     if (maximised) WindowUnmaximise();
+    else WindowMaximise();
   };
 
   useEffect(() => {
@@ -647,30 +629,11 @@ export default function App() {
   }
 
   return (
-    <div className={`h-screen flex flex-col${glassActive ? ' app-liquid-glass' : ''}`}>
-      {glassActive && (
-      <svg className="glass-wallpaper" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-        <defs>
-          <linearGradient id="glass-ribbon" x1="0" y1="0" x2="1" y2="1">
-            <stop stopColor="var(--liquid-wall-ribbon-a)" />
-            <stop offset=".5" stopColor="var(--liquid-wall-ribbon-b)" />
-            <stop offset="1" stopColor="var(--liquid-wall-ribbon-c)" />
-          </linearGradient>
-          <linearGradient id="glass-fold" x1="0" y1="1" x2="1" y2="0">
-            <stop stopColor="var(--liquid-wall-fold-a)" />
-            <stop offset="1" stopColor="var(--liquid-wall-fold-b)" />
-          </linearGradient>
-        </defs>
-        <path fill="url(#glass-ribbon)" d="M-180 870C75 270 346 104 688 296s495 149 754-149 446 7 365 314S1167 1097 798 920 272 620-180 1163Z" />
-        <path fill="url(#glass-fold)" d="M130-200c461 25 281 457 613 599s591 58 995-50v190c-385 300-806 256-1115 29S201 277-75 342Z" opacity=".76" />
-        <path fill="none" stroke="var(--liquid-wall-highlight)" strokeWidth="3" d="M-40 904C221 233 490 268 781 469s511 91 870-234" opacity=".55" />
-      </svg>
-      )}
+    <div className="h-screen flex flex-col app-liquid-glass">
       {/* 自绘标题栏（无边框窗口）：标题区可拖动，交互控件与窗口按钮 no-drag */}
       <header
-        className="flex items-center h-10 px-3 border-b shrink-0 select-none"
-        style={maximised ? undefined : dragRegion}
-        onMouseDown={onTitleMouseDown}
+        className="app-glass-titlebar flex items-center h-10 px-3 border-b shrink-0 select-none"
+        style={dragRegion}
         onDoubleClick={onTitleDoubleClick}
       >
         {/* 侧栏折叠开关 */}
@@ -690,12 +653,16 @@ export default function App() {
         </button>
 
         <h1 className="hidden pr-3 text-xs font-bold tracking-tight text-gray-800 sm:flex items-center gap-1.5 cursor-default border-r mr-2">
-          <span className="w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center text-[10px]">⚡</span>
+          <span className="app-glass-brand w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m13 2-9 12h7l-1 8 10-12h-7l1-8Z" />
+            </svg>
+          </span>
           <span>ApiRequest</span>
         </h1>
 
         {/* 左侧交互控件组（工作区/环境/协议/同步） */}
-        <div className="flex items-center min-w-0" data-no-drag style={noDragRegion}>
+        <div className="app-glass-context flex items-center min-w-0">
           {/* 分组1：工作区 + 环境 */}
           <WorkspaceSwitcher
             activeId={workspace.id}
@@ -760,7 +727,7 @@ export default function App() {
         </div>
 
         {/* 中间快捷搜索栏（点击打开 Ctrl+K 命令面板） */}
-        <div className="flex-1 flex justify-center px-4" data-no-drag style={noDragRegion}>
+        <div className="flex-1 flex justify-center px-4">
           <button
             type="button"
             onClick={() => setShowPalette(true)}
@@ -778,7 +745,7 @@ export default function App() {
         </div>
 
         {/* 右侧交互控件组（主题/设置） */}
-        <div className="flex items-center gap-1.5 border-l pl-3" data-no-drag style={noDragRegion}>
+        <div className="flex items-center gap-1.5 border-l pl-3">
           <button
             className="hidden text-xs text-gray-600 hover:text-gray-900 border rounded-lg px-2 py-1 md:flex items-center gap-1.5 hover:bg-gray-50 transition-colors"
             onClick={() => setShowTheme(true)}
@@ -932,7 +899,8 @@ export default function App() {
         {/* 侧栏（模式 B：折叠时为 48px 图标导轨，展开时为完整树） */}
         <aside
           ref={asideRef}
-          className="shrink-0 transition-all duration-200"
+          className="app-glass-sidebar-shell shrink-0 transition-all duration-200"
+          data-collapsed={sidebarCollapsed}
           style={{ width: sidebarCollapsed ? 48 : sidebarWidth }}
         >
           <Sidebar
@@ -965,9 +933,9 @@ export default function App() {
         )}
 
         {/* 主工作区：标签栏 + 编辑/响应双向分屏 */}
-        <main className="flex-1 flex flex-col min-w-0">
-          {/* 标签栏（轻奢立体悬浮卡片风格 Luxury Card Tabs） */}
-          <div className="flex items-center gap-1.5 border-b px-2.5 py-1.5 text-xs overflow-x-auto select-none">
+        <main className="flex-1 flex flex-col min-h-0 min-w-0">
+          {/* 标签栏与编辑区共用内容起始边线。 */}
+          <div className="app-glass-tabs flex items-center gap-1.5 border-b py-1.5 text-xs overflow-x-auto select-none">
             {tabs.map((t) => {
               const method = t.draft?.method || 'GET';
               const badgeClass =
@@ -1081,15 +1049,16 @@ export default function App() {
 
           {active ? (
             <div
-              className={`flex-1 flex min-h-0 min-w-0 ${
+              className={`app-glass-split flex-1 flex min-h-0 min-w-0 ${
                 splitLayout === 'vertical' ? 'flex-row' : 'flex-col'
               }`}
+              data-layout={splitLayout}
               style={{ height: '100%' }}
             >
               {!zenMode && (
                 <div
                   ref={editorPaneRef}
-                  className="min-h-0 min-w-0"
+                  className="app-glass-request-pane min-h-0 min-w-0"
                   style={
                     splitLayout === 'vertical'
                       ? { width: `${editorRatio * 100}%` }
@@ -1119,7 +1088,7 @@ export default function App() {
                   onDragEnd={setEditorRatio}
                 />
               )}
-              <div className="flex-1 min-h-0 min-w-0">
+              <div className="app-glass-response-pane flex-1 min-h-0 min-w-0">
                 <ActiveResponse tab={active} />
               </div>
             </div>

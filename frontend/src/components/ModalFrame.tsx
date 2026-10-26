@@ -89,7 +89,7 @@ export default function ModalFrame({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-label={ariaLabel}
-        className={className}
+        className={`app-dialog-surface ${className}`}
       >
         {children}
       </div>

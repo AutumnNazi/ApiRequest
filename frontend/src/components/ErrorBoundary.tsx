@@ -80,7 +80,7 @@ export class DialogErrorBoundary extends React.Component<
           <div
             role="alertdialog"
             aria-modal="true"
-            className="w-full max-w-md rounded-lg bg-white dark:bg-slate-800 p-5 shadow-xl text-slate-800 dark:text-slate-100"
+            className="app-dialog-surface w-full max-w-md rounded-lg bg-white dark:bg-slate-800 p-5 shadow-xl text-slate-800 dark:text-slate-100"
           >
             <div className="text-sm font-semibold mb-2">{formatMessage('该面板加载失败')}</div>
             <pre className="px-3 py-2 bg-slate-100 dark:bg-slate-900 rounded text-xs overflow-auto max-h-40 whitespace-pre-wrap break-words">

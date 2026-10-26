@@ -15,6 +15,30 @@ vi.mock('../ipc', async (importOriginal) => {
 });
 
 describe('RequestEditor send keyboard handling', () => {
+  it('keeps URL controls and request tabs in their responsive regions', () => {
+    const draft = newDefaultRequest();
+    draft.url = 'https://example.test/a/long/path';
+    const tab: Tab = {
+      id: 'tab-narrow', workspaceId: 'workspace-1', name: 'request', draft,
+      revision: 0, dirty: true, sending: true,
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <DialogProvider>
+          <RequestEditor tab={tab} workspaceId="workspace-1" onSend={vi.fn()} onCancel={vi.fn()} onSave={vi.fn()} />
+        </DialogProvider>
+      </QueryClientProvider>,
+    );
+    const url = screen.getByPlaceholderText('https://api.example.com/path');
+    const toolbar = url.parentElement?.parentElement?.parentElement;
+    expect(toolbar).toHaveClass('request-toolbar');
+    expect(url.closest('.request-url')).toContainElement(screen.getByRole('button', { name: 'GET' }));
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: '取消' }));
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: /保存/ }));
+    expect(screen.getByRole('button', { name: '设置' }).parentElement).toHaveClass('panel-tabs');
+  });
+
   it('sends once and stops Ctrl/Cmd+Enter from reaching the global hotkey', () => {
     const draft = newDefaultRequest();
     draft.url = 'https://example.test';

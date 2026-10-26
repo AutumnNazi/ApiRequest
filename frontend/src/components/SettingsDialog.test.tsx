@@ -67,6 +67,7 @@ beforeEach(() => {
 describe('SettingsDialog', () => {
   it('loads all settings on mount and shows general category by default', async () => {
     renderDialog();
+    expect(screen.getByRole('dialog', { name: '设置' })).toHaveClass('app-dialog-surface', 'bg-white');
     // 分类标签在渲染期 formatMessage（模块级只存 key），默认语言下可见中文标签
     expect(screen.getByRole('button', { name: '通用' })).toBeInTheDocument();
     await waitFor(() => expect(ipc.getSyncConfig).toHaveBeenCalled());

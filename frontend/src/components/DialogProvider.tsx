@@ -200,7 +200,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
             aria-modal="true"
             aria-labelledby={titleId}
             aria-describedby={descriptionId}
-            className="w-full max-w-md rounded-lg border bg-white shadow-xl"
+            className="app-dialog-surface w-full max-w-md rounded-lg border bg-white shadow-xl"
           >
             <div className="border-b px-4 py-3">
               <h2 id={titleId} className="text-sm font-semibold text-gray-900">

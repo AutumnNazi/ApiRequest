@@ -1,5 +1,6 @@
 // 侧栏：集合树 + 历史 两个页签
 import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   listNodes,
@@ -45,6 +46,52 @@ const EXPORT_FORMATS = [
 
 // 稳定的空数组：作为 nodesQuery.data 的兜底值，避免每次渲染产生新引用
 const EMPTY_NODES: NodeSummary[] = [];
+
+// Material Symbols Outlined（Google，Apache-2.0）：沿用设计稿的原始字形，许可见 LICENSE。
+function FolderIcon({ variant, size = 14, className = '' }: { variant: 'open' | 'closed' | 'add'; size?: 13 | 14; className?: string }) {
+  const paths = {
+    open: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640H447l-80-80H160v480l96-320h684L837-217q-8 26-29.5 41.5T760-160H160Zm84-80h516l72-240H316l-72 240Zm0 0 72-240-72 240Zm-84-400v-80 80Z',
+    closed: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H447l-80-80H160v480Zm0 0v-480 480Z',
+    add: 'M560-320h80v-80h80v-80h-80v-80h-80v80h-80v80h80v80ZM160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H447l-80-80H160v480Zm0 0v-480 480Z',
+  };
+  return (
+    <svg
+      className={`inline-block shrink-0 align-[-2px] ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={paths[variant]} />
+    </svg>
+  );
+}
+
+function TreeMoreButton({ node, onOpen }: { node: NodeSummary; onOpen(x: number, y: number): void }) {
+  return (
+    <button
+      type="button"
+      className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 opacity-0 hover:bg-gray-100 hover:text-gray-700 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-blue-500"
+      title={formatMessage('操作')}
+      aria-label={formatMessage('操作') + ' · ' + node.name}
+      aria-haspopup="menu"
+      onMouseDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        onOpen(rect.right, rect.bottom);
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+      </svg>
+    </button>
+  );
+}
 
 interface Props {
   workspaceId: string;
@@ -195,7 +242,7 @@ const Sidebar = memo(function Sidebar({
           </button>
         )}
       </div>
-      <div className="flex-1 overflow-auto">
+      <div className={`flex-1 min-h-0 ${pane === 'collections' ? 'overflow-hidden' : 'overflow-auto'}`}>
         {pane === 'collections' ? (
           <CollectionTree key={workspaceId} workspaceId={workspaceId} />
         ) : (
@@ -727,11 +774,11 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         <div
           key={n.id}
           data-node-id={n.id}
-          className={`flex items-center group px-1 py-1 rounded cursor-pointer ${nodeHighlightClass(n.id)} ${
+          className={`flex items-center group px-1 h-full text-[11px] leading-4 rounded cursor-pointer ${nodeHighlightClass(n.id)} ${
             dragOverId === n.id ? 'ring-1 ring-blue-300 bg-blue-50' : ''
           } ${dragId === n.id ? 'opacity-50' : ''}`}
           draggable
-          style={{ paddingLeft: `${depth * 14 + 4}px` }}
+          style={{ paddingLeft: `${depth * 14}px` }}
           onDragStart={(e) => {
             dragIdRef.current = n.id;
             setDragId(n.id);
@@ -783,7 +830,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         >
           <button
             type="button"
-            className="mr-0.5 w-4 shrink-0 text-center text-gray-500 hover:text-gray-800"
+            className="mr-0 w-4 shrink-0 text-center text-gray-500 hover:text-gray-800"
             title={isExpanded(n.id) ? formatMessage('折叠') : formatMessage('展开')}
             onClick={(e) => {
               e.stopPropagation();
@@ -792,90 +839,17 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           >
             {isExpanded(n.id) ? '▾' : '▸'}
           </button>
-          <span className="font-medium flex-1 truncate">
-            {!isExpanded(n.id) ? '📁' : '📂'} <Verbatim value={n.name} />
-            {(() => {
-              const cnt = countRequests(n.id);
-              return cnt > 0 ? <span className="ml-1 text-xs text-gray-400">({cnt})</span> : null;
-            })()}
-          </span>
-          <button
-            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
-            title="添加请求"
-            onClick={(e) => {
-              e.stopPropagation();
-              addChild.mutate({ parentId: n.id, kind: 'request' });
-            }}
-          >
-            +
-          </button>
-          <button
-            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-            title="添加文件夹"
-            onClick={(e) => {
-              e.stopPropagation();
-              addChild.mutate({ parentId: n.id, kind: 'folder' });
-            }}
-          >
-            📁+
-          </button>
-          <button
-            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-            title="Runner 批量运行"
-            onClick={(e) => {
-              e.stopPropagation();
-              setRunnerTarget(n);
-            }}
-          >
-            ▶
-          </button>
-          <button
-            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-            title="Mock Server"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMockTarget(n);
-            }}
-          >
-            M
-          </button>
-          <ExportButton colId={n.id} count={countRequests(n.id)} />
-          <button
-            className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-            title="导出为 Git 友好目录镜像"
-            onClick={async (e) => {
-              e.stopPropagation();
-              try {
-                const dir = await openNativeDirectory('选择镜像导出目录');
-                if (!dir) return;
-                await exportMirror(n.id, dir);
-                void dialog.alert(formatMessage('已导出镜像到 {directory}', { directory: dir }), { title: '导出完成' });
-              } catch (err) {
-                void dialog.alert(formatMessage('导出失败: {detail}', { detail: toAppError(err).detail }), { title: '导出失败' });
-              }
-            }}
-          >
-            ⎘
-          </button>
-          <button
-            className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
-            title="删除集合"
-            onClick={(e) => {
-              e.stopPropagation();
-              void dialog.confirm(formatMessage('删除集合「{name}」及其全部请求？', { name: n.name })).then((ok) => {
-                if (ok) del.mutate(n.id);
-              });
-            }}
-          >
-            ×
-          </button>
+          <FolderIcon variant={isExpanded(n.id) ? 'open' : 'closed'} className={isExpanded(n.id) ? 'mr-1.5 text-blue-600' : 'mr-1.5 text-gray-400'} />
+          <span className="font-semibold min-w-0 flex-1 truncate"><Verbatim value={n.name} /></span>
+          <span className="ml-2 shrink-0 text-[10px] font-mono text-gray-400">{countRequests(n.id) || null}</span>
+          <TreeMoreButton node={n} onOpen={(x, y) => setCtxMenu({ x, y, node: n })} />
         </div>
     ) : n.kind === 'folder' ? (
         <div
           key={n.id}
             {...dragProps(n)}
             data-node-id={n.id}
-            className={`relative flex items-center group py-1 rounded cursor-pointer ${nodeHighlightClass(n.id)} ${
+            className={`relative flex items-center group pr-1 h-full text-[11px] leading-4 rounded cursor-pointer ${nodeHighlightClass(n.id)} ${
               dragOverId === n.id
                 ? canReorderBefore(n)
                   ? dragOverBefore
@@ -884,7 +858,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
                   : 'bg-blue-50 ring-1 ring-blue-300'
                 : ''
             } ${dragId === n.id ? 'opacity-50' : ''}`}
-            style={{ paddingLeft: `${depth * 14 + 4}px` }}
+            style={{ paddingLeft: `${depth * 14}px` }}
             onDragOver={(e) => {
               if (canMoveInto(n) || canReorderBefore(n)) {
                 e.preventDefault();
@@ -917,7 +891,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           >
             <button
               type="button"
-              className="mr-0.5 w-4 shrink-0 text-center text-gray-500 hover:text-gray-800"
+              className="mr-0 w-4 shrink-0 text-center text-gray-500 hover:text-gray-800"
               title={isExpanded(n.id) ? formatMessage('折叠') : formatMessage('展开')}
               onClick={(e) => {
                 e.stopPropagation();
@@ -926,45 +900,10 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
             >
               {isExpanded(n.id) ? '▾' : '▸'}
             </button>
-            <span className="flex-1 truncate text-gray-700">
-              {!isExpanded(n.id) ? '📁' : '📂'} <Verbatim value={n.name} />
-              {(() => {
-                const n2 = countRequests(n.id);
-                return n2 > 0 ? <span className="ml-1 text-xs text-gray-400">({n2})</span> : null;
-              })()}
-            </span>
-            <button
-              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1"
-              title="添加请求"
-              onClick={(e) => {
-                e.stopPropagation();
-                addChild.mutate({ parentId: n.id, kind: 'request' });
-              }}
-            >
-              +
-            </button>
-            <button
-              className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
-              title="添加子文件夹"
-              onClick={(e) => {
-                e.stopPropagation();
-                addChild.mutate({ parentId: n.id, kind: 'folder' });
-              }}
-            >
-              📁+
-            </button>
-            <button
-              className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
-              title="删除"
-              onClick={(e) => {
-                e.stopPropagation();
-                void dialog.confirm(formatMessage('删除文件夹「{name}」及其内容？', { name: n.name })).then((ok) => {
-                  if (ok) del.mutate(n.id);
-                });
-              }}
-            >
-              ×
-            </button>
+            <FolderIcon variant={isExpanded(n.id) ? 'open' : 'closed'} size={13} className="mr-1.5 text-gray-500" />
+            <span className="font-medium min-w-0 flex-1 truncate text-gray-700"><Verbatim value={n.name} /></span>
+            <span className="ml-2 shrink-0 text-[10px] font-mono text-gray-400">{countRequests(n.id) || null}</span>
+            <TreeMoreButton node={n} onOpen={(x, y) => setCtxMenu({ x, y, node: n })} />
           </div>
       ) : (
         <TreeLeaf
@@ -978,9 +917,8 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           isSelected={selectedIds.has(n.id)}
           onSelect={(e) => handleNodeClick(n, e)}
           onMouseDownNode={(e) => handleNodeMouseDown(n, e)}
-          onDelete={(id) => del.mutate(id)}
-          onRename={() => doRename(n)}
           onOpen={() => void openRequest(n)}
+          onMore={(x, y) => setCtxMenu({ x, y, node: n })}
           onContextMenu={(x, y, node) => {
             if (!selectedIds.has(node.id)) setSelectedIds(new Set([node.id]));
             setCtxMenu({ x, y, node });
@@ -1018,7 +956,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   const visibleRoots = effectiveChildrenOf('');
 
   return (
-    <div className="p-2 text-sm relative min-h-full flex flex-col">
+    <div className="p-2 text-sm relative h-full min-h-0 flex flex-col">
       <div className="flex gap-1 mb-2">
         <button
           className="flex-1 border rounded py-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 hover:border-gray-300"
@@ -1064,7 +1002,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         tabIndex={0}
         onKeyDown={onTreeKeyDown}
         onMouseDown={() => treeRef.current?.focus()}
-        className={`outline-hidden flex-1 ${selectedIds.size > 0 ? 'pb-14' : ''}`}
+        className="outline-hidden flex-1 min-h-0"
       >
       {visibleRoots.length === 0 && (
         <p className="text-gray-400 text-center py-6 text-xs">
@@ -1073,7 +1011,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       )}
       <VirtualRowList
         items={flatRows}
-        rowHeight={28}
+        rowHeight={24}
         scrollToIndex={focusedIndex}
         renderItem={({ node: n, depth }) => renderNode(n, depth)}
         footer={
@@ -1107,41 +1045,33 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       />
       </div>
 
-      {/* 底部轻奢悬浮操作胶囊 (Floating Bottom Action Capsule) */}
       {selectedIds.size > 0 && (
-        <div className="sticky bottom-2 z-30 mt-auto pt-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl border border-gray-200 bg-white/95 backdrop-blur-md shadow-lg shadow-black/10 select-none">
-            {/* 计数药丸徽章 */}
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-blue-50 text-blue-600 border border-blue-200/50">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
-                {formatMessage('已选 {count} 项', { count: selectedIds.size })}
-              </span>
-            </div>
-
-            {/* 动作按钮组 */}
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-all active:scale-95"
-                onClick={() => void batchDelete()}
-                title={formatMessage('批量删除选中的项目 (Delete)')}
-              >
-                <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                <span>{formatMessage('删除')}</span>
-              </button>
-
-              <button
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-all active:scale-95"
-                onClick={() => setSelectedIds(new Set())}
-                title={formatMessage('取消选择 (Esc)')}
-              >
-                <span>{formatMessage('取消选择')}</span>
-                <kbd className="hidden sm:inline px-1 py-0.2 rounded text-[10px] font-mono bg-gray-100 border text-gray-400">Esc</kbd>
-              </button>
-            </div>
-          </div>
+        <div
+          role="group"
+          aria-label={formatMessage('操作')}
+          className="mt-2 flex shrink-0 flex-nowrap items-center gap-2 border-t px-1 pt-2 text-[11px] select-none"
+        >
+          <span
+            className="min-w-0 flex-1 truncate whitespace-nowrap tabular-nums text-gray-500"
+            title={formatMessage('已选 {count} 项', { count: selectedIds.size })}
+          >
+            {formatMessage('已选 {count} 项', { count: selectedIds.size })}
+          </span>
+          <button
+            className="h-7 shrink-0 whitespace-nowrap rounded px-1.5 font-medium text-red-600 hover:bg-red-50 hover:text-red-700"
+            onClick={() => void batchDelete()}
+            title={formatMessage('批量删除选中的项目 (Delete)')}
+          >
+            {formatMessage('删除')}
+          </button>
+          <button
+            className="h-7 shrink-0 whitespace-nowrap rounded px-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+            onClick={() => setSelectedIds(new Set())}
+            aria-label={formatMessage('取消选择')}
+            title={formatMessage('取消选择 (Esc)')}
+          >
+            {formatMessage('取消')}
+          </button>
         </div>
       )}
       {ctxMenu && (
@@ -1166,6 +1096,20 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           onAddFolder={() => { addChild.mutate({ parentId: ctxMenu.node.id, kind: 'folder' }); setCtxMenu(null); }}
           onRunner={() => { setRunnerTarget(ctxMenu.node); setCtxMenu(null); }}
           onMock={() => { setMockTarget(ctxMenu.node); setCtxMenu(null); }}
+          count={countRequests(ctxMenu.node.id)}
+          onClose={() => setCtxMenu(null)}
+          onExportMirror={async () => {
+            const n = ctxMenu.node;
+            setCtxMenu(null);
+            try {
+              const dir = await openNativeDirectory('选择镜像导出目录');
+              if (!dir) return;
+              await exportMirror(n.id, dir);
+              void dialog.alert(formatMessage('已导出镜像到 {directory}', { directory: dir }), { title: '导出完成' });
+            } catch (err) {
+              void dialog.alert(formatMessage('导出失败: {detail}', { detail: toAppError(err).detail }), { title: '导出失败' });
+            }
+          }}
           onBatchDelete={() => { setCtxMenu(null); void batchDelete(); }}
           onDelete={() => {
             const n = ctxMenu.node;
@@ -1187,11 +1131,14 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
 }
 
 // 右键菜单
-function CtxMenu({ node, x, y, selectedCount, onRename, onToggleDisabled, onAddRequest, onAddFolder, onRunner, onMock, onBatchDelete, onDelete }: {
+function CtxMenu({ node, x, y, selectedCount, count, onClose, onExportMirror, onRename, onToggleDisabled, onAddRequest, onAddFolder, onRunner, onMock, onBatchDelete, onDelete }: {
   node: NodeSummary;
   x: number;
   y: number;
   selectedCount: number;
+  count: number;
+  onClose(): void;
+  onExportMirror(): void;
   onRename(): void;
   onToggleDisabled(): void;
   onAddRequest(): void;
@@ -1202,12 +1149,27 @@ function CtxMenu({ node, x, y, selectedCount, onRename, onToggleDisabled, onAddR
   onDelete(): void;
 }) {
   const canAddChild = node.kind === 'collection' || node.kind === 'folder';
-  const left = Math.min(x, window.innerWidth - 180);
-  const top = Math.min(y, window.innerHeight - 240);
-  return (
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const trigger = document.activeElement;
+    ref.current?.querySelector('button')?.focus();
+    return () => { if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus(); };
+  }, []);
+  const width = Math.min(256, window.innerWidth - 16);
+  const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
+  const top = Math.max(8, Math.min(y, window.innerHeight - 320));
+  return createPortal(
     <div
-      className="fixed z-50 min-w-[160px] rounded border border-gray-200 bg-white py-1 text-sm shadow-lg"
-      style={{ left, top }}
+      ref={ref}
+      role="menu"
+      aria-label={formatMessage('操作')}
+      className="fixed z-50 overflow-y-auto rounded border border-gray-200 bg-white py-1 text-sm shadow-lg"
+      style={{ left, top, width, maxHeight: Math.max(0, window.innerHeight - top - 8) }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+      }}
     >
       {selectedCount > 1 && (
         <>
@@ -1232,7 +1194,8 @@ function CtxMenu({ node, x, y, selectedCount, onRename, onToggleDisabled, onAddR
             {formatMessage('添加请求')}
           </button>
           <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100" onClick={onAddFolder}>
-            {formatMessage('添加文件夹')}
+            <FolderIcon variant="add" className="mr-1.5" />
+            {formatMessage(node.kind === 'folder' ? '添加子文件夹' : '添加文件夹')}
           </button>
         </>
       )}
@@ -1245,33 +1208,29 @@ function CtxMenu({ node, x, y, selectedCount, onRename, onToggleDisabled, onAddR
           <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100" onClick={onMock}>
             Mock Server
           </button>
+          <ExportButton colId={node.id} count={count} onClose={onClose} />
+          <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100" onClick={onExportMirror}>
+            {formatMessage('导出为 Git 友好目录镜像')}
+          </button>
         </>
       )}
       <div className="my-1 border-t border-gray-100" />
       <button className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-red-50" onClick={onDelete}>
         {formatMessage('删除')}
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
 // 导出按钮：点击展开格式下拉菜单，选择后执行导出并复制到剪贴板
-function ExportButton({ colId, count }: { colId: string; count: number }) {
+function ExportButton({ colId, count, onClose }: { colId: string; count: number; onClose(): void }) {
   const dialog = useDialog();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as HTMLElement)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [open]);
 
   const doExport = async (fmt: string) => {
     setOpen(false);
+    onClose();
     try {
       const out = await exportData(colId, fmt);
       await navigator.clipboard.writeText(out);
@@ -1283,19 +1242,20 @@ function ExportButton({ colId, count }: { colId: string; count: number }) {
   };
 
   return (
-    <div ref={ref} className="relative inline-block">
+    <div>
       <button
-        className="hidden group-hover:inline text-gray-500 hover:text-gray-800 px-1 text-xs"
+        className="block w-full px-3 py-1.5 text-left hover:bg-gray-100"
+        aria-expanded={open}
         title={formatMessage('导出集合')}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
       >
-        ⇪
+        {formatMessage('导出集合')}
       </button>
       {open && (
-        <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[140px]">
+        <div className="border-y border-gray-200 py-1">
           <div className="px-3 py-1 text-xs text-gray-400 border-b mb-1">
             {formatMessage('选择导出格式')}
             {count > 0 && <span className="ml-1">· {count} {formatMessage('个请求')}</span>}
@@ -1326,8 +1286,7 @@ function TreeLeaf({
   dragOver,
   dragOverBefore,
   isSelected,
-  onDelete,
-  onRename,
+  onMore,
   onOpen,
   onDragStart,
   onDragEnd,
@@ -1344,8 +1303,7 @@ function TreeLeaf({
   dragOver?: boolean;
   dragOverBefore?: boolean;
   isSelected?: boolean;
-  onDelete(id: string): void;
-  onRename(): void;
+  onMore(x: number, y: number): void;
   onOpen(): void;
   onDragStart?(e: DragEvent<HTMLDivElement>): void;
   onDragEnd?(): void;
@@ -1359,7 +1317,7 @@ function TreeLeaf({
   return (
     <div
       data-node-id={node.id}
-      className={`relative flex items-center group pr-1 py-1 rounded cursor-pointer ${
+      className={`relative flex items-center group pr-1 h-full text-[11px] leading-4 rounded cursor-pointer ${
         isSelected
           ? 'tree-node-selected font-medium text-gray-900'
           : isFocused
@@ -1397,21 +1355,13 @@ function TreeLeaf({
         onContextMenu(e.clientX, e.clientY, node);
       }}
     >
-      <span className={`text-xs font-semibold w-12 shrink-0 ${node.disabled ? 'text-gray-300' : methodColor(node.method)}`}>
+      <span className={`text-[9px] font-semibold w-9 shrink-0 ${node.disabled ? 'text-gray-300' : methodColor(node.method)}`}>
         {node.method || 'GET'}
       </span>
-      <span className={`flex-1 truncate ${node.disabled ? 'text-gray-400 line-through' : ''}`}>
+      <span className={`min-w-0 flex-1 truncate ${node.disabled ? 'text-gray-400 line-through' : ''}`}>
         <Verbatim value={node.name} />
       </span>
-      <button
-        className="hidden group-hover:inline text-gray-400 hover:text-red-500 px-1"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete(node.id);
-        }}
-      >
-        ×
-      </button>
+      <TreeMoreButton node={node} onOpen={onMore} />
     </div>
   );
 }

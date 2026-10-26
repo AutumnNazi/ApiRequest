@@ -67,17 +67,14 @@ export default function Splitter({ orientation, onRatio, ratio, onDragEnd }: Pro
     window.addEventListener('mouseup', cleanup);
   };
 
-  return isRow ? (
+  return (
     <div
       onMouseDown={onMouseDown}
-      className="w-1.5 shrink-0 cursor-col-resize hover:bg-blue-400/60 active:bg-blue-500 transition-colors"
-      title={formatMessage('拖动调整侧栏宽度')}
-    />
-  ) : (
-    <div
-      onMouseDown={onMouseDown}
-      className="h-1.5 shrink-0 cursor-row-resize hover:bg-blue-400/60 active:bg-blue-500 transition-colors"
-      title={formatMessage('拖动调整编辑区与响应区高度')}
-    />
+      className={`app-splitter shrink-0 ${isRow ? 'cursor-col-resize' : 'cursor-row-resize'}`}
+      data-orientation={orientation}
+      title={formatMessage(isRow ? '拖动调整侧栏宽度' : '拖动调整编辑区与响应区高度')}
+    >
+      <span className="app-splitter-hitarea" aria-hidden="true" />
+    </div>
   );
 }

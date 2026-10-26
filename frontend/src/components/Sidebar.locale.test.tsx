@@ -1,5 +1,6 @@
 // Sidebar 是 memo 组件：locale 切换不改变 props，必须自行订阅 locale 才会重渲染。
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent, within } from '@testing-library/react';
+import type { NodeSummary } from '../ipc';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DialogProvider } from './DialogProvider';
@@ -7,7 +8,7 @@ import Sidebar from './Sidebar';
 import { useLocale } from '../i18n/locale';
 
 const ipc = vi.hoisted(() => ({
-  listNodes: vi.fn(() => Promise.resolve([])),
+  listNodes: vi.fn(() => Promise.resolve([] as NodeSummary[])),
   getNode: vi.fn(() => Promise.resolve(null)),
   renameNode: vi.fn(() => Promise.resolve(null)),
   upsertNode: vi.fn((n: unknown) => Promise.resolve(n)),
@@ -25,7 +26,10 @@ const ipc = vi.hoisted(() => ({
 
 vi.mock('../ipc', () => ipc);
 
-beforeEach(() => useLocale.getState().setLocale('zh-CN'));
+beforeEach(() => {
+  useLocale.getState().setLocale('zh-CN');
+  ipc.listNodes.mockResolvedValue([]);
+});
 afterEach(() => useLocale.getState().setLocale('zh-CN'));
 
 function renderSidebar() {
@@ -40,6 +44,18 @@ function renderSidebar() {
 }
 
 describe('Sidebar 的 memo 边界与语言切换', () => {
+  it('菜单与更多按钮跟随语言切换，节点名称保持原文', async () => {
+    ipc.listNodes.mockResolvedValue([{ id: 'c1', workspaceId: 'ws1', kind: 'collection', name: '原始集合', parentId: '', sortOrder: 0, createdAt: 0, updatedAt: 0 }]);
+    renderSidebar();
+    const row = (await screen.findByText('原始集合')).closest('[data-node-id]') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: '操作 · 原始集合' }));
+    act(() => useLocale.getState().setLocale('en'));
+    expect(within(row).getByRole('button', { name: 'Actions · 原始集合' })).toBeInTheDocument();
+    const menu = screen.getByRole('menu', { name: 'Actions' });
+    expect(within(menu).getByRole('button', { name: 'Export collection' })).toBeInTheDocument();
+    expect(within(menu).getByRole('button', { name: 'Export as a Git-friendly directory mirror' })).toBeInTheDocument();
+    expect(screen.getByText('原始集合')).toBeInTheDocument();
+  });
   it('默认中文时渲染中文页签', () => {
     renderSidebar();
     expect(screen.getByText('集合')).toBeInTheDocument();
