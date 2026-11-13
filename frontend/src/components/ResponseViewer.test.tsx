@@ -187,6 +187,25 @@ describe('ResponseViewer body rendering', () => {
     expect(pre?.textContent).toBe(JSON.stringify(JSON.parse(response.body.text!), null, 2));
   });
 
+  it('keeps integers beyond 2^53-1 in the pretty body', () => {
+    const response = {
+      status: 200,
+      statusText: 'OK',
+      headers: [{ key: 'Content-Type', value: 'application/json' }],
+      cookies: [],
+      body: { inline: true, text: '{"id":1547040075470688258}', encoding: 'utf8' },
+      timing: { dnsMs: 0, connectMs: 0, tlsMs: 0, ttfbMs: 1, downloadMs: 1, totalMs: 2 },
+      sizeBytes: 26,
+      testResults: [],
+      scriptLogs: [],
+    } as unknown as ResponseResult;
+
+    const view = render(<ResponseViewer response={response} sending={false} />);
+    const pre = view.container.querySelector('pre');
+    expect(pre?.textContent).toContain('1547040075470688258');
+    expect(pre?.textContent).not.toContain('1547040075470688300');
+  });
+
   it('returns to Body when a new response no longer supports Preview', () => {
     const html = {
       status: 200,

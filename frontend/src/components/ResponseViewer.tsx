@@ -15,6 +15,7 @@ import {
 import { formatMessage, useLocale, Verbatim } from '../i18n/locale';
 import ResponseDiffDialog from './ResponseDiffDialog';
 import { useLatestTimeout } from '../hooks/useLatestTimeout';
+import { tryFormatJsonText } from '../utils/jsonFormat';
 
 interface Props {
   response?: ResponseResult;
@@ -289,11 +290,10 @@ const ResponseViewer = memo(function ResponseViewer({ response, error, sending, 
     if (raw || source.length > BODY_RENDER_CHAR_LIMIT || binaryBody) {
       return { pretty: source, isJsonBody: false };
     }
-    try {
-      return { pretty: JSON.stringify(JSON.parse(source), null, 2), isJsonBody: true };
-    } catch {
-      return { pretty: source, isJsonBody: false };
-    }
+    const formatted = tryFormatJsonText(source);
+    return formatted === null
+      ? { pretty: source, isJsonBody: false }
+      : { pretty: formatted, isJsonBody: true };
   }, [sourceText, raw, binaryBody]);
 
   const renderedBody = useMemo(() => sliceBodyForRender(pretty), [pretty]);

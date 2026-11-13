@@ -19,6 +19,7 @@ import { formatMessage, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 import { syncParamsFromUrl, withParamsQuery } from '../utils/urlParams';
 import { buildAssertions, fromResponseResult } from '../utils/assertions';
+import { compressJsonText, formatJsonText } from '../utils/jsonFormat';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
@@ -343,8 +344,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
                       className="text-xs text-blue-600 hover:text-blue-800"
                       onClick={() => {
                         try {
-                          const parsed = JSON.parse(d.body?.text ?? '');
-                          patchBody({ text: JSON.stringify(parsed, null, 2) });
+                          patchBody({ text: formatJsonText(d.body?.text ?? '') });
                         } catch (e) {
                           void dialog.alert(
                             formatMessage('JSON 格式化失败: {detail}', { detail: (e as Error).message }),
@@ -359,8 +359,7 @@ export default function RequestEditor({ tab, workspaceId, onSend, onCancel, onSa
                       className="text-xs text-blue-600 hover:text-blue-800"
                       onClick={() => {
                         try {
-                          const parsed = JSON.parse(d.body?.text ?? '');
-                          patchBody({ text: JSON.stringify(parsed) });
+                          patchBody({ text: compressJsonText(d.body?.text ?? '') });
                         } catch (e) {
                           void dialog.alert(
                             formatMessage('JSON 压缩失败: {detail}', { detail: (e as Error).message }),
