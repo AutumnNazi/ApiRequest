@@ -56,6 +56,36 @@ describe('Workspace Session store', () => {
     expect(useTabs.getState().sessions['workspace-b'].tabs).toHaveLength(1);
   });
 
+  it('renames linked tabs only in their workspace without changing drafts', () => {
+    const draft = newDefaultRequest();
+    const first = useTabs.getState().openNode('workspace-a', 'node-1', 'old name', draft);
+    const second = useTabs.getState().openNode('workspace-b', 'node-1', 'other workspace', draft);
+    useTabs.getState().patchDraft(first, { url: 'https://unsaved.example' });
+    const before = useTabs.getState().sessions['workspace-a'].tabs[0];
+
+    useTabs.getState().syncNodeName('workspace-a', 'node-1', 'new name');
+
+    const after = useTabs.getState().sessions['workspace-a'].tabs[0];
+    expect(after.name).toBe('new name');
+    expect(after.draft).toEqual(before.draft);
+    expect(after.revision).toBe(before.revision);
+    expect(after.dirty).toBe(true);
+    expect(useTabs.getState().sessions['workspace-b'].tabs[0].id).toBe(second);
+    expect(useTabs.getState().sessions['workspace-b'].tabs[0].name).toBe('other workspace');
+  });
+
+  it('refreshes an existing tab name when reopening the node', () => {
+    const draft = newDefaultRequest();
+    const tabId = useTabs.getState().openNode('workspace-a', 'node-1', 'old name', draft);
+
+    const reopenedId = useTabs.getState().openNode('workspace-a', 'node-1', 'latest name', draft);
+
+    expect(reopenedId).toBe(tabId);
+    expect(useTabs.getState().sessions['workspace-a'].tabs).toHaveLength(1);
+    expect(useTabs.getState().sessions['workspace-a'].tabs[0].name).toBe('latest name');
+    expect(useTabs.getState().sessions['workspace-a'].activeId).toBe(tabId);
+  });
+
   it('atomically returns the latest tab state when closing', () => {
     const tabId = useTabs.getState().openBlank('workspace-a');
     useTabs.getState().setSending(tabId, true, 'send-current');

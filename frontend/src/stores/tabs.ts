@@ -36,6 +36,7 @@ interface TabsState {
   sessions: Record<string, WorkspaceSession>;
   openBlank(workspaceId: string): string;
   openNode(workspaceId: string, nodeId: string, name: string, req: HttpRequest): string;
+  syncNodeName(workspaceId: string, nodeId: string, name: string): void;
   close(tabId: string): Tab | undefined;
   closeIfUnchanged(tabId: string, revision: number, sendId?: string): CloseTabCommitResult;
   reorderTabs(workspaceId: string, fromId: string, toId: string): void;
@@ -234,6 +235,7 @@ export const useTabs = create<TabsState>()(
               [workspaceId]: { ...session, activeId: existing.id },
             },
           }));
+          get().syncNodeName(workspaceId, nodeId, name);
           return existing.id;
         }
         const tab: Tab = {
@@ -253,6 +255,26 @@ export const useTabs = create<TabsState>()(
           },
         }));
         return tab.id;
+      },
+
+      syncNodeName(workspaceId, nodeId, name) {
+        set((state) => {
+          const session = state.sessions[workspaceId];
+          if (!session) return state;
+          let changed = false;
+          const tabs = session.tabs.map((tab) => {
+            if (tab.nodeId !== nodeId || tab.name === name) return tab;
+            changed = true;
+            return { ...tab, name };
+          });
+          if (!changed) return state;
+          return {
+            sessions: {
+              ...state.sessions,
+              [workspaceId]: { ...session, tabs },
+            },
+          };
+        });
       },
 
       close(tabId) {

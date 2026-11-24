@@ -31,6 +31,7 @@ import { newDefaultRequest } from '../ipc';
 import { formatMessage, useLocale, Verbatim } from '../i18n/locale';
 import { useDialog } from './DialogProvider';
 import { canMoveNodesInto, canMoveNodesToRoot, orderedTopLevelSelection } from '../utils/treeMove';
+import { usePersistentState } from '../hooks/usePersistentState';
 
 // 导出格式选项：value 对应后端 convert.Export(format, ...) 注册名
 const EXPORT_FORMATS = [
@@ -261,11 +262,21 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   const dialog = useDialog();
   const qc = useQueryClient();
   const openNode = useTabs((s) => s.openNode);
+  const syncNodeName = useTabs((s) => s.syncNodeName);
   const detachNodes = useTabs((s) => s.detachNodes);
   const [importing, setImporting] = useState(false);
   const [runnerTarget, setRunnerTarget] = useState<NodeSummary | null>(null);
   const [mockTarget, setMockTarget] = useState<NodeSummary | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [savedExpandedIds, setSavedExpandedIds] = usePersistentState<unknown>(
+    `apirequest.tree-expanded.v1:${workspaceId}`,
+    [],
+  );
+  const expanded = useMemo(
+    () => new Set(Array.isArray(savedExpandedIds)
+      ? savedExpandedIds.filter((id): id is string => typeof id === 'string')
+      : []),
+    [savedExpandedIds],
+  );
   // 拖拽：HTML5 DnD，仅在同级集合/文件夹内重排；跨层级拖入 folder 时复用同 move
   const [dragId, setDragId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
@@ -387,7 +398,10 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
 
   const rename = useMutation({
     mutationFn: (n: NodeSummary) => renameNode(workspaceId, n.id, n.name),
-    onSuccess: invalidate,
+    onSuccess: (_result, n) => {
+      syncNodeName(workspaceId, n.id, n.name);
+      invalidate();
+    },
     onError: (cause) => void dialog.alert(
       formatMessage('重命名失败: {detail}', { detail: toAppError(cause).detail }),
       { title: formatMessage('重命名失败') },
@@ -570,13 +584,12 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
     }
   };
 
-  const toggle = (id: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggle = (id: string) => {
+    const next = new Set(expanded);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSavedExpandedIds([...next]);
+  };
 
   // ── 集合树搜索 ──
   const [search, setSearch] = useState('');
@@ -619,7 +632,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
   // 搜索时强制展开所有可见节点（祖先路径自动展开）
   const isExpanded = (id: string) => {
     if (searchLower) return true;
-    return !collapsed.has(id);
+    return expanded.has(id);
   };
 
   // ── 键盘导航 ──
@@ -635,15 +648,15 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
       const filtered = visibleSet ? all.filter((c) => visibleSet.has(c.id)) : all;
       for (const c of filtered) {
         rows.push({ node: c, depth });
-        const expanded = searchLower ? true : !collapsed.has(c.id);
-        if ((c.kind === 'collection' || c.kind === 'folder') && expanded) {
+        const isOpen = searchLower || expanded.has(c.id);
+        if ((c.kind === 'collection' || c.kind === 'folder') && isOpen) {
           walk(c.id, depth + 1);
         }
       }
     };
     walk('', 0);
     return rows;
-  }, [childrenByParent, collapsed, searchLower, visibleSet]);
+  }, [childrenByParent, expanded, searchLower, visibleSet]);
   const flatVisible = useMemo(() => flatRows.map((r) => r.node.id), [flatRows]);
 
   // 键盘聚焦行滚入视口（VirtualRowList.scrollToIndex）
@@ -722,7 +735,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
         e.preventDefault();
         if (node && (node.kind === 'collection' || node.kind === 'folder')) {
           // 折叠态先展开；已展开则进入第一个子节点
-          if (!searchLower && collapsed.has(node.id)) {
+          if (!searchLower && !expanded.has(node.id)) {
             toggle(node.id);
           } else {
             const kids = effectiveChildrenOf(node.id);
@@ -736,7 +749,7 @@ function CollectionTree({ workspaceId }: { workspaceId: string }) {
           node
           && (node.kind === 'collection' || node.kind === 'folder')
           && !searchLower
-          && !collapsed.has(node.id)
+          && expanded.has(node.id)
         ) {
           // 展开态先折叠
           toggle(node.id);

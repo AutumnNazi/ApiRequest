@@ -31,6 +31,8 @@ vi.mock('../ipc', () => ipc);
 vi.mock('./RunnerDialog', () => ({ default: ({ collectionId }: { collectionId: string }) => <div role="dialog">Runner {collectionId}</div> }));
 vi.mock('./MockPanel', () => ({ default: ({ collectionId }: { collectionId: string }) => <div role="dialog">Mock {collectionId}</div> }));
 
+const treeExpansionKey = (workspaceId: string) => `apirequest.tree-expanded.v1:${workspaceId}`;
+
 const nodes = [
   { id: 'c1', workspaceId: 'ws1', parentId: null, kind: 'collection', name: '集合1', sortOrder: 0, createdAt: 0, updatedAt: 0 },
   { id: 'r1', workspaceId: 'ws1', parentId: 'c1', kind: 'request', name: '请求1', method: 'GET', sortOrder: 0, createdAt: 0, updatedAt: 0 },
@@ -72,6 +74,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  localStorage.clear();
+  // 既有交互用例沿用集合已展开的前置状态，默认值与恢复行为在下方单独覆盖。
+  localStorage.setItem(treeExpansionKey('ws1'), JSON.stringify(['c1', 'f1']));
   vi.clearAllMocks();
   ipc.listNodes.mockReset();
   ipc.listNodes.mockResolvedValue(nodes);
@@ -86,6 +91,62 @@ beforeEach(() => {
   ipc.exportData.mockResolvedValue('exported data');
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
   useTabs.setState({ sessions: {} });
+});
+
+describe('CollectionTree expansion persistence', () => {
+  it('defaults every branch to collapsed when no expansion state is saved', async () => {
+    localStorage.removeItem(treeExpansionKey('ws1'));
+    renderTree();
+
+    const collection = (await screen.findByText('集合1')).closest('[data-node-id]') as HTMLElement;
+    expect(within(collection).getByTitle('展开')).toBeInTheDocument();
+    expect(screen.queryByText('请求1')).not.toBeInTheDocument();
+  });
+
+  it('restores expanded and collapsed branches after the tree remounts', async () => {
+    localStorage.removeItem(treeExpansionKey('ws1'));
+    const first = renderTree();
+    const collection = (await screen.findByText('集合1')).closest('[data-node-id]') as HTMLElement;
+    fireEvent.click(within(collection).getByTitle('展开'));
+    expect(await screen.findByText('请求1')).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(treeExpansionKey('ws1'))!)).toEqual(['c1']);
+    first.unmount();
+
+    const second = renderTree();
+    expect(await screen.findByText('请求1')).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle('折叠'));
+    expect(screen.queryByText('请求1')).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(treeExpansionKey('ws1'))!)).toEqual([]);
+    second.unmount();
+
+    renderTree();
+    const restored = (await screen.findByText('集合1')).closest('[data-node-id]') as HTMLElement;
+    expect(within(restored).getByTitle('展开')).toBeInTheDocument();
+    expect(screen.queryByText('请求1')).not.toBeInTheDocument();
+  });
+
+  it('keeps expansion state isolated by workspace', async () => {
+    localStorage.setItem(treeExpansionKey('ws2'), JSON.stringify([]));
+    const view = renderTree();
+    expect(await screen.findByText('请求1')).toBeInTheDocument();
+
+    view.rerenderWorkspace('ws2');
+    const otherCollection = (await screen.findByText('集合1')).closest('[data-node-id]') as HTMLElement;
+    expect(within(otherCollection).getByTitle('展开')).toBeInTheDocument();
+    expect(screen.queryByText('请求1')).not.toBeInTheDocument();
+
+    view.rerenderWorkspace('ws1');
+    expect(await screen.findByText('请求1')).toBeInTheDocument();
+  });
+
+  it('falls back to collapsed branches when saved expansion state is malformed', async () => {
+    localStorage.setItem(treeExpansionKey('ws1'), JSON.stringify({ c1: true }));
+    renderTree();
+
+    const collection = (await screen.findByText('集合1')).closest('[data-node-id]') as HTMLElement;
+    expect(within(collection).getByTitle('展开')).toBeInTheDocument();
+    expect(screen.queryByText('请求1')).not.toBeInTheDocument();
+  });
 });
 
 describe('CollectionTree folder icons', () => {
@@ -638,6 +699,23 @@ describe('CollectionTree more menu', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除' }));
     fireEvent.click(await screen.findByRole('button', { name: '确定' }));
     await waitFor(() => expect(ipc.deleteNode).toHaveBeenCalledWith('ws1', 'c1'));
+  });
+
+  it('updates an open request tab after sidebar rename succeeds', async () => {
+    const request = { method: 'POST', url: 'https://rename.example' } as never;
+    useTabs.getState().openNode('ws1', 'r1', '请求1', request);
+    renderTree();
+
+    const row = (await screen.findByText('请求1')).closest('[data-node-id]') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /操作/ }));
+    fireEvent.click(screen.getByRole('button', { name: '重命名' }));
+    fireEvent.change(within(await screen.findByRole('dialog')).getByRole('textbox'), { target: { value: '改名请求' } });
+    fireEvent.click(screen.getByRole('button', { name: '确定' }));
+
+    await waitFor(() => expect(ipc.renameNode).toHaveBeenCalledWith('ws1', 'r1', '改名请求'));
+    await waitFor(() => {
+      expect(useTabs.getState().sessions.ws1.tabs[0].name).toBe('改名请求');
+    });
   });
 
   it('keeps all export formats and mirror export reachable', async () => {
